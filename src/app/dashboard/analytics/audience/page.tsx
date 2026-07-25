@@ -1,5 +1,5 @@
-import AudienceGrowth from "@/components/social-media/analytics/AudienceGrowth";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <AudienceGrowth />;
+  redirect("/dashboard/analytics");
 }

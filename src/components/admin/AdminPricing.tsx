@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, Box } from "@mui/material";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 import PricingPlanCard from "@/components/admin/PricingPlanCard";
 import PricingPlanEditModal from "@/components/admin/PricingPlanEditModal";
-import LoadingState from "@/components/ui/LoadingState";
-import PageHeader from "@/components/ui/PageHeader";
 import {
   selectPricingError,
   selectPricingIsFallback,
@@ -41,44 +40,44 @@ export default function AdminPricing() {
     if (!editingPlan) return;
     try {
       await dispatch(updatePricingPlan({ planId: editingPlan.id, payload })).unwrap();
+      toast.success(`${editingPlan.name} plan updated`);
       setEditingPlan(null);
     } catch {
-      // error surfaced via selectPricingError, keep modal open for retry
+      toast.error("Could not update plan");
     }
   };
 
   return (
-    <Box>
-      <PageHeader
-        title="Pricing"
-        subtitle="Manage the plans and usage limits offered to workspaces."
-      />
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Plans</h1>
+        <p className="text-sm text-muted-foreground">
+          Manage plan limits offered to workspaces. Admins assign plans — no Stripe checkout.
+        </p>
+      </header>
 
       {isFallback ? (
-        <Alert severity="info" sx={{ mb: 2.5 }}>
-          Showing the default plan catalog — connect the admin pricing API to load and persist live plans.
-        </Alert>
+        <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          Showing the default plan catalog — connect the admin pricing API to persist live
+          plans.
+        </div>
       ) : null}
       {error ? (
-        <Alert severity="warning" sx={{ mb: 2.5 }}>
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
           {error}
-        </Alert>
+        </div>
       ) : null}
 
       {loading && plans.length === 0 ? (
-        <LoadingState variant="card" />
+        <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading plans…
+        </div>
       ) : (
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: { xs: "1fr", md: "repeat(3, 1fr)" },
-            gap: 2.5,
-          }}
-        >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {plans.map((plan) => (
             <PricingPlanCard key={plan.id} plan={plan} onEdit={setEditingPlan} />
           ))}
-        </Box>
+        </div>
       )}
 
       <PricingPlanEditModal
@@ -87,6 +86,6 @@ export default function AdminPricing() {
         onClose={() => setEditingPlan(null)}
         onSave={(payload) => void handleSave(payload)}
       />
-    </Box>
+    </div>
   );
 }

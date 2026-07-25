@@ -2,6 +2,7 @@ import { createSlice } from "@reduxjs/toolkit";
 
 import {
   changeAdminUserPlan,
+  createAdminUser,
   fetchAdminAnalytics,
   fetchAdminOverview,
   fetchAdminUsers,
@@ -59,7 +60,7 @@ const initialState: AdminState = {
 
 function upsertUser(users: AdminUser[], user: AdminUser): AdminUser[] {
   const idx = users.findIndex((u) => u.id === user.id);
-  if (idx === -1) return users;
+  if (idx === -1) return [user, ...users];
   const next = [...users];
   next[idx] = user;
   return next;
@@ -124,6 +125,15 @@ const adminSlice = createSlice({
       .addCase(fetchAdminUsers.rejected, (state, action) => {
         state.usersLoading = false;
         state.usersError = action.payload ?? "Failed to load users";
+      })
+
+      .addCase(createAdminUser.fulfilled, (state, action) => {
+        state.users = upsertUser(state.users, action.payload);
+        state.usersTotal += 1;
+        state.usersError = null;
+      })
+      .addCase(createAdminUser.rejected, (state, action) => {
+        state.usersError = action.payload ?? "Failed to create user";
       })
 
       .addCase(suspendAdminUser.fulfilled, (state, action) => {

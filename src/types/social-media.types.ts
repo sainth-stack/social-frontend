@@ -273,6 +273,42 @@ export type CalendarResponse = {
   items: CalendarPost[];
 };
 
+export type ContentPlanGeneratePayload = {
+  days: 7 | 15 | 30;
+  theme?: string;
+  tone?: string;
+  cta?: string;
+  autoSchedule?: boolean;
+  generateImages?: boolean;
+};
+
+export type ContentPlanDay = {
+  dayIndex: number;
+  date: string;
+  weekday: string;
+  scheduledAt: string | null;
+  platform: SocialPlatform;
+  topic: string;
+  title: string;
+  caption: string;
+  hashtags: string[];
+  imageUrl: string | null;
+  postId: string | null;
+  status: SocialPostStatus;
+};
+
+export type ContentPlanGenerateResponse = {
+  days: number;
+  timezone: string;
+  autoScheduled: boolean;
+  scheduledCount: number;
+  draftCount: number;
+  items: ContentPlanDay[];
+  calendarItems: CalendarPost[];
+  errors: string[];
+  message: string;
+};
+
 export type UpdateSocialPostPayload = Partial<CreateSocialPostPayload>;
 
 export type UpdateSocialAccountPayload = {

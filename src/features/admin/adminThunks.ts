@@ -8,6 +8,7 @@ import type {
   AdminOverviewStats,
   AdminUser,
   AdminUserListResponse,
+  CreateAdminUserPayload,
   PricingPlan,
   UpdatePricingPlanPayload,
 } from "@/types/admin";
@@ -42,6 +43,18 @@ export const fetchAdminUsers = createAsyncThunk<
 >("admin/fetchUsers", async (params, { rejectWithValue }) => {
   try {
     return await adminApi.listUsers(params ?? undefined);
+  } catch (error) {
+    return rejectWithValue(toApiError(error).message);
+  }
+});
+
+export const createAdminUser = createAsyncThunk<
+  AdminUser,
+  CreateAdminUserPayload,
+  { rejectValue: string }
+>("admin/createUser", async (payload, { rejectWithValue }) => {
+  try {
+    return await adminApi.createUser(payload);
   } catch (error) {
     return rejectWithValue(toApiError(error).message);
   }

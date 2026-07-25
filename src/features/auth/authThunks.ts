@@ -2,7 +2,7 @@ import { createAsyncThunk } from "@reduxjs/toolkit";
 
 import { authApi } from "@/api/endpoints/auth.api";
 import { toApiError } from "@/api/errors";
-import { mapApiUserToUser } from "@/lib/auth/mapUser";
+import { mapMeResponseToUser, mapRegisterResponseToUser } from "@/lib/auth/mapUser";
 import type { LoginRequest, RegisterRequest, User } from "@/types/auth";
 
 export type AuthSuccessPayload = {
@@ -14,10 +14,11 @@ export const login = createAsyncThunk<AuthSuccessPayload, LoginRequest, { reject
   "auth/login",
   async (credentials, { rejectWithValue }) => {
     try {
-      const data = await authApi.login(credentials);
+      const tokenRes = await authApi.login(credentials);
+      const me = await authApi.me(tokenRes.access_token);
       return {
-        user: mapApiUserToUser(data.user),
-        accessToken: data.access_token,
+        user: mapMeResponseToUser(me),
+        accessToken: tokenRes.access_token,
       };
     } catch (error) {
       return rejectWithValue(toApiError(error).message);
@@ -31,7 +32,7 @@ export const register = createAsyncThunk<AuthSuccessPayload, RegisterRequest, { 
     try {
       const data = await authApi.register(payload);
       return {
-        user: mapApiUserToUser(data.user),
+        user: mapRegisterResponseToUser(data),
         accessToken: data.access_token,
       };
     } catch (error) {
@@ -44,8 +45,8 @@ export const validateSession = createAsyncThunk<User, void, { rejectValue: strin
   "auth/validateSession",
   async (_, { rejectWithValue }) => {
     try {
-      const apiUser = await authApi.me();
-      return mapApiUserToUser(apiUser);
+      const me = await authApi.me();
+      return mapMeResponseToUser(me);
     } catch (error) {
       return rejectWithValue(toApiError(error).message);
     }

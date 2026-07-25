@@ -23,6 +23,15 @@ export type AdminUserListResponse = {
   totalPages: number;
 };
 
+export type CreateAdminUserPayload = {
+  name: string;
+  email: string;
+  password: string;
+  workspaceName?: string;
+  plan?: PlanTier;
+  isPlatformAdmin?: boolean;
+};
+
 export type PlanDistributionRow = {
   plan: PlanTier;
   count: number;

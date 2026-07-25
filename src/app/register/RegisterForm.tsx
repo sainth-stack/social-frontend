@@ -3,28 +3,17 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { zodResolver } from "@hookform/resolvers/zod";
-import MailOutlineOutlinedIcon from "@mui/icons-material/MailOutlineOutlined";
-import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
-import PersonOutlineOutlinedIcon from "@mui/icons-material/PersonOutlineOutlined";
-import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
-import { useForm } from "react-hook-form";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { z } from "zod";
-import {
-  Alert,
-  Box,
-  Checkbox,
-  FormControlLabel,
-  Stack,
-  Typography,
-  InputAdornment,
-} from "@mui/material";
 
-import AuthCardShell from "@/components/auth/AuthCardShell";
-import AuthEmailDivider from "@/components/auth/AuthEmailDivider";
-import AuthSocialButtons from "@/components/auth/AuthSocialButtons";
-import PasswordInput from "@/components/auth/PasswordInput";
-import PasswordStrengthMeter from "@/components/auth/PasswordStrengthMeter";
+import SparkAuthLayout, {
+  GoogleButton,
+  OrDivider,
+} from "@/components/auth/SparkAuthLayout";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   clearAuthError,
   selectAuthError,
@@ -34,34 +23,24 @@ import {
   selectUser,
 } from "@/features/auth/authSlice";
 import { register as registerUser } from "@/features/auth/authThunks";
-import AppButton from "@/components/ui/AppButton";
-import AppInput from "@/components/ui/AppInput";
 import { getHomeRoute } from "@/lib/auth/users";
-import { platformBrand } from "@/lib/brand";
-import {
-  authFooterLinkSx,
-  authInlineLinkSx,
-  authInputSx,
-  authLayout,
-  authPrimaryButtonSx,
-} from "@/lib/authStyles";
-import { colors } from "@/lib/theme";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
-const registerSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters").max(120),
-  workspaceName: z.string().min(2, "Workspace name must be at least 2 characters").max(120),
-  email: z.string().email("Enter a valid email"),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .regex(/^(?=.*[A-Za-z])(?=.*\d).+$/, "Password must include at least 1 letter and 1 number"),
-  acceptTerms: z.boolean().refine((value) => value, {
-    message: "You must accept the terms to continue",
-  }),
-});
-
-type RegisterFormValues = z.infer<typeof registerSchema>;
+const schema = z
+  .object({
+    name: z.string().min(2, "Enter your full name"),
+    business: z.string().min(2, "Enter your business name"),
+    email: z.string().email("Enter a valid email"),
+    password: z
+      .string()
+      .min(8, "At least 8 characters")
+      .regex(/^(?=.*[A-Za-z])(?=.*\d).+$/, "Include at least 1 letter and 1 number"),
+    confirm: z.string(),
+  })
+  .refine((d) => d.password === d.confirm, {
+    path: ["confirm"],
+    message: "Passwords do not match",
+  });
 
 export default function RegisterForm() {
   const router = useRouter();
@@ -71,216 +50,177 @@ export default function RegisterForm() {
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
   const isHydrated = useAppSelector(selectIsAuthHydrated);
   const user = useAppSelector(selectUser);
-  const [passwordValue, setPasswordValue] = useState("");
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<RegisterFormValues>({
-    resolver: zodResolver(registerSchema),
-    defaultValues: {
-      name: "",
-      workspaceName: "",
-      email: "",
-      password: "",
-      acceptTerms: false,
-    },
+  const [form, setForm] = useState({
+    name: "",
+    business: "",
+    email: "",
+    password: "",
+    confirm: "",
   });
+  const [show, setShow] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!isHydrated || !isAuthenticated || !user) {
+    if (!isHydrated || !isAuthenticated || !user) return;
+    if (user.isPlatformAdmin) {
+      router.replace(getHomeRoute(user));
       return;
     }
-    router.replace(getHomeRoute(user));
+    router.replace("/dashboard/onboarding");
   }, [isAuthenticated, isHydrated, router, user]);
 
-  const onSubmit = handleSubmit(async (values) => {
+  function update<K extends keyof typeof form>(k: K, v: string) {
+    setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const parsed = schema.safeParse(form);
+    if (!parsed.success) {
+      const fe: Record<string, string> = {};
+      parsed.error.issues.forEach((issue) => {
+        fe[String(issue.path[0])] = issue.message;
+      });
+      setErrors(fe);
+      return;
+    }
+    setErrors({});
     dispatch(clearAuthError());
+
     try {
-      const result = await dispatch(
+      await dispatch(
         registerUser({
-          name: values.name,
-          workspaceName: values.workspaceName,
-          email: values.email,
-          password: values.password,
+          name: parsed.data.name,
+          workspaceName: parsed.data.business,
+          email: parsed.data.email,
+          password: parsed.data.password,
         }),
       ).unwrap();
-      router.replace(getHomeRoute(result.user));
+      toast.success("Workspace created");
+      router.replace("/dashboard/onboarding");
     } catch {
       // Error stored in auth slice
     }
-  });
-
-  const loading = isSubmitting || authLoading;
-  const passwordField = register("password");
-  const marketingUrl = platformBrand.marketingUrl;
+  }
 
   return (
-    <AuthCardShell
-      title="Create your account"
-      subtitle="Set up your workspace and start posting in minutes."
+    <SparkAuthLayout
+      title="Create your workspace"
+      subtitle="Start free — connect an account and start posting in minutes."
       footer={
         <>
           Already have an account?{" "}
-          <Typography component={Link} href="/login" sx={authFooterLinkSx}>
-            Log in
-          </Typography>
+          <Link href="/login" className="font-medium text-primary hover:underline">
+            Sign in
+          </Link>
         </>
       }
     >
-      <Stack sx={{ gap: authLayout.sectionGap }}>
-        <AuthSocialButtons mode="register" />
-        <AuthEmailDivider label="or sign up with email" />
-
+      <form className="space-y-4" onSubmit={onSubmit} noValidate>
         {authError ? (
-          <Alert severity="error" sx={{ borderRadius: "10px" }}>
+          <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {authError}
-          </Alert>
+          </p>
         ) : null}
 
-        <Stack component="form" onSubmit={onSubmit} noValidate sx={{ gap: authLayout.fieldGap }}>
-          <AppInput
-            hideLabel
-            placeholder="Full name"
-            autoComplete="name"
-            autoFocus
-            error={Boolean(errors.name)}
-            helperText={errors.name?.message}
-            sx={authInputSx}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <PersonOutlineOutlinedIcon sx={{ fontSize: 20, color: colors.textMuted }} />
-                  </InputAdornment>
-                ),
-              },
-            }}
-            {...register("name")}
-          />
-
-          <AppInput
-            hideLabel
-            placeholder="Workspace name (e.g. Acme Inc.)"
-            autoComplete="organization"
-            error={Boolean(errors.workspaceName)}
-            helperText={errors.workspaceName?.message}
-            sx={authInputSx}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <ApartmentOutlinedIcon sx={{ fontSize: 20, color: colors.textMuted }} />
-                  </InputAdornment>
-                ),
-              },
-            }}
-            {...register("workspaceName")}
-          />
-
-          <AppInput
-            hideLabel
-            placeholder="Email"
-            type="email"
-            autoComplete="email"
-            error={Boolean(errors.email)}
-            helperText={errors.email?.message}
-            sx={authInputSx}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <MailOutlineOutlinedIcon sx={{ fontSize: 20, color: colors.textMuted }} />
-                  </InputAdornment>
-                ),
-              },
-            }}
-            {...register("email")}
-          />
-
-          <Box>
-            <PasswordInput
-              hideLabel
-              placeholder="Password"
-              autoComplete="new-password"
-              error={Boolean(errors.password)}
-              helperText={errors.password?.message ?? "At least 8 characters with a letter and number"}
-              sx={authInputSx}
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <LockOutlinedIcon sx={{ fontSize: 20, color: colors.textMuted }} />
-                    </InputAdornment>
-                  ),
-                },
-              }}
-              {...passwordField}
-              onChange={(event) => {
-                setPasswordValue(event.target.value);
-                void passwordField.onChange(event);
-              }}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="name">Full name</Label>
+            <Input
+              id="name"
+              value={form.name}
+              onChange={(e) => update("name", e.target.value)}
+              placeholder="Ava Chen"
+              autoComplete="name"
+              autoFocus
             />
-            <PasswordStrengthMeter password={passwordValue} />
-          </Box>
+            {errors.name ? <p className="text-xs text-destructive">{errors.name}</p> : null}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="business">Business name</Label>
+            <Input
+              id="business"
+              value={form.business}
+              onChange={(e) => update("business", e.target.value)}
+              placeholder="Northstar Media"
+              autoComplete="organization"
+            />
+            {errors.business ? (
+              <p className="text-xs text-destructive">{errors.business}</p>
+            ) : null}
+          </div>
+        </div>
 
-          <FormControlLabel
-            sx={{
-              alignItems: "flex-start",
-              mx: 0,
-              mt: 0.25,
-              "& .MuiCheckbox-root": { pt: 0.25, pl: 0.75 },
-            }}
-            control={
-              <Checkbox
-                size="small"
-                {...register("acceptTerms")}
-                sx={{ color: colors.borderHover, "&.Mui-checked": { color: colors.primary } }}
-              />
-            }
-            label={
-              <Typography sx={{ fontSize: "0.8125rem", lineHeight: 1.6, color: colors.textSecondary }}>
-                I agree to the{" "}
-                <Typography
-                  component="a"
-                  href={`${marketingUrl}/terms`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  sx={authInlineLinkSx}
-                >
-                  Terms of Service
-                </Typography>{" "}
-                and{" "}
-                <Typography
-                  component="a"
-                  href={`${marketingUrl}/privacy`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  sx={authInlineLinkSx}
-                >
-                  Privacy Policy
-                </Typography>
-              </Typography>
-            }
+        <div className="space-y-1.5">
+          <Label htmlFor="email">Work email</Label>
+          <Input
+            id="email"
+            type="email"
+            value={form.email}
+            onChange={(e) => update("email", e.target.value)}
+            placeholder="you@company.com"
+            autoComplete="email"
           />
-          {errors.acceptTerms ? (
-            <Typography sx={{ fontSize: "0.75rem", color: colors.error, mt: -1 }}>
-              {errors.acceptTerms.message}
-            </Typography>
-          ) : null}
+          {errors.email ? <p className="text-xs text-destructive">{errors.email}</p> : null}
+        </div>
 
-          <AppButton
-            type="submit"
-            size="large"
-            loading={loading}
-            fullWidth
-            sx={authPrimaryButtonSx}
-          >
-            Create account
-          </AppButton>
-        </Stack>
-      </Stack>
-    </AuthCardShell>
+        <div className="space-y-1.5">
+          <Label htmlFor="password">Password</Label>
+          <div className="relative">
+            <Input
+              id="password"
+              type={show ? "text" : "password"}
+              value={form.password}
+              onChange={(e) => update("password", e.target.value)}
+              className="pr-10"
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShow((s) => !s)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+              aria-label="Toggle password"
+            >
+              {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          {errors.password ? (
+            <p className="text-xs text-destructive">{errors.password}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="confirm">Confirm password</Label>
+          <Input
+            id="confirm"
+            type={show ? "text" : "password"}
+            value={form.confirm}
+            onChange={(e) => update("confirm", e.target.value)}
+            autoComplete="new-password"
+          />
+          {errors.confirm ? (
+            <p className="text-xs text-destructive">{errors.confirm}</p>
+          ) : null}
+        </div>
+
+        <Button type="submit" className="w-full" disabled={authLoading}>
+          {authLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating…
+            </>
+          ) : (
+            "Create account"
+          )}
+        </Button>
+
+        <OrDivider />
+        <GoogleButton onClick={() => toast.message("Google sign-up coming soon")} />
+
+        <p className="text-center text-xs text-muted-foreground">
+          By creating an account, you agree to our Terms and Privacy Policy.
+        </p>
+      </form>
+    </SparkAuthLayout>
   );
 }

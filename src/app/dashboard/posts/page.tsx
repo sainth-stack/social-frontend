@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import PostsPage from "@/components/social-media/posts/PostsPage";
 
 export default function Page() {
-  redirect("/dashboard/posts/drafts");
+  return <PostsPage initialStatus="all" />;
 }

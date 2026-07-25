@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { CircularProgress, Box } from "@mui/material";
+import { Loader2 } from "lucide-react";
 
 import LoginForm from "./LoginForm";
 
@@ -13,17 +13,9 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <Box
-          sx={{
-            minHeight: "100vh",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            bgcolor: "background.paper",
-          }}
-        >
-          <CircularProgress size={28} />
-        </Box>
+        <div className="flex min-h-screen items-center justify-center text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
       }
     >
       <LoginForm />

@@ -1,43 +1,42 @@
 "use client";
 
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlineOutlined";
-import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
-import { Box, Stack, Typography } from "@mui/material";
+import { Check, Pencil, X } from "lucide-react";
 
-import AppButton from "@/components/ui/AppButton";
-import AppCard from "@/components/ui/AppCard";
-import StatusChip from "@/components/ui/StatusChip";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { formatCurrencyUsd } from "@/lib/format";
-import { colors } from "@/lib/theme";
 import type { PricingPlan } from "@/types/admin";
-
-function LimitRow({ label, value }: { label: string; value: string }) {
-  return (
-    <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.375 }}>
-      <Typography variant="body2" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography sx={{ fontWeight: 500, fontSize: "0.875rem" }}>{value}</Typography>
-    </Box>
-  );
-}
 
 function limitLabel(value: number | null): string {
   return value === null ? "Unlimited" : value.toLocaleString("en-US");
 }
 
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium">{value}</span>
+    </div>
+  );
+}
+
 function BoolRow({ label, enabled }: { label: string; enabled: boolean }) {
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.375 }}>
+    <div className="flex items-center gap-2 text-sm">
       {enabled ? (
-        <CheckCircleOutlineIcon sx={{ fontSize: 16, color: colors.primary }} />
+        <Check className="h-3.5 w-3.5 text-primary" />
       ) : (
-        <CancelOutlinedIcon sx={{ fontSize: 16, color: colors.textMuted }} />
+        <X className="h-3.5 w-3.5 text-muted-foreground" />
       )}
-      <Typography variant="body2" color={enabled ? "text.primary" : "text.secondary"}>
-        {label}
-      </Typography>
-    </Box>
+      <span className={enabled ? "text-foreground" : "text-muted-foreground"}>{label}</span>
+    </div>
   );
 }
 
@@ -48,49 +47,41 @@ type PricingPlanCardProps = {
 
 export default function PricingPlanCard({ plan, onEdit }: PricingPlanCardProps) {
   return (
-    <AppCard
-      padding="lg"
-      sx={{ height: "100%", display: "flex", flexDirection: "column", borderColor: plan.recommended ? colors.primary : undefined }}
-      action={plan.recommended ? <StatusChip label="Recommended" variant="active" /> : undefined}
-      title={plan.name}
-      subtitle={plan.tagline}
-    >
-      <Box sx={{ mb: 2 }}>
-        {plan.isCustom ? (
-          <Typography sx={{ fontWeight: 700, fontSize: "1.5rem" }}>Custom</Typography>
-        ) : (
-          <>
-            <Typography sx={{ fontWeight: 700, fontSize: "1.75rem", lineHeight: 1.1 }}>
-              {formatCurrencyUsd(plan.priceMonthlyUsd ?? 0)}
-              <Typography component="span" variant="body2" color="text.secondary">
-                {" "}
-                /mo
-              </Typography>
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {formatCurrencyUsd(plan.priceAnnualUsd ?? 0)} billed annually
-            </Typography>
-          </>
-        )}
-      </Box>
-
-      <Stack spacing={0.25} sx={{ mb: 2 }}>
-        <LimitRow label="Connected accounts" value={limitLabel(plan.limits.accounts)} />
-        <LimitRow label="Posts / month" value={limitLabel(plan.limits.postsPerMonth)} />
-        <LimitRow label="AI text generations" value={limitLabel(plan.limits.aiTextGenerations)} />
-        <LimitRow label="AI image generations" value={limitLabel(plan.limits.aiImageGenerations)} />
-        <LimitRow label="AI video generations" value={limitLabel(plan.limits.aiVideoGenerations)} />
-        <LimitRow label="Content templates" value={limitLabel(plan.limits.templates)} />
-      </Stack>
-
-      <Stack spacing={0.25} sx={{ mb: 2, flex: 1 }}>
-        <BoolRow label="Brand voice" enabled={plan.limits.brandVoice} />
-        <BoolRow label="Approval workflow" enabled={plan.limits.approvalWorkflow} />
-      </Stack>
-
-      <AppButton variant="secondary" size="small" onClick={() => onEdit(plan)} sx={{ mt: "auto" }}>
-        Edit plan
-      </AppButton>
-    </AppCard>
+    <Card className="flex flex-col">
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base">{plan.name}</CardTitle>
+          {plan.recommended ? <Badge variant="secondary">Recommended</Badge> : null}
+        </div>
+        <CardDescription>
+          {plan.isCustom ? (
+            "Custom pricing"
+          ) : (
+            <>
+              {formatCurrencyUsd(plan.priceMonthlyUsd ?? 0)}/mo ·{" "}
+              {formatCurrencyUsd(plan.priceAnnualUsd ?? 0)}/yr
+            </>
+          )}
+        </CardDescription>
+        {plan.tagline ? (
+          <p className="text-xs text-muted-foreground">{plan.tagline}</p>
+        ) : null}
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col space-y-3 text-sm">
+        <Row label="Posts / month" value={limitLabel(plan.limits.postsPerMonth)} />
+        <Row label="Connected accounts" value={limitLabel(plan.limits.accounts)} />
+        <Row label="AI text" value={limitLabel(plan.limits.aiTextGenerations)} />
+        <Row label="AI images" value={limitLabel(plan.limits.aiImageGenerations)} />
+        <Row label="AI videos" value={limitLabel(plan.limits.aiVideoGenerations)} />
+        <Row label="Templates" value={limitLabel(plan.limits.templates)} />
+        <div className="space-y-1 border-t border-border pt-2">
+          <BoolRow label="Brand voice" enabled={plan.limits.brandVoice} />
+          <BoolRow label="Approval workflow" enabled={plan.limits.approvalWorkflow} />
+        </div>
+        <Button variant="outline" className="mt-auto w-full" onClick={() => onEdit(plan)}>
+          <Pencil className="mr-2 h-4 w-4" /> Edit plan
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

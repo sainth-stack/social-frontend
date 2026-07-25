@@ -1,5 +1,5 @@
-import MediaLibrary from "@/components/social-media/content-studio/MediaLibrary";
+import AIStudioPage from "@/components/social-media/ai-studio/AIStudioPage";
 
 export default function Page() {
-  return <MediaLibrary />;
+  return <AIStudioPage initialTab="media" />;
 }

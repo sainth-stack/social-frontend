@@ -1,7 +1,7 @@
 const LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   admin: "Admin",
-  "content-studio": "Content Studio",
+  "content-studio": "AI Studio",
   generate: "AI Generate",
   media: "Media Library",
   drafts: "Drafts",

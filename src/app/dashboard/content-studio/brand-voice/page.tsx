@@ -1,5 +1,5 @@
-import BrandVoiceForm from "@/components/social-media/content-studio/BrandVoiceForm";
+import AIStudioPage from "@/components/social-media/ai-studio/AIStudioPage";
 
 export default function Page() {
-  return <BrandVoiceForm />;
+  return <AIStudioPage initialTab="brand" />;
 }

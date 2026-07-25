@@ -1,5 +1,5 @@
-import ContentStudio from "@/components/social-media/content-studio/ContentStudio";
+import AIStudioPage from "@/components/social-media/ai-studio/AIStudioPage";
 
 export default function Page() {
-  return <ContentStudio />;
+  return <AIStudioPage />;
 }

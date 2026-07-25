@@ -24,7 +24,13 @@ apiClient.interceptors.response.use(
     const status = error.response?.status;
     const url = String(error.config?.url ?? "");
 
-    if (status === 401 && !url.includes("/auth/login") && !url.includes("/auth/register")) {
+    const isPublicAuth =
+      url.includes("/auth/login") ||
+      url.includes("/auth/register") ||
+      url.includes("/auth/forgot-password") ||
+      url.includes("/auth/reset-password");
+
+    if (status === 401 && !isPublicAuth) {
       clearSession();
     }
 

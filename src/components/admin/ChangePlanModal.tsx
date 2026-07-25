@@ -2,17 +2,25 @@
 
 import { useEffect, useState } from "react";
 
-import AppButton from "@/components/ui/AppButton";
-import AppModal from "@/components/ui/AppModal";
-import AppSelect from "@/components/ui/AppSelect";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { AdminUser } from "@/types/admin";
 import type { PlanTier } from "@/types/auth";
-
-const PLAN_OPTIONS: Array<{ value: PlanTier; label: string }> = [
-  { value: "starter", label: "Starter" },
-  { value: "growth", label: "Growth" },
-  { value: "enterprise", label: "Enterprise" },
-];
 
 type ChangePlanModalProps = {
   user: AdminUser | null;
@@ -21,7 +29,12 @@ type ChangePlanModalProps = {
   onConfirm: (plan: PlanTier) => void;
 };
 
-export default function ChangePlanModal({ user, saving = false, onClose, onConfirm }: ChangePlanModalProps) {
+export default function ChangePlanModal({
+  user,
+  saving = false,
+  onClose,
+  onConfirm,
+}: ChangePlanModalProps) {
   const [plan, setPlan] = useState<PlanTier>("starter");
 
   useEffect(() => {
@@ -29,29 +42,38 @@ export default function ChangePlanModal({ user, saving = false, onClose, onConfi
   }, [user]);
 
   return (
-    <AppModal
-      open={Boolean(user)}
-      onClose={onClose}
-      title="Change plan"
-      description={user ? `Update the subscription plan for ${user.workspaceName}.` : undefined}
-      maxWidth="xs"
-      footer={
-        <>
-          <AppButton variant="secondary" onClick={onClose} disabled={saving}>
+    <Dialog open={Boolean(user)} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Assign plan</DialogTitle>
+          <DialogDescription>
+            {user
+              ? `Update the subscription plan for ${user.workspaceName}. No payment required — admin assignment only.`
+              : undefined}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label>Plan</Label>
+          <Select value={plan} onValueChange={(v) => setPlan(v as PlanTier)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="starter">Free</SelectItem>
+              <SelectItem value="growth">Pro</SelectItem>
+              <SelectItem value="enterprise">Growth</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>
             Cancel
-          </AppButton>
-          <AppButton onClick={() => onConfirm(plan)} loading={saving}>
-            Save changes
-          </AppButton>
-        </>
-      }
-    >
-      <AppSelect
-        label="Plan"
-        value={plan}
-        onChange={(e) => setPlan(e.target.value as PlanTier)}
-        options={PLAN_OPTIONS}
-      />
-    </AppModal>
+          </Button>
+          <Button onClick={() => onConfirm(plan)} disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

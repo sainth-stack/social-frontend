@@ -1,12 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Box, Typography } from "@mui/material";
+import { Save } from "lucide-react";
 
-import AppButton from "@/components/ui/AppButton";
-import AppCheckbox from "@/components/ui/AppCheckbox";
-import AppInput from "@/components/ui/AppInput";
-import AppModal from "@/components/ui/AppModal";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { PlanLimits, PricingPlan } from "@/types/admin";
 
 type FormState = {
@@ -54,10 +62,20 @@ type PricingPlanEditModalProps = {
   plan: PricingPlan | null;
   saving?: boolean;
   onClose: () => void;
-  onSave: (payload: { tagline: string; priceMonthlyUsd: number | null; priceAnnualUsd: number | null; limits: PlanLimits }) => void;
+  onSave: (payload: {
+    tagline: string;
+    priceMonthlyUsd: number | null;
+    priceAnnualUsd: number | null;
+    limits: PlanLimits;
+  }) => void;
 };
 
-export default function PricingPlanEditModal({ plan, saving = false, onClose, onSave }: PricingPlanEditModalProps) {
+export default function PricingPlanEditModal({
+  plan,
+  saving = false,
+  onClose,
+  onSave,
+}: PricingPlanEditModalProps) {
   const [form, setForm] = useState<FormState | null>(null);
 
   useEffect(() => {
@@ -65,14 +83,18 @@ export default function PricingPlanEditModal({ plan, saving = false, onClose, on
   }, [plan]);
 
   if (!plan || !form) {
-    return <AppModal open={false} onClose={onClose} title="" />;
+    return (
+      <Dialog open={false} onOpenChange={() => onClose()}>
+        <DialogContent />
+      </Dialog>
+    );
   }
 
   const handleSave = () => {
     onSave({
       tagline: form.tagline.trim(),
-      priceMonthlyUsd: plan.isCustom ? null : (Number(form.priceMonthlyUsd) || 0),
-      priceAnnualUsd: plan.isCustom ? null : (Number(form.priceAnnualUsd) || 0),
+      priceMonthlyUsd: plan.isCustom ? null : Number(form.priceMonthlyUsd) || 0,
+      priceAnnualUsd: plan.isCustom ? null : Number(form.priceAnnualUsd) || 0,
       limits: {
         accounts: toLimitValue(form.accounts),
         postsPerMonth: toLimitValue(form.postsPerMonth),
@@ -87,106 +109,95 @@ export default function PricingPlanEditModal({ plan, saving = false, onClose, on
   };
 
   return (
-    <AppModal
-      open={Boolean(plan)}
-      onClose={onClose}
-      title={`Edit ${plan.name} plan`}
-      description="Update pricing and usage limits. Leave a limit blank for unlimited."
-      maxWidth="sm"
-      footer={
-        <>
-          <AppButton variant="secondary" onClick={onClose} disabled={saving}>
+    <Dialog open={Boolean(plan)} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit {plan.name} plan</DialogTitle>
+          <DialogDescription>
+            Update plan limits. Leave a limit blank for unlimited.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Tagline</Label>
+            <Input
+              value={form.tagline}
+              onChange={(e) => setForm({ ...form, tagline: e.target.value })}
+            />
+          </div>
+          {!plan.isCustom ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Monthly price ($)</Label>
+                <Input
+                  type="number"
+                  value={form.priceMonthlyUsd}
+                  onChange={(e) => setForm({ ...form, priceMonthlyUsd: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Yearly price ($)</Label>
+                <Input
+                  type="number"
+                  value={form.priceAnnualUsd}
+                  onChange={(e) => setForm({ ...form, priceAnnualUsd: e.target.value })}
+                />
+              </div>
+            </div>
+          ) : null}
+          <div className="grid grid-cols-2 gap-3">
+            {(
+              [
+                ["postsPerMonth", "Max posts / month"],
+                ["accounts", "Max accounts"],
+                ["aiTextGenerations", "AI text limit"],
+                ["aiImageGenerations", "AI image limit"],
+                ["aiVideoGenerations", "AI video limit"],
+                ["templates", "Templates"],
+              ] as const
+            ).map(([key, label]) => (
+              <div key={key} className="space-y-1.5">
+                <Label>{label}</Label>
+                <Input
+                  type="number"
+                  value={form[key]}
+                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                  placeholder="Unlimited"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="space-y-3 rounded-lg border border-border p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={form.brandVoice}
+                onCheckedChange={(v) => setForm({ ...form, brandVoice: v === true })}
+              />
+              Brand voice
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={form.approvalWorkflow}
+                onCheckedChange={(v) =>
+                  setForm({ ...form, approvalWorkflow: v === true })
+                }
+              />
+              Approval workflow
+            </label>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>
             Cancel
-          </AppButton>
-          <AppButton onClick={handleSave} loading={saving}>
-            Save changes
-          </AppButton>
-        </>
-      }
-    >
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 0.5, pb: 1 }}>
-        <AppInput
-          label="Tagline"
-          value={form.tagline}
-          onChange={(e) => setForm((prev) => (prev ? { ...prev, tagline: e.target.value } : prev))}
-        />
-
-        {!plan.isCustom ? (
-          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5 }}>
-            <AppInput
-              label="Price / month (USD)"
-              type="number"
-              value={form.priceMonthlyUsd}
-              onChange={(e) => setForm((prev) => (prev ? { ...prev, priceMonthlyUsd: e.target.value } : prev))}
-            />
-            <AppInput
-              label="Price / year (USD)"
-              type="number"
-              value={form.priceAnnualUsd}
-              onChange={(e) => setForm((prev) => (prev ? { ...prev, priceAnnualUsd: e.target.value } : prev))}
-            />
-          </Box>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            Enterprise pricing is custom — contact sales handles quoting.
-          </Typography>
-        )}
-
-        <Typography sx={{ fontWeight: 600, fontSize: "0.8125rem", mt: 0.5 }}>
-          Usage limits (blank = unlimited)
-        </Typography>
-        <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5 }}>
-          <AppInput
-            label="Connected accounts"
-            type="number"
-            value={form.accounts}
-            onChange={(e) => setForm((prev) => (prev ? { ...prev, accounts: e.target.value } : prev))}
-          />
-          <AppInput
-            label="Posts / month"
-            type="number"
-            value={form.postsPerMonth}
-            onChange={(e) => setForm((prev) => (prev ? { ...prev, postsPerMonth: e.target.value } : prev))}
-          />
-          <AppInput
-            label="AI text / month"
-            type="number"
-            value={form.aiTextGenerations}
-            onChange={(e) => setForm((prev) => (prev ? { ...prev, aiTextGenerations: e.target.value } : prev))}
-          />
-          <AppInput
-            label="AI images / month"
-            type="number"
-            value={form.aiImageGenerations}
-            onChange={(e) => setForm((prev) => (prev ? { ...prev, aiImageGenerations: e.target.value } : prev))}
-          />
-          <AppInput
-            label="AI video / month"
-            type="number"
-            value={form.aiVideoGenerations}
-            onChange={(e) => setForm((prev) => (prev ? { ...prev, aiVideoGenerations: e.target.value } : prev))}
-          />
-          <AppInput
-            label="Templates"
-            type="number"
-            value={form.templates}
-            onChange={(e) => setForm((prev) => (prev ? { ...prev, templates: e.target.value } : prev))}
-          />
-        </Box>
-
-        <Box sx={{ display: "flex", gap: 2 }}>
-          <AppCheckbox
-            checked={form.brandVoice}
-            onChange={(e) => setForm((prev) => (prev ? { ...prev, brandVoice: e.target.checked } : prev))}
-            label="Brand voice"
-          />
-          <AppCheckbox
-            checked={form.approvalWorkflow}
-            onChange={(e) => setForm((prev) => (prev ? { ...prev, approvalWorkflow: e.target.checked } : prev))}
-            label="Approval workflow"
-          />
-        </Box>
-      </Box>
-    </AppModal>
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            <Save className="mr-2 h-4 w-4" />
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

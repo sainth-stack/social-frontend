@@ -1,11 +1,5 @@
-import { Suspense } from "react";
-
-import AIGenerate from "@/components/social-media/content-studio/AIGenerate";
+import AIStudioPage from "@/components/social-media/ai-studio/AIStudioPage";
 
 export default function Page() {
-  return (
-    <Suspense>
-      <AIGenerate />
-    </Suspense>
-  );
+  return <AIStudioPage initialTab="generate" />;
 }

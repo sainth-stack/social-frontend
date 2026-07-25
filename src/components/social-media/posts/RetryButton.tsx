@@ -1,10 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import RefreshOutlinedIcon from "@mui/icons-material/RefreshOutlined";
-import { Tooltip } from "@mui/material";
+import { RefreshCw } from "lucide-react";
 
-import AppButton from "@/components/ui/AppButton";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { SocialPost, SocialPostPlatform } from "@/types/social-media.types";
 
 const NON_RETRYABLE = new Set([
@@ -37,58 +42,50 @@ type RetryButtonProps = {
   post: SocialPost;
   loading?: boolean;
   onRetry: () => void;
-  size?: "small" | "medium";
+  size?: "sm" | "default";
 };
 
 export default function RetryButton({
   post,
   loading,
   onRetry,
-  size = "small",
+  size = "sm",
 }: RetryButtonProps) {
   const retryable = hasRetryableFailure(post);
   const tokenExpired = hasTokenExpired(post);
 
   if (tokenExpired && !retryable) {
     return (
-      <AppButton
-        size={size}
-        variant="secondary"
-        component={Link}
-        href="/dashboard/accounts"
-      >
-        Reconnect account
-      </AppButton>
+      <Button size={size} variant="outline" asChild>
+        <Link href="/dashboard/accounts">Reconnect account</Link>
+      </Button>
     );
   }
 
   if (!retryable) {
     return (
-      <Tooltip title="This error requires fixing content or reconnecting — retry is disabled">
-        <span>
-          <AppButton
-            size={size}
-            variant="secondary"
-            disabled
-            leftIcon={<RefreshOutlinedIcon fontSize="small" />}
-          >
-            Retry
-          </AppButton>
-        </span>
-      </Tooltip>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button size={size} variant="outline" disabled>
+                <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                Retry
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            This error requires fixing content or reconnecting — retry is disabled
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
 
   return (
-    <AppButton
-      size={size}
-      variant="secondary"
-      onClick={onRetry}
-      loading={loading}
-      leftIcon={loading ? undefined : <RefreshOutlinedIcon fontSize="small" />}
-      sx={{ minWidth: 88 }}
-    >
+    <Button size={size} variant="outline" disabled={loading} onClick={onRetry}>
+      <RefreshCw className="mr-2 h-3.5 w-3.5" />
       Retry
-    </AppButton>
+    </Button>
   );
 }

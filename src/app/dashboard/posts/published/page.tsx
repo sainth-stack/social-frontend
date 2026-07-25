@@ -1,5 +1,5 @@
-import PostsList from "@/components/social-media/posts/PostsList";
+import PostsPage from "@/components/social-media/posts/PostsPage";
 
 export default function Page() {
-  return <PostsList status="published" />;
+  return <PostsPage initialStatus="published" />;
 }

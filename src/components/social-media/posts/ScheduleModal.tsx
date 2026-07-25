@@ -1,10 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 
-import AppButton from "@/components/ui/AppButton";
-import AppInput from "@/components/ui/AppInput";
-import AppModal from "@/components/ui/AppModal";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type ScheduleModalProps = {
   open: boolean;
@@ -34,19 +42,26 @@ export default function ScheduleModal({
   }, [open, initialValue]);
 
   return (
-    <AppModal
-      open={open}
-      onClose={onClose}
-      title="Schedule post"
-      maxWidth="xs"
-      footer={
-        <>
-          <AppButton variant="ghost" onClick={onClose}>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Schedule post</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="schedule-at">Publish at</Label>
+          <Input
+            id="schedule-at"
+            type="datetime-local"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
             Cancel
-          </AppButton>
-          <AppButton
-            variant="primary"
-            loading={loading}
+          </Button>
+          <Button
+            disabled={loading}
             onClick={() => {
               const date = new Date(value);
               if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) {
@@ -55,18 +70,11 @@ export default function ScheduleModal({
               onConfirm(date.toISOString());
             }}
           >
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Schedule
-          </AppButton>
-        </>
-      }
-    >
-      <AppInput
-        type="datetime-local"
-        label="Publish at"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        slotProps={{ inputLabel: { shrink: true } }}
-      />
-    </AppModal>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

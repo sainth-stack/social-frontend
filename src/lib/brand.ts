@@ -1,6 +1,6 @@
-/** OpsBrain platform brand */
+/** OpsBrain platform brand — mark copied from opsbrain-landing `src/assets/brand/mark.png`. */
 export const platformBrand = {
-  mark: "/favicon.png",
+  mark: "/brand/mark.png",
   name: "OpsBrain",
   suffix: "AI",
   marketingUrl: process.env.NEXT_PUBLIC_MARKETING_URL ?? "https://opsbrainai.com",

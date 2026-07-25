@@ -7,6 +7,8 @@ import type {
   BrandVoicePayload,
   BrandVoiceTestResult,
   CalendarResponse,
+  ContentPlanGeneratePayload,
+  ContentPlanGenerateResponse,
   CreateSocialPostPayload,
   GeneratedContent,
   GeneratedSlide,
@@ -191,6 +193,17 @@ export const socialMediaApi = {
     const { data } = await apiClient.get<CalendarResponse>(`${base(orgId)}/calendar`, {
       params: { month },
     });
+    return data;
+  },
+
+  async generateContentPlan(
+    orgId: string,
+    payload: ContentPlanGeneratePayload,
+  ): Promise<ContentPlanGenerateResponse> {
+    const { data } = await apiClient.post<ContentPlanGenerateResponse>(
+      `${base(orgId)}/content-plan/generate`,
+      payload,
+    );
     return data;
   },
 

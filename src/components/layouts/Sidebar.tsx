@@ -3,28 +3,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import HelpOutlineOutlinedIcon from "@mui/icons-material/HelpOutlineOutlined";
-import {
-  Box,
-  Collapse,
-  Drawer,
-  IconButton,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Menu,
-  MenuItem,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import { ChevronDown, Sparkle } from "lucide-react";
 
+import socialMediaApi from "@/api/endpoints/social-media.api";
 import type { NavItem, NavSection } from "@/components/layouts/nav-config";
-import { OrgBrand, PlatformLogo } from "@/components/ui/Logo";
-import { colors, layoutTokens } from "@/lib/theme";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { selectUser } from "@/features/auth/authSlice";
+import { DEFAULT_PRICING_CATALOG } from "@/features/admin/pricingCatalog";
+import { PLAN_DISPLAY_NAMES } from "@/lib/plans";
+import { cn } from "@/lib/utils";
+import { useAppSelector } from "@/store/hooks";
+import type { PlanTier } from "@/types/auth";
 
 export type SidebarBrand =
   | { type: "platform" }
@@ -33,8 +24,6 @@ export type SidebarBrand =
 type SidebarProps = {
   sections: NavSection[];
   brand: SidebarBrand;
-  collapsed?: boolean;
-  onToggleCollapse?: () => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 };
@@ -51,257 +40,90 @@ function isGroupActive(pathname: string, item: NavItem): boolean {
   return item.children?.some((child) => isActive(pathname, child.href)) ?? false;
 }
 
-function navItemSx(active: boolean, collapsed: boolean, nested = false) {
-  return {
-    mb: 0.25,
-    mx: collapsed ? 0.25 : nested ? 0.5 : 0,
-    ml: collapsed ? 0.25 : nested ? 1.5 : 0,
-    pl: collapsed ? 0.75 : nested ? 1.75 : 1.25,
-    pr: collapsed ? 0.75 : 1.25,
-    borderRadius: `${layoutTokens.navRadius}px`,
-    minHeight: layoutTokens.navItemHeight,
-    justifyContent: collapsed ? "center" : "flex-start",
-    color: active ? colors.primary : colors.textSecondary,
-    bgcolor: active ? layoutTokens.navActiveBg : "transparent",
-    transition: "background-color 0.12s ease, color 0.12s ease, padding 0.2s ease",
-    "&.Mui-selected": {
-      bgcolor: layoutTokens.navActiveBg,
-      color: colors.primary,
-      "&:hover": { bgcolor: layoutTokens.navActiveBg },
-    },
-    "&:hover": {
-      bgcolor: active ? layoutTokens.navActiveBg : layoutTokens.navHoverBg,
-    },
-  };
-}
-
-function NavIcon({
-  Icon,
-  active,
-  nested,
-  collapsed,
-}: {
-  Icon: NavItem["icon"];
-  active: boolean;
-  nested?: boolean;
-  collapsed?: boolean;
-}) {
-  return (
-    <ListItemIcon
-      sx={{
-        minWidth: collapsed ? 0 : nested ? 28 : 32,
-        mr: collapsed ? 0 : 0.25,
-        justifyContent: "center",
-        color: active ? colors.primary : colors.textSecondary,
-      }}
-    >
-      <Icon sx={{ fontSize: nested ? 18 : 20 }} />
-    </ListItemIcon>
-  );
+function planLabel(plan: PlanTier | string | undefined): string {
+  if (!plan) return "Free";
+  const key = String(plan).toLowerCase();
+  return PLAN_DISPLAY_NAMES[key] ?? plan.charAt(0).toUpperCase() + plan.slice(1);
 }
 
 function NavLink({
   item,
   pathname,
   nested = false,
-  collapsed = false,
   onNavigate,
 }: {
   item: NavItem;
   pathname: string;
   nested?: boolean;
-  collapsed?: boolean;
   onNavigate?: () => void;
 }) {
   const active = isActive(pathname, item.href);
   const Icon = item.icon;
 
-  const button = (
-    <ListItemButton
-      component={Link}
+  return (
+    <Link
       href={item.href}
       onClick={onNavigate}
-      selected={active}
-      sx={navItemSx(active, collapsed, nested)}
+      className={cn(
+        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        nested && "ml-3 pl-3",
+        active
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+      )}
     >
-      <NavIcon Icon={Icon} active={active} nested={nested} collapsed={collapsed} />
-      {!collapsed ? (
-        <>
-          <ListItemText
-            primary={
-              <Typography
-                sx={{
-                  fontSize: nested ? "0.8125rem" : "0.875rem",
-                  fontWeight: active ? 500 : 400,
-                  color: "inherit",
-                  lineHeight: 1.4,
-                }}
-              >
-                {item.label}
-              </Typography>
-            }
-          />
-          {item.badge ? (
-            <Typography
-              component="span"
-              sx={{
-                fontSize: "0.75rem",
-                fontWeight: 500,
-                color: colors.textSecondary,
-              }}
-            >
-              {item.badge}
-            </Typography>
-          ) : null}
-        </>
+      <Icon className={cn("h-4 w-4", active && "text-primary")} />
+      <span className="flex-1 truncate">{item.label}</span>
+      {item.badge ? (
+        <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-[10px]">
+          {item.badge}
+        </Badge>
       ) : null}
-    </ListItemButton>
+    </Link>
   );
-
-  if (collapsed) {
-    return (
-      <Tooltip title={item.label} placement="right" arrow>
-        {button}
-      </Tooltip>
-    );
-  }
-
-  return button;
 }
 
 function NavGroup({
   item,
   pathname,
-  collapsed = false,
   onNavigate,
 }: {
   item: NavItem;
   pathname: string;
-  collapsed?: boolean;
   onNavigate?: () => void;
 }) {
   const groupActive = isGroupActive(pathname, item);
   const [open, setOpen] = useState(groupActive);
-  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const Icon = item.icon;
 
   useEffect(() => {
     if (groupActive) setOpen(true);
   }, [groupActive]);
 
   if (!item.children?.length) {
-    return (
-      <NavLink
-        item={item}
-        pathname={pathname}
-        collapsed={collapsed}
-        onNavigate={onNavigate}
-      />
-    );
-  }
-
-  const Icon = item.icon;
-
-  if (collapsed) {
-    return (
-      <>
-        <Tooltip title={item.label} placement="right" arrow>
-          <ListItemButton
-            onClick={(event) => setMenuAnchor(event.currentTarget)}
-            sx={navItemSx(groupActive, collapsed)}
-          >
-            <NavIcon Icon={Icon} active={groupActive} collapsed={collapsed} />
-          </ListItemButton>
-        </Tooltip>
-        <Menu
-          anchorEl={menuAnchor}
-          open={Boolean(menuAnchor)}
-          onClose={() => setMenuAnchor(null)}
-          anchorOrigin={{ vertical: "top", horizontal: "right" }}
-          transformOrigin={{ vertical: "top", horizontal: "left" }}
-          slotProps={{
-            paper: {
-              sx: {
-                ml: 1,
-                minWidth: 180,
-                borderRadius: "10px",
-                border: `1px solid ${colors.border}`,
-                boxShadow: "0 8px 24px rgb(15 23 42 / 0.1)",
-              },
-            },
-          }}
-        >
-          <Typography
-            sx={{
-              px: 2,
-              py: 1,
-              fontSize: "0.6875rem",
-              fontWeight: 600,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: colors.textMuted,
-            }}
-          >
-            {item.label}
-          </Typography>
-          {item.children.map((child) => (
-            <MenuItem
-              key={child.href}
-              component={Link}
-              href={child.href}
-              onClick={() => {
-                setMenuAnchor(null);
-                onNavigate?.();
-              }}
-              selected={isActive(pathname, child.href)}
-              sx={{
-                fontSize: "0.875rem",
-                py: 1,
-                mx: 0.75,
-                borderRadius: "6px",
-                "&.Mui-selected": {
-                  bgcolor: colors.primaryLight,
-                  color: colors.primary,
-                  fontWeight: 500,
-                },
-              }}
-            >
-              {child.label}
-            </MenuItem>
-          ))}
-        </Menu>
-      </>
-    );
+    return <NavLink item={item} pathname={pathname} onNavigate={onNavigate} />;
   }
 
   return (
-    <Box>
-      <ListItemButton onClick={() => setOpen((prev) => !prev)} sx={navItemSx(groupActive, collapsed)}>
-        <NavIcon Icon={Icon} active={groupActive} />
-        <ListItemText
-          primary={
-            <Typography
-              sx={{
-                fontSize: "0.875rem",
-                fontWeight: groupActive ? 500 : 400,
-                color: "inherit",
-                lineHeight: 1.4,
-              }}
-            >
-              {item.label}
-            </Typography>
-          }
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className={cn(
+          "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+          groupActive
+            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+            : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+        )}
+      >
+        <Icon className={cn("h-4 w-4", groupActive && "text-primary")} />
+        <span className="flex-1 truncate text-left">{item.label}</span>
+        <ChevronDown
+          className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")}
         />
-        <ExpandMoreIcon
-          sx={{
-            fontSize: 18,
-            color: colors.textSecondary,
-            transform: open ? "rotate(180deg)" : "rotate(0deg)",
-            transition: "transform 0.2s ease",
-          }}
-        />
-      </ListItemButton>
-      <Collapse in={open} timeout={200}>
-        <Box sx={{ pb: 0.5, pl: 0.5 }}>
+      </button>
+      {open ? (
+        <div className="mt-0.5 space-y-0.5 pb-1">
           {item.children.map((child) => (
             <NavLink
               key={child.href}
@@ -311,271 +133,175 @@ function NavGroup({
               onNavigate={onNavigate}
             />
           ))}
-        </Box>
-      </Collapse>
-    </Box>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-function SidebarToggleButton({
-  collapsed,
-  onToggle,
-}: {
-  collapsed: boolean;
-  onToggle?: () => void;
-}) {
+function UsageCard() {
+  const user = useAppSelector(selectUser);
+  const [postsUsed, setPostsUsed] = useState(0);
+  const [postsLimit, setPostsLimit] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!user?.workspaceId || user.isPlatformAdmin) return;
+    let active = true;
+
+    socialMediaApi
+      .getDashboardStats(user.workspaceId)
+      .then((stats) => {
+        if (!active) return;
+        setPostsUsed(stats.usage.postsThisMonth.used);
+        setPostsLimit(stats.usage.postsThisMonth.limit);
+      })
+      .catch(() => {
+        if (!active) return;
+        const plan =
+          DEFAULT_PRICING_CATALOG.find((p) => p.id === user.plan) ?? DEFAULT_PRICING_CATALOG[0];
+        setPostsLimit(plan.limits.postsPerMonth);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user?.workspaceId, user?.isPlatformAdmin, user?.plan]);
+
+  const plan = user?.plan ?? "starter";
+  const catalog = DEFAULT_PRICING_CATALOG.find((p) => p.id === plan);
+  const limit = postsLimit ?? catalog?.limits.postsPerMonth ?? 60;
+  const pct = limit ? Math.min(100, (postsUsed / limit) * 100) : 0;
+
   return (
-    <IconButton
-      onClick={onToggle}
-      aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      size="small"
-      sx={{
-        width: 28,
-        height: 28,
-        flexShrink: 0,
-        border: `1px solid ${colors.border}`,
-        borderRadius: "6px",
-        color: colors.textSecondary,
-        bgcolor: colors.paper,
-        transition: "all 0.15s ease",
-        "&:hover": {
-          bgcolor: colors.background,
-          color: colors.textPrimary,
-          borderColor: colors.borderHover,
-        },
-      }}
-    >
-      {collapsed ? (
-        <ChevronRightIcon sx={{ fontSize: 18 }} />
-      ) : (
-        <ChevronLeftIcon sx={{ fontSize: 18 }} />
-      )}
-    </IconButton>
+    <div className="m-3 rounded-xl border border-sidebar-border bg-card p-4 shadow-soft">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">{planLabel(plan)} plan</span>
+        <Badge variant="secondary" className="text-[10px]">
+          Upgrade
+        </Badge>
+      </div>
+      <div className="mt-3 space-y-2">
+        <div className="flex justify-between text-xs">
+          <span className="text-muted-foreground">Posts</span>
+          <span className="font-medium">
+            {postsUsed}/{limit ?? "∞"}
+          </span>
+        </div>
+        <Progress value={pct} className="h-1.5" />
+      </div>
+      <Button size="sm" className="mt-3 w-full" asChild>
+        <Link href="/dashboard/billing">View plan</Link>
+      </Button>
+    </div>
   );
 }
 
 function SidebarContent({
   sections,
   brand,
-  collapsed = false,
-  onToggleCollapse,
   onNavigate,
 }: {
   sections: NavSection[];
   brand: SidebarBrand;
-  collapsed?: boolean;
-  onToggleCollapse?: () => void;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const homeHref = brand.type === "platform" ? "/admin" : "/dashboard";
+  const isAdmin = brand.type === "platform";
+  const homeHref = isAdmin ? "/admin" : "/dashboard";
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: layoutTokens.sidebarBg }}>
-      <Box
-        sx={{
-          px: collapsed ? 1 : 2,
-          height: layoutTokens.sidebarBrandHeight,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: collapsed ? "center" : "space-between",
-          gap: 1,
-          borderBottom: `1px solid ${layoutTokens.borderColor}`,
-          flexShrink: 0,
-          bgcolor: layoutTokens.sidebarBg,
-          position: "relative",
-        }}
-      >
-        <Box
-          component={Link}
+    <div className="flex h-full flex-col bg-sidebar">
+      <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-5">
+        <Link
           href={homeHref}
           onClick={onNavigate}
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            minWidth: 0,
-            flex: collapsed ? "0 0 auto" : 1,
-            textDecoration: "none",
-            color: "inherit",
-            overflow: "hidden",
-          }}
+          className="flex min-w-0 items-center gap-2 text-inherit no-underline"
         >
-          {brand.type === "platform" ? (
-            <PlatformLogo size={28} priority compact={collapsed} />
-          ) : (
-            <OrgBrand
-              name={brand.name}
-              logoUrl={brand.logoUrl}
-              size={28}
-              compact={collapsed}
-            />
-          )}
-        </Box>
-        {!collapsed ? <SidebarToggleButton collapsed={collapsed} onToggle={onToggleCollapse} /> : null}
-      </Box>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/mark.png"
+            alt=""
+            width={32}
+            height={32}
+            className="h-8 w-8 shrink-0 rounded-[22%] object-cover"
+            aria-hidden
+          />
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span className="truncate text-sm font-semibold text-sidebar-foreground">
+              OpsBrain <span className="text-primary">AI</span>
+            </span>
+            <span className="truncate text-[11px] text-muted-foreground">
+              {isAdmin ? "Admin Console" : "Social Media Manager"}
+            </span>
+          </div>
+        </Link>
+      </div>
 
-      {collapsed ? (
-        <Box sx={{ display: "flex", justifyContent: "center", py: 1, borderBottom: `1px solid ${layoutTokens.borderColor}` }}>
-          <SidebarToggleButton collapsed={collapsed} onToggle={onToggleCollapse} />
-        </Box>
-      ) : null}
-
-      <Box sx={{ flex: 1, overflowY: "auto", overflowX: "hidden", py: 1.5, px: collapsed ? 0.5 : 1.25 }}>
+      <nav className="flex-1 space-y-3 overflow-y-auto p-3">
         {sections.map((section, sectionIndex) => (
-          <Box key={section.title ?? `section-${sectionIndex}`} sx={{ mb: section.title && !collapsed ? 2.5 : 1 }}>
-            {section.title && !collapsed ? (
-              <Typography
-                sx={{
-                  px: 1.25,
-                  pt: sectionIndex > 0 ? 1 : 0,
-                  pb: 0.75,
-                  fontSize: "0.6875rem",
-                  fontWeight: 600,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: layoutTokens.sectionLabelColor,
-                  lineHeight: 1.4,
-                }}
-              >
+          <div key={section.title ?? `section-${sectionIndex}`} className="space-y-1">
+            {section.title ? (
+              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {section.title}
-              </Typography>
+              </p>
             ) : null}
-            {section.title && collapsed && sectionIndex > 0 ? (
-              <Box
-                sx={{
-                  mx: 1,
-                  mb: 1,
-                  borderTop: `1px solid ${layoutTokens.borderColor}`,
-                }}
+            {section.items.map((item) => (
+              <NavGroup
+                key={item.href}
+                item={item}
+                pathname={pathname}
+                onNavigate={onNavigate}
               />
-            ) : null}
-            <List disablePadding sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
-              {section.items.map((item) => (
-                <NavGroup
-                  key={item.href}
-                  item={item}
-                  pathname={pathname}
-                  collapsed={collapsed}
-                  onNavigate={onNavigate}
-                />
-              ))}
-            </List>
-          </Box>
+            ))}
+          </div>
         ))}
-      </Box>
+      </nav>
 
-      <Box
-        sx={{
-          px: collapsed ? 1 : 2,
-          py: 1.5,
-          borderTop: `1px solid ${layoutTokens.borderColor}`,
-          flexShrink: 0,
-          bgcolor: layoutTokens.sidebarBg,
-          display: "flex",
-          justifyContent: collapsed ? "center" : "flex-start",
-        }}
-      >
-        {collapsed ? (
-          <Tooltip title="Help & Support" placement="right" arrow>
-            <IconButton
-              size="small"
-              aria-label="Help & Support"
-              sx={{
-                color: colors.textSecondary,
-                "&:hover": { color: colors.textPrimary, bgcolor: colors.background },
-              }}
-            >
-              <HelpOutlineOutlinedIcon sx={{ fontSize: 18 }} />
-            </IconButton>
-          </Tooltip>
-        ) : (
-          <Typography
-            component="button"
-            type="button"
-            sx={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 0.75,
-              border: "none",
-              background: "none",
-              cursor: "pointer",
-              p: 0,
-              fontSize: "0.8125rem",
-              fontWeight: 400,
-              color: colors.textSecondary,
-              fontFamily: "inherit",
-              transition: "color 0.12s ease",
-              "&:hover": { color: colors.textPrimary },
-            }}
+      {!isAdmin ? <UsageCard /> : null}
+      {isAdmin ? (
+        <div className="m-3 rounded-xl border border-sidebar-border bg-card p-4">
+          <Link
+            href="/dashboard"
+            onClick={onNavigate}
+            className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
-            <HelpOutlineOutlinedIcon sx={{ fontSize: 16 }} />
-            Help & Support
-          </Typography>
-        )}
-      </Box>
-    </Box>
+            <Sparkle className="h-3.5 w-3.5" /> Back to app
+          </Link>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 export default function Sidebar({
   sections,
   brand,
-  collapsed = false,
-  onToggleCollapse,
   mobileOpen = false,
   onMobileClose,
 }: SidebarProps) {
-  const handleNavigate = () => onMobileClose?.();
-  const sidebarWidth = collapsed ? layoutTokens.sidebarCollapsedWidth : layoutTokens.sidebarWidth;
-
   return (
     <>
-      <Box
-        component="aside"
-        sx={{
-          display: { xs: "none", md: "flex" },
-          flexDirection: "column",
-          width: sidebarWidth,
-          flexShrink: 0,
-          borderRight: `1px solid ${layoutTokens.borderColor}`,
-          bgcolor: layoutTokens.sidebarBg,
-          position: "sticky",
-          top: 0,
-          alignSelf: "flex-start",
-          height: "100vh",
-          transition: "width 0.2s ease",
-          overflow: "hidden",
-        }}
-      >
-        <SidebarContent
-          sections={sections}
-          brand={brand}
-          collapsed={collapsed}
-          onToggleCollapse={onToggleCollapse}
-        />
-      </Box>
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar md:flex">
+        <SidebarContent sections={sections} brand={brand} />
+      </aside>
 
-      <Drawer
-        variant="temporary"
-        open={mobileOpen}
-        onClose={onMobileClose}
-        ModalProps={{ keepMounted: true }}
-        sx={{
-          display: { xs: "block", md: "none" },
-          "& .MuiDrawer-paper": {
-            width: layoutTokens.sidebarWidth,
-            boxSizing: "border-box",
-            bgcolor: layoutTokens.sidebarBg,
-            borderRight: `1px solid ${layoutTokens.borderColor}`,
-          },
-        }}
-      >
-        <SidebarContent sections={sections} brand={brand} onNavigate={handleNavigate} />
-      </Drawer>
+      {mobileOpen ? (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <button
+            type="button"
+            aria-label="Close navigation"
+            className="absolute inset-0 bg-foreground/30 backdrop-blur-[1px]"
+            onClick={onMobileClose}
+          />
+          <aside className="absolute inset-y-0 left-0 w-64 border-r border-sidebar-border bg-sidebar shadow-elevated">
+            <SidebarContent
+              sections={sections}
+              brand={brand}
+              onNavigate={onMobileClose}
+            />
+          </aside>
+        </div>
+      ) : null}
     </>
   );
-}
-
-export function getSidebarOffset(collapsed: boolean): number {
-  return collapsed ? layoutTokens.sidebarCollapsedWidth : layoutTokens.sidebarWidth;
 }

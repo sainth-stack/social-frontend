@@ -5,6 +5,7 @@ import type {
   AdminOverviewStats,
   AdminUser,
   AdminUserListResponse,
+  CreateAdminUserPayload,
   PricingPlan,
   UpdatePricingPlanPayload,
 } from "@/types/admin";
@@ -30,6 +31,18 @@ export const adminApi = {
     pageSize?: number;
   }): Promise<AdminUserListResponse> {
     const { data } = await apiClient.get<AdminUserListResponse>(`${base}/users`, { params });
+    return data;
+  },
+
+  async createUser(payload: CreateAdminUserPayload): Promise<AdminUser> {
+    const { data } = await apiClient.post<AdminUser>(`${base}/users`, {
+      email: payload.email,
+      password: payload.password,
+      name: payload.name,
+      workspaceName: payload.workspaceName,
+      plan: payload.plan ?? "starter",
+      isPlatformAdmin: payload.isPlatformAdmin ?? false,
+    });
     return data;
   },
 

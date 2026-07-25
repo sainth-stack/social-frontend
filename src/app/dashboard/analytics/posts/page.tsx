@@ -1,5 +1,5 @@
-import PostPerformance from "@/components/social-media/analytics/PostPerformance";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <PostPerformance />;
+  redirect("/dashboard/analytics");
 }

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
-import { Alert, Box } from "@mui/material";
+import { useEffect, useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -17,26 +16,41 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Loader2 } from "lucide-react";
 
-import ChartCard from "@/components/ui/ChartCard";
-import LoadingState from "@/components/ui/LoadingState";
-import PageHeader from "@/components/ui/PageHeader";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   selectAdminAnalytics,
   selectAdminAnalyticsError,
   selectAdminAnalyticsLoading,
 } from "@/features/admin/adminSelectors";
 import { fetchAdminAnalytics } from "@/features/admin/adminThunks";
-import { chartAxisTick, chartTooltipStyle, colors } from "@/lib/theme";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 const PLAN_COLORS: Record<string, string> = {
-  starter: colors.textMuted,
-  growth: colors.primary,
-  enterprise: colors.accent,
+  starter: "var(--chart-3)",
+  growth: "var(--chart-1)",
+  enterprise: "var(--chart-2)",
 };
 
-const PLATFORM_COLORS_FALLBACK = [colors.primary, colors.accent, colors.textMuted, colors.primaryDark];
+const PLAN_LABELS: Record<string, string> = {
+  starter: "Free",
+  growth: "Pro",
+  enterprise: "Growth",
+};
+
+const tooltipStyle = {
+  background: "var(--card)",
+  border: "1px solid var(--border)",
+  borderRadius: 8,
+  fontSize: 12,
+};
 
 export default function AdminAnalytics() {
   const dispatch = useAppDispatch();
@@ -48,81 +62,189 @@ export default function AdminAnalytics() {
     void dispatch(fetchAdminAnalytics());
   }, [dispatch]);
 
+  const planPie = useMemo(
+    () =>
+      (analytics?.planDistribution ?? []).map((p) => ({
+        name: PLAN_LABELS[p.plan] ?? p.plan,
+        value: p.count,
+        color: PLAN_COLORS[p.plan] ?? "var(--primary)",
+      })),
+    [analytics?.planDistribution],
+  );
+
+  const platformBars = useMemo(
+    () =>
+      (analytics?.platformMix ?? []).map((p) => ({
+        feature: p.platform,
+        value: p.count,
+      })),
+    [analytics?.platformMix],
+  );
+
   return (
-    <Box>
-      <PageHeader title="Analytics" subtitle="Platform-wide publishing activity and plan mix." />
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
+        <p className="text-sm text-muted-foreground">
+          Product and publishing trends across the platform.
+        </p>
+      </header>
 
       {error ? (
-        <Alert severity="warning" sx={{ mb: 2.5 }}>
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
           {error} — connect the admin API to see live analytics.
-        </Alert>
+        </div>
       ) : null}
 
       {loading && !analytics ? (
-        <LoadingState variant="card" />
+        <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading analytics…
+        </div>
       ) : (
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
-          <ChartCard title="Posts over time" subtitle="Published posts across all workspaces" height={300}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={analytics?.postsOverTime ?? []} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                <CartesianGrid stroke={colors.border} strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" tick={chartAxisTick} axisLine={false} tickLine={false} />
-                <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={36} />
-                <Tooltip contentStyle={chartTooltipStyle} />
-                <Line type="monotone" dataKey="posts" name="Posts" stroke={colors.primary} strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartCard>
-
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" },
-              gap: 2.5,
-            }}
-          >
-            <ChartCard title="Plan distribution" subtitle="Active workspaces by plan" height={280}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={analytics?.planDistribution ?? []}
-                    dataKey="count"
-                    nameKey="plan"
-                    innerRadius={60}
-                    outerRadius={92}
-                    paddingAngle={2}
-                  >
-                    {(analytics?.planDistribution ?? []).map((entry) => (
-                      <Cell key={entry.plan} fill={PLAN_COLORS[entry.plan] ?? colors.primary} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                  <Legend />
-                </PieChart>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Posts over time</CardTitle>
+              <CardDescription>Published posts across all workspaces.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={analytics?.postsOverTime ?? []}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="var(--border)"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="date"
+                    stroke="var(--muted-foreground)"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) => String(v).slice(5)}
+                  />
+                  <YAxis
+                    stroke="var(--muted-foreground)"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Line
+                    type="monotone"
+                    dataKey="posts"
+                    stroke="var(--primary)"
+                    strokeWidth={2.5}
+                    dot={{ r: 3 }}
+                  />
+                </LineChart>
               </ResponsiveContainer>
-            </ChartCard>
+            </CardContent>
+          </Card>
 
-            <ChartCard title="Platform mix" subtitle="Connected accounts by social platform" height={280}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={analytics?.platformMix ?? []} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                  <CartesianGrid stroke={colors.border} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="platform" tick={chartAxisTick} axisLine={false} tickLine={false} />
-                  <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={36} />
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                  <Bar dataKey="count" name="Accounts" radius={[6, 6, 0, 0]}>
-                    {(analytics?.platformMix ?? []).map((entry, index) => (
-                      <Cell
-                        key={entry.platform}
-                        fill={PLATFORM_COLORS_FALLBACK[index % PLATFORM_COLORS_FALLBACK.length]}
-                      />
-                    ))}
-                  </Bar>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Platform mix</CardTitle>
+              <CardDescription>Connected accounts by social platform.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={platformBars}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="var(--border)"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="feature"
+                    stroke="var(--muted-foreground)"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="var(--muted-foreground)"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="value" fill="var(--chart-2)" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-            </ChartCard>
-          </Box>
-        </Box>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Connected accounts</CardTitle>
+              <CardDescription>Count of accounts per platform.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={platformBars} layout="vertical" margin={{ left: 20 }}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="var(--border)"
+                    horizontal={false}
+                  />
+                  <XAxis
+                    type="number"
+                    stroke="var(--muted-foreground)"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="feature"
+                    stroke="var(--muted-foreground)"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                    width={80}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="value" fill="var(--chart-1)" radius={[0, 6, 6, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Plan distribution</CardTitle>
+              <CardDescription>Subscribers per plan.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {planPie.length === 0 ? (
+                <p className="py-16 text-center text-sm text-muted-foreground">
+                  No plan data yet.
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={260}>
+                  <PieChart>
+                    <Pie
+                      data={planPie}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={55}
+                      outerRadius={90}
+                      paddingAngle={2}
+                    >
+                      {planPie.map((p) => (
+                        <Cell key={p.name} fill={p.color} />
+                      ))}
+                    </Pie>
+                    <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                    <Tooltip contentStyle={tooltipStyle} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
-    </Box>
+    </div>
   );
 }

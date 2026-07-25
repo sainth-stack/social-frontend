@@ -1,18 +1,13 @@
 "use client";
 
-import { Box } from "@mui/material";
-
 import Sidebar, { type SidebarBrand } from "@/components/layouts/Sidebar";
 import Topbar from "@/components/layouts/Topbar";
 import type { NavSection } from "@/components/layouts/nav-config";
 import AuthGuard from "@/features/auth/AuthGuard";
 import {
   selectMobileSidebarOpen,
-  selectSidebarOpen,
   setMobileSidebarOpen,
-  toggleSidebar,
 } from "@/features/ui/uiSlice";
-import { layoutTokens } from "@/lib/theme";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 type PortalLayoutProps = {
@@ -30,51 +25,25 @@ export default function PortalLayout({
 }: PortalLayoutProps) {
   const dispatch = useAppDispatch();
   const mobileOpen = useAppSelector(selectMobileSidebarOpen);
-  const sidebarExpanded = useAppSelector(selectSidebarOpen);
-  const sidebarCollapsed = !sidebarExpanded;
+  const isAdmin = brand.type === "platform";
 
   return (
     <AuthGuard requirePlatformAdmin={requirePlatformAdmin}>
-      <Box
-        sx={{
-          minHeight: "100vh",
-          bgcolor: "background.default",
-          display: { md: "flex" },
-        }}
-      >
+      <div className="min-h-screen bg-background">
         <Sidebar
           sections={navSections}
           brand={brand}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => dispatch(toggleSidebar())}
           mobileOpen={mobileOpen}
           onMobileClose={() => dispatch(setMobileSidebarOpen(false))}
         />
-        <Box
-          sx={{
-            flex: { md: 1 },
-            minWidth: 0,
-            width: { xs: "100%", md: "auto" },
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <Topbar onMenuClick={() => dispatch(setMobileSidebarOpen(true))} />
-          <Box
-            component="main"
-            sx={{
-              flex: 1,
-              width: "100%",
-              boxSizing: "border-box",
-              px: layoutTokens.contentPadding,
-              py: { xs: 2, md: 3 },
-              minHeight: { xs: `calc(100vh - ${layoutTokens.topbarHeight}px)`, md: "auto" },
-            }}
-          >
-            {children}
-          </Box>
-        </Box>
-      </Box>
+        <div className="md:pl-64">
+          <Topbar
+            isAdmin={isAdmin}
+            onMenuClick={() => dispatch(setMobileSidebarOpen(true))}
+          />
+          <main className="min-h-[calc(100vh-4rem)] p-4 md:p-8">{children}</main>
+        </div>
+      </div>
     </AuthGuard>
   );
 }

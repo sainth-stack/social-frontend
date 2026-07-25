@@ -1,5 +1,5 @@
-import DraftsList from "@/components/social-media/content-studio/DraftsList";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <DraftsList />;
+  redirect("/dashboard/posts/drafts");
 }

@@ -1,5 +1,5 @@
-import PostCalendar from "@/components/social-media/calendar/PostCalendar";
+import CalendarPage from "@/components/social-media/calendar/CalendarPage";
 
 export default function Page() {
-  return <PostCalendar />;
+  return <CalendarPage />;
 }

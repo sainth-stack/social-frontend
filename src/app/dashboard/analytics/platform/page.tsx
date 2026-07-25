@@ -1,5 +1,5 @@
-import PlatformAnalytics from "@/components/social-media/analytics/PlatformAnalytics";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <PlatformAnalytics />;
+  redirect("/dashboard/analytics");
 }

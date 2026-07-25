@@ -1,5 +1,5 @@
-import SocialSettingsForm from "@/components/social-media/settings/SocialSettingsForm";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <SocialSettingsForm section="notifications" />;
+  redirect("/dashboard/settings?tab=notifications");
 }

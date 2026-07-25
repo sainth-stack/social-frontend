@@ -1,24 +1,18 @@
-import AnalyticsOutlinedIcon from "@mui/icons-material/AnalyticsOutlined";
-import AssessmentOutlinedIcon from "@mui/icons-material/AssessmentOutlined";
-import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
-import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
-import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
-import CreditCardOutlinedIcon from "@mui/icons-material/CreditCardOutlined";
-import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
-import DraftsOutlinedIcon from "@mui/icons-material/DraftsOutlined";
-import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
-import HandshakeOutlinedIcon from "@mui/icons-material/HandshakeOutlined";
-import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
-import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
-import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined";
-import PeopleOutlineOutlinedIcon from "@mui/icons-material/PeopleOutlineOutlined";
-import PermMediaOutlinedIcon from "@mui/icons-material/PermMediaOutlined";
-import RecordVoiceOverOutlinedIcon from "@mui/icons-material/RecordVoiceOverOutlined";
-import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
-import ShareOutlinedIcon from "@mui/icons-material/ShareOutlined";
-import LocalOfferOutlinedIcon from "@mui/icons-material/LocalOfferOutlined";
-import type { SvgIconComponent } from "@mui/icons-material";
+import type { LucideIcon } from "lucide-react";
+import {
+  BarChart3,
+  CalendarDays,
+  CreditCard,
+  FileText,
+  LayoutDashboard,
+  LineChart,
+  Settings,
+  Share2,
+  Sparkles,
+  Tag,
+  Users,
+  Bell,
+} from "lucide-react";
 
 import { hasSocialPermission } from "@/lib/permissions";
 import type { User } from "@/types/auth";
@@ -26,7 +20,7 @@ import type { User } from "@/types/auth";
 export type NavItem = {
   label: string;
   href: string;
-  icon: SvgIconComponent;
+  icon: LucideIcon;
   badge?: string;
   children?: NavItem[];
   /** Hide this item unless the current user meets this social permission level. */
@@ -38,64 +32,41 @@ export type NavSection = {
   items: NavItem[];
 };
 
+/** Flat Spark-style nav — tabbed pages (AI Studio, Settings) have no sidebar children. */
 export const dashboardNavSections: NavSection[] = [
   {
-    items: [{ label: "Dashboard", href: "/dashboard", icon: DashboardOutlinedIcon }],
+    items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }],
   },
   {
     title: "Create",
     items: [
       {
-        label: "Content Studio",
+        label: "AI Studio",
         href: "/dashboard/content-studio",
-        icon: AutoAwesomeOutlinedIcon,
+        icon: Sparkles,
         minPermission: "editor",
-        children: [
-          { label: "AI Generate", href: "/dashboard/content-studio/generate", icon: AutoAwesomeOutlinedIcon },
-          { label: "Media Library", href: "/dashboard/content-studio/media", icon: PermMediaOutlinedIcon },
-          { label: "Drafts", href: "/dashboard/content-studio/drafts", icon: DraftsOutlinedIcon },
-          { label: "Templates", href: "/dashboard/content-studio/templates", icon: MenuBookOutlinedIcon },
-          { label: "Brand Voice", href: "/dashboard/content-studio/brand-voice", icon: RecordVoiceOverOutlinedIcon },
-        ],
       },
-      { label: "Calendar", href: "/dashboard/calendar", icon: CalendarMonthOutlinedIcon },
-      { label: "Posts", href: "/dashboard/posts", icon: ListAltOutlinedIcon },
+      { label: "Calendar", href: "/dashboard/calendar", icon: CalendarDays },
+      { label: "Posts", href: "/dashboard/posts", icon: FileText },
     ],
   },
   {
     title: "Grow",
     items: [
-      { label: "Accounts", href: "/dashboard/accounts", icon: ShareOutlinedIcon, minPermission: "admin" },
-      {
-        label: "Analytics",
-        href: "/dashboard/analytics",
-        icon: AnalyticsOutlinedIcon,
-        children: [
-          { label: "Overview", href: "/dashboard/analytics", icon: AnalyticsOutlinedIcon },
-          { label: "Platform", href: "/dashboard/analytics/platform", icon: AssessmentOutlinedIcon },
-          { label: "Post Performance", href: "/dashboard/analytics/posts", icon: ListAltOutlinedIcon },
-          { label: "Audience Growth", href: "/dashboard/analytics/audience", icon: GroupsOutlinedIcon },
-        ],
-      },
+      { label: "Accounts", href: "/dashboard/accounts", icon: Share2, minPermission: "admin" },
+      { label: "Analytics", href: "/dashboard/analytics", icon: LineChart },
+      { label: "Notifications", href: "/dashboard/notifications", icon: Bell },
     ],
   },
   {
     title: "Configuration",
     items: [
-      { label: "Billing", href: "/dashboard/billing", icon: CreditCardOutlinedIcon },
+      { label: "Plan", href: "/dashboard/billing", icon: CreditCard },
       {
         label: "Settings",
         href: "/dashboard/settings",
-        icon: SettingsOutlinedIcon,
+        icon: Settings,
         minPermission: "admin",
-        children: [
-          { label: "General", href: "/dashboard/settings", icon: SettingsOutlinedIcon },
-          { label: "Posting Schedule", href: "/dashboard/settings/schedule", icon: ScheduleOutlinedIcon },
-          { label: "AI Configuration", href: "/dashboard/settings/ai", icon: AutoAwesomeOutlinedIcon },
-          { label: "Approval Workflow", href: "/dashboard/settings/approval", icon: HandshakeOutlinedIcon },
-          { label: "Notifications", href: "/dashboard/settings/notifications", icon: NotificationsOutlinedIcon },
-          { label: "Team", href: "/dashboard/settings/team", icon: GroupsOutlinedIcon },
-        ],
       },
     ],
   },
@@ -105,10 +76,10 @@ export const adminNavSections: NavSection[] = [
   {
     title: "Platform",
     items: [
-      { label: "Overview", href: "/admin", icon: DashboardOutlinedIcon },
-      { label: "Users", href: "/admin/users", icon: PeopleOutlineOutlinedIcon },
-      { label: "Pricing", href: "/admin/pricing", icon: LocalOfferOutlinedIcon },
-      { label: "Analytics", href: "/admin/analytics", icon: BarChartOutlinedIcon },
+      { label: "Overview", href: "/admin", icon: LayoutDashboard },
+      { label: "Users", href: "/admin/users", icon: Users },
+      { label: "Plans", href: "/admin/pricing", icon: Tag },
+      { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
     ],
   },
 ];

@@ -17,12 +17,6 @@ import { colors, surfaceSx } from "@/lib/theme";
 import { useAppDispatch } from "@/store/hooks";
 import type { SocialAccount } from "@/types/social-media.types";
 
-function formatFollowers(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
-  return String(count);
-}
-
 function formatRelative(iso: string | null): string {
   if (!iso) return "Never";
   const date = new Date(iso);
@@ -111,8 +105,6 @@ export default function AccountCard({ orgId, account, onChanged }: AccountCardPr
             </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, fontSize: "0.8125rem" }}>
               {account.accountType.charAt(0).toUpperCase() + account.accountType.slice(1)}
-              {" · "}
-              {formatFollowers(account.followerCount)} followers
             </Typography>
             <Typography variant="body2" sx={{ mt: 0.25, fontSize: "0.75rem", color: colors.textMuted }}>
               Last synced {formatRelative(account.lastSyncedAt)}

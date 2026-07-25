@@ -12,7 +12,6 @@ import {
   Sparkles,
   Target,
   TrendingUp,
-  Users2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -37,7 +36,6 @@ const goalOptions = [
   { id: "sales", label: "Increase sales", icon: TrendingUp },
   { id: "leads", label: "Generate leads", icon: Target },
   { id: "brand", label: "Build brand", icon: Sparkles },
-  { id: "followers", label: "Grow followers", icon: Users2 },
   { id: "engagement", label: "Boost engagement", icon: Megaphone },
 ];
 

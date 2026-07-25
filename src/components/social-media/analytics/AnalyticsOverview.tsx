@@ -46,13 +46,11 @@ import {
   selectAnalyticsError,
   selectAnalyticsLoading,
   selectAnalyticsOverview,
-  selectAudienceGrowth,
   selectPostPerformance,
   setAnalyticsDateRange,
 } from "@/features/social-media/socialAnalyticsSlice";
 import {
   fetchAnalyticsOverview,
-  fetchAudienceGrowth,
   fetchPlatformAnalytics,
   fetchPostPerformance,
 } from "@/features/social-media/socialAnalyticsThunks";
@@ -85,7 +83,6 @@ export default function AnalyticsOverview() {
   const user = useAppSelector(selectUser);
   const orgId = user?.workspaceId ?? "";
   const overview = useAppSelector(selectAnalyticsOverview);
-  const audience = useAppSelector(selectAudienceGrowth);
   const posts = useAppSelector(selectPostPerformance);
   const loading = useAppSelector(selectAnalyticsLoading);
   const error = useAppSelector(selectAnalyticsError);
@@ -100,7 +97,6 @@ export default function AnalyticsOverview() {
     void dispatch(
       fetchPostPerformance({ orgId, from, to, sort: "engagementRate", order: "desc" }),
     );
-    void dispatch(fetchAudienceGrowth({ orgId, from, to }));
   }, [dispatch, orgId, range]);
 
   useEffect(() => {
@@ -154,18 +150,14 @@ export default function AnalyticsOverview() {
 
   const platformRows = useMemo(() => {
     const comparison = overview?.platformComparison ?? [];
-    const cards = audience?.platformCards ?? [];
-    return comparison.map((p) => {
-      const card = cards.find((c) => c.platform === p.platform);
-      return {
-        platform: p.platform,
-        posts: p.posts,
-        reach: p.reach,
-        engagement: Math.round(p.impressions * p.engagementRate),
-        growth: card?.growth ?? 0,
-      };
-    });
-  }, [overview?.platformComparison, audience?.platformCards]);
+    return comparison.map((p) => ({
+      platform: p.platform,
+      posts: p.posts,
+      reach: p.reach,
+      engagement: Math.round(p.impressions * p.engagementRate),
+      engagementRate: p.engagementRate,
+    }));
+  }, [overview?.platformComparison]);
 
   const topPosts = useMemo(() => posts.slice(0, 5), [posts]);
 
@@ -217,21 +209,13 @@ export default function AnalyticsOverview() {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KpiCard label="Reach" value={metrics?.totalReach ?? 0} change={metrics?.followerGrowth ?? 0} />
-            <KpiCard
-              label="Impressions"
-              value={metrics?.totalImpressions ?? 0}
-              change={metrics?.followerGrowth ?? 0}
-            />
+            <KpiCard label="Posts" value={metrics?.totalPosts ?? 0} />
+            <KpiCard label="Reach" value={metrics?.totalReach ?? 0} />
+            <KpiCard label="Impressions" value={metrics?.totalImpressions ?? 0} />
             <KpiCard
               label="Engagement"
               value={metrics?.totalEngagements ?? 0}
               change={Math.round((metrics?.avgEngagementRate ?? 0) * 1000) / 10}
-            />
-            <KpiCard
-              label="Followers"
-              value={audience?.platformCards.reduce((s, c) => s + c.followers, 0) ?? 0}
-              change={metrics?.followerGrowth ?? 0}
             />
           </div>
 
@@ -363,20 +347,8 @@ export default function AnalyticsOverview() {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between">
                               <span className="font-medium capitalize">{p.platform}</span>
-                              <span
-                                className={cn(
-                                  "inline-flex items-center gap-1 text-xs font-medium",
-                                  p.growth >= 0
-                                    ? "text-emerald-600 dark:text-emerald-400"
-                                    : "text-destructive",
-                                )}
-                              >
-                                {p.growth >= 0 ? (
-                                  <TrendingUp className="h-3 w-3" />
-                                ) : (
-                                  <TrendingDown className="h-3 w-3" />
-                                )}
-                                {Math.abs(p.growth)}%
+                              <span className="text-xs font-medium text-muted-foreground">
+                                {(p.engagementRate * 100).toFixed(1)}% eng.
                               </span>
                             </div>
                             <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
@@ -433,81 +405,46 @@ export default function AnalyticsOverview() {
                 </Card>
               </div>
 
-              <Card>
-                <CardHeader className="flex flex-row items-start justify-between space-y-0">
-                  <div>
-                    <CardTitle className="text-base">Audience growth</CardTitle>
-                    <CardDescription>
-                      Net new followers over the selected period.
-                    </CardDescription>
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className="gap-1 border-primary/20 bg-primary/10 text-primary"
-                  >
-                    <Sparkles className="h-3 w-3" />
-                    AI insight
-                  </Badge>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <AreaChart data={audience?.netNewFollowers ?? []}>
-                      <defs>
-                        <linearGradient id="areaFollowers" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.3} />
-                          <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="var(--border)"
-                        vertical={false}
-                      />
-                      <XAxis
-                        dataKey="date"
-                        stroke="var(--muted-foreground)"
-                        fontSize={11}
-                        tickLine={false}
-                        axisLine={false}
-                        tickFormatter={(v) => String(v).slice(5)}
-                      />
-                      <YAxis
-                        stroke="var(--muted-foreground)"
-                        fontSize={11}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <Tooltip contentStyle={tooltipStyle} />
-                      <Area
-                        type="monotone"
-                        dataKey="newFollowers"
-                        stroke="var(--primary)"
-                        strokeWidth={2}
-                        fill="url(#areaFollowers)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                  <div className="mt-4 flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
-                    <ArrowUpRight className="mt-0.5 h-4 w-4 text-primary" />
+              {topPosts.length > 0 ? (
+                <Card>
+                  <CardHeader className="flex flex-row items-start justify-between space-y-0">
                     <div>
-                      <span className="font-medium">Recommendation.</span>{" "}
-                      <span className="text-muted-foreground">
-                        Keep posting when engagement is rising — your top posts this period
-                        averaged{" "}
-                        <strong className="text-foreground">
-                          {(
-                            (topPosts.reduce((s, p) => s + p.engagementRate, 0) /
-                              Math.max(1, topPosts.length)) *
-                            100
-                          ).toFixed(1)}
-                          %
-                        </strong>{" "}
-                        engagement.
-                      </span>
+                      <CardTitle className="text-base">Posting tip</CardTitle>
+                      <CardDescription>
+                        Based on engagement from your top posts this period.
+                      </CardDescription>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-primary/20 bg-primary/10 text-primary"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      AI insight
+                    </Badge>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
+                      <ArrowUpRight className="mt-0.5 h-4 w-4 text-primary" />
+                      <div>
+                        <span className="font-medium">Recommendation.</span>{" "}
+                        <span className="text-muted-foreground">
+                          Keep posting when engagement is rising — your top posts this period
+                          averaged{" "}
+                          <strong className="text-foreground">
+                            {(
+                              (topPosts.reduce((s, p) => s + p.engagementRate, 0) /
+                                Math.max(1, topPosts.length)) *
+                              100
+                            ).toFixed(1)}
+                            %
+                          </strong>{" "}
+                          engagement.
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
             </>
           )}
         </>
@@ -523,9 +460,9 @@ function KpiCard({
 }: {
   label: string;
   value: number;
-  change: number;
+  change?: number;
 }) {
-  const up = change >= 0;
+  const up = (change ?? 0) >= 0;
   return (
     <Card>
       <CardContent className="p-5">
@@ -533,16 +470,18 @@ function KpiCard({
         <div className="mt-1 text-2xl font-semibold tracking-tight">
           {value.toLocaleString()}
         </div>
-        <div
-          className={cn(
-            "mt-1 inline-flex items-center gap-1 text-xs font-medium",
-            up ? "text-emerald-600 dark:text-emerald-400" : "text-destructive",
-          )}
-        >
-          {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-          {Math.abs(change)}
-          {label === "Engagement" ? "% avg" : " vs. prev"}
-        </div>
+        {change != null ? (
+          <div
+            className={cn(
+              "mt-1 inline-flex items-center gap-1 text-xs font-medium",
+              up ? "text-emerald-600 dark:text-emerald-400" : "text-destructive",
+            )}
+          >
+            {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+            {Math.abs(change)}
+            {label === "Engagement" ? "% avg" : ""}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

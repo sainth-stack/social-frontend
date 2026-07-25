@@ -150,12 +150,9 @@ export default function AccountsPage() {
     if (!workspaceId) return;
     setBusyId(account.id);
     try {
-      const updated = await socialMediaApi.syncAccount(workspaceId, account.id);
-      const followers = updated.followerCount ?? 0;
+      await socialMediaApi.syncAccount(workspaceId, account.id);
       toast.success(
-        followers > 0
-          ? `${PLATFORM_LABELS[account.platform] ?? account.platform} synced · ${followers.toLocaleString()} followers`
-          : `${PLATFORM_LABELS[account.platform] ?? account.platform} synced (followers unavailable — reconnect if this stays 0)`,
+        `${PLATFORM_LABELS[account.platform] ?? account.platform} synced`,
       );
       await load();
     } catch (err) {
@@ -318,26 +315,7 @@ export default function AccountsPage() {
                 <CardContent>
                   {primary ? (
                     <>
-                      <div className="grid grid-cols-3 gap-3 rounded-xl border border-border bg-muted/30 p-4">
-                        <Stat
-                          label="Followers"
-                          value={
-                            (primary.followerCount ?? 0) > 0
-                              ? primary.followerCount.toLocaleString()
-                              : "0"
-                          }
-                          hint={
-                            (primary.followerCount ?? 0) === 0
-                              ? platform === "linkedin"
-                                ? "Needs LinkedIn connections product"
-                                : platform === "x"
-                                  ? "Sync needs valid X API credits"
-                                  : platform === "facebook"
-                                    ? "Meta reports 0 page fans"
-                                    : undefined
-                              : undefined
-                          }
-                        />
+                      <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-muted/30 p-4">
                         <Stat label="Last sync" value={relativeTime(primary.lastSyncedAt)} />
                         <Stat
                           label="Health"

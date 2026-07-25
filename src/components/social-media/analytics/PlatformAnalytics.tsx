@@ -94,13 +94,13 @@ export default function PlatformAnalytics() {
       )}
 
       {loading && !data ? (
-        <MetricGrid columns={{ xs: 2, sm: 3, lg: 6 }} sx={{ mb: 3 }}>
-          {Array.from({ length: 6 }).map((_, i) => (
+        <MetricGrid columns={{ xs: 2, sm: 3, lg: 5 }} sx={{ mb: 3 }}>
+          {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} variant="rounded" height={96} />
           ))}
         </MetricGrid>
       ) : (
-        <MetricGrid columns={{ xs: 2, sm: 3, lg: 6 }} sx={{ mb: 3 }}>
+        <MetricGrid columns={{ xs: 2, sm: 3, lg: 5 }} sx={{ mb: 3 }}>
           <StatCard title="Posts" value={data?.metrics.posts ?? 0} />
           <StatCard title="Reach" value={(data?.metrics.reach ?? 0).toLocaleString()} />
           <StatCard
@@ -112,14 +112,6 @@ export default function PlatformAnalytics() {
             value={(data?.metrics.engagements ?? 0).toLocaleString()}
           />
           <StatCard title="Clicks" value={(data?.metrics.clicks ?? 0).toLocaleString()} />
-          <StatCard
-            title="Followers"
-            value={(data?.metrics.latestFollowers ?? 0).toLocaleString()}
-            change={{
-              value: `${data?.metrics.followerGrowth ?? 0} growth`,
-              direction: (data?.metrics.followerGrowth ?? 0) >= 0 ? "up" : "down",
-            }}
-          />
         </MetricGrid>
       )}
 
@@ -157,19 +149,6 @@ export default function PlatformAnalytics() {
                   <Tooltip contentStyle={chartTooltipStyle} />
                   <Bar dataKey="count" fill={colors.primary} radius={[6, 6, 0, 0]} />
                 </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-          </Grid>
-          <Grid size={{ xs: 12 }}>
-            <ChartCard title="Followers over time" height={240}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data?.series ?? []} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                  <CartesianGrid stroke={colors.border} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="date" tick={chartAxisTick} axisLine={false} tickLine={false} />
-                  <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={36} />
-                  <Tooltip contentStyle={chartTooltipStyle} />
-                  <Line type="monotone" dataKey="followers" stroke={colors.primary} strokeWidth={2} dot={false} />
-                </LineChart>
               </ResponsiveContainer>
             </ChartCard>
           </Grid>

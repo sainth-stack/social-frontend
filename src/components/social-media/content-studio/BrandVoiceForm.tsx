@@ -50,6 +50,7 @@ const emptyForm: BrandVoicePayload = {
   emojiUsage: "sometimes",
   primaryLanguage: "en",
   systemPromptOverride: null,
+  logoUrl: null,
 };
 
 function listToText(items: string[]): string {
@@ -95,6 +96,7 @@ export default function BrandVoiceForm() {
       emojiUsage: brandVoice.emojiUsage,
       primaryLanguage: brandVoice.primaryLanguage,
       systemPromptOverride: brandVoice.systemPromptOverride,
+      logoUrl: brandVoice.logoUrl ?? null,
     });
   }, [brandVoice]);
 

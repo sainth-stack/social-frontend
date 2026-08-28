@@ -2084,6 +2084,7 @@ const emptyBrand: BrandVoicePayload = {
   emojiUsage: "sometimes",
   primaryLanguage: "en",
   systemPromptOverride: null,
+  logoUrl: null,
 };
 
 function BrandTab({ orgId }: { orgId: string }) {
@@ -2096,6 +2097,7 @@ function BrandTab({ orgId }: { orgId: string }) {
   const [refreshing, setRefreshing] = useState(false);
   const [preview, setPreview] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const patch = <K extends keyof BrandVoicePayload>(key: K, value: BrandVoicePayload[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -2120,6 +2122,7 @@ function BrandTab({ orgId }: { orgId: string }) {
         emojiUsage: bv.emojiUsage,
         primaryLanguage: bv.primaryLanguage,
         systemPromptOverride: bv.systemPromptOverride,
+        logoUrl: bv.logoUrl ?? null,
       });
       setDescription(bv.tagline || "");
       setPreview(
@@ -2154,6 +2157,24 @@ function BrandTab({ orgId }: { orgId: string }) {
       toast.success("Preview refreshed");
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleLogoUpload = async (file: File | null) => {
+    if (!file || !orgId) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Logo must be under 5 MB");
+      return;
+    }
+    setUploadingLogo(true);
+    try {
+      const { logoUrl } = await socialMediaApi.uploadLogo(orgId, file);
+      patch("logoUrl", logoUrl);
+      toast.success("Logo uploaded");
+    } catch (err) {
+      toast.error(extractErrorMessage(err, "Logo upload failed"));
+    } finally {
+      setUploadingLogo(false);
     }
   };
 
@@ -2384,21 +2405,37 @@ function BrandTab({ orgId }: { orgId: string }) {
               htmlFor="logo"
               className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 px-6 py-8 text-center hover:bg-muted/50"
             >
-              <Upload className="h-6 w-6 text-muted-foreground" />
-              <p className="mt-2 text-sm font-medium">Drop your logo here, or click to upload</p>
+              {form.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={form.logoUrl}
+                  alt={`${form.brandName || "Brand"} logo`}
+                  className="mb-3 max-h-20 max-w-[160px] object-contain"
+                />
+              ) : (
+                <Upload className="h-6 w-6 text-muted-foreground" />
+              )}
+              <p className="mt-2 text-sm font-medium">
+                {uploadingLogo
+                  ? "Uploading…"
+                  : form.logoUrl
+                    ? "Click to replace logo"
+                    : "Drop your logo here, or click to upload"}
+              </p>
               <p className="text-xs text-muted-foreground">PNG, JPG, SVG · up to 5 MB</p>
               <input
                 id="logo"
                 type="file"
-                accept="image/*"
+                accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
                 className="hidden"
-                onChange={() => toast.message("Logo upload is UI-only for now")}
+                disabled={uploadingLogo || !orgId}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  void handleLogoUpload(file);
+                  e.target.value = "";
+                }}
               />
             </label>
-            <p className="text-[11px] text-muted-foreground">
-              <ProBadge className="mr-1.5" />
-              Managing multiple brand profiles is available on Pro.
-            </p>
           </div>
           <div className="flex flex-col items-end gap-1 md:col-span-2">
             <Button type="submit" disabled={saving || !orgId}>

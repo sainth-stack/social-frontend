@@ -402,6 +402,20 @@ export const socialMediaApi = {
     return data;
   },
 
+  async uploadLogo(orgId: string, file: File): Promise<{ logoUrl: string }> {
+    const form = new FormData();
+    form.append("file", file);
+    const { data } = await apiClient.post<{ logoUrl: string }>(
+      `${base(orgId)}/upload-logo`,
+      form,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 60_000,
+      },
+    );
+    return data;
+  },
+
   async uploadImage(
     orgId: string,
     file: File,

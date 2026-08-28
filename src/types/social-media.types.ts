@@ -178,6 +178,7 @@ export type BrandVoice = {
   emojiUsage: EmojiUsage;
   primaryLanguage: string;
   systemPromptOverride: string | null;
+  logoUrl: string | null;
   updatedAt: string | null;
 };
 

@@ -124,6 +124,7 @@ export default function OnboardingPage() {
         emojiUsage: "sometimes",
         primaryLanguage: "en",
         systemPromptOverride: null,
+        logoUrl: null,
       });
       if (data.cta.trim()) {
         await socialMediaApi.saveSettings(orgId, {

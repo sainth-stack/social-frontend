@@ -148,7 +148,6 @@ export default function AccountsPage() {
 
   const byPlatform = useMemo(() => {
     const map = new Map<SocialPlatform, SocialAccount[]>();
-    for (const p of PLATFORMS) map.set(p.platform, []);
     for (const a of accounts) {
       const list = map.get(a.platform) ?? [];
       list.push(a);

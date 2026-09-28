@@ -252,6 +252,22 @@ export default function PostDetail({ postId }: PostDetailProps) {
             </Button>
           </>
         )}
+        {post.status === "publishing" && (
+          <Button
+            size="sm"
+            disabled={publishing}
+            onClick={() =>
+              void run(
+                () =>
+                  dispatch(publishSocialPostNow({ orgId, postId: post.id })).unwrap(),
+                "Publishing started",
+              )
+            }
+          >
+            {publishing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+            Retry publish
+          </Button>
+        )}
         {(post.status === "published" || post.status === "failed") && (
           <Button
             variant="outline"

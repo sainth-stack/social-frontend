@@ -693,10 +693,10 @@ function RowMenu({
           <Copy className="mr-2 h-4 w-4" />
           Duplicate
         </DropdownMenuItem>
-        {(post.status === "draft" || post.status === "scheduled") && (
+        {(post.status === "draft" || post.status === "scheduled" || post.status === "publishing") && (
           <DropdownMenuItem onClick={onPublishNow}>
             <Send className="mr-2 h-4 w-4" />
-            Publish now
+            {post.status === "publishing" ? "Retry publish" : "Publish now"}
           </DropdownMenuItem>
         )}
         {post.status === "failed" && (

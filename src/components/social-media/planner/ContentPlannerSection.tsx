@@ -189,6 +189,11 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     [accounts],
   );
 
+  const connectedPlanPlatformSet = useMemo(
+    () => new Set(connectedPlanPlatforms),
+    [connectedPlanPlatforms],
+  );
+
   useEffect(() => {
     setPlanPlatforms((prev) => {
       const kept = prev.filter((p) => connectedPlanPlatforms.includes(p));
@@ -316,6 +321,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   };
 
   const togglePlanPlatform = (platform: SocialPlatform) => {
+    if (!connectedPlanPlatformSet.has(platform)) return;
     setPlanPlatforms((prev) => {
       if (prev.includes(platform)) {
         if (prev.length <= 1) {
@@ -787,21 +793,50 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
             <div className="rounded-lg border border-border bg-muted/20 px-3 py-3 space-y-2">
               <p className="text-xs font-medium text-foreground">Platforms</p>
               <p className="text-[10px] text-muted-foreground">
-                Each day rotates across selected accounts (not Instagram-only unless you choose it).
+                Only connected accounts appear selectable. Each day rotates across the platforms you
+                check below.
               </p>
-              <div className="flex flex-wrap gap-3">
-                {connectedPlanPlatforms.map((platform) => (
-                  <label key={platform} className="flex items-center gap-2 text-xs">
-                    <Checkbox
-                      checked={planPlatforms.includes(platform)}
-                      onCheckedChange={() => togglePlanPlatform(platform)}
-                      disabled={planning}
-                    />
-                    <PlatformIcon platform={platform} size="sm" />
-                    {PLATFORM_LABELS[platform]}
-                  </label>
-                ))}
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-4">
+                {PLAN_PUBLISHABLE.map((platform) => {
+                  const connected = connectedPlanPlatformSet.has(platform);
+                  return (
+                    <div key={platform} className="flex flex-col gap-0.5">
+                      <label
+                        className={cn(
+                          "flex items-center gap-2 text-xs",
+                          !connected && "text-muted-foreground",
+                        )}
+                      >
+                        <Checkbox
+                          checked={connected && planPlatforms.includes(platform)}
+                          onCheckedChange={() => togglePlanPlatform(platform)}
+                          disabled={planning || !connected}
+                        />
+                        <PlatformIcon platform={platform} size="sm" />
+                        {PLATFORM_LABELS[platform]}
+                        {!connected ? (
+                          <span className="text-[10px] text-muted-foreground">(not connected)</span>
+                        ) : null}
+                      </label>
+                      {!connected ? (
+                        <Link
+                          href="/dashboard/accounts"
+                          className="pl-6 text-[10px] font-medium text-primary hover:underline"
+                          onClick={() => setPlanDialogOpen(false)}
+                        >
+                          Connect {PLATFORM_LABELS[platform]}
+                        </Link>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
+              {connectedPlanPlatforms.length === 1 ? (
+                <p className="text-[10px] text-amber-800 dark:text-amber-200">
+                  Only one account is connected — all planned posts will use{" "}
+                  {PLATFORM_LABELS[connectedPlanPlatforms[0]!]} until you connect another platform.
+                </p>
+              ) : null}
             </div>
             <div className="rounded-lg border border-border bg-muted/20 px-3 py-3 space-y-2">
               <p className="text-xs font-medium text-foreground">Options</p>

@@ -393,9 +393,10 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     }
 
     const days = planTargetDate ? 1 : planFormDays;
+    const workTotal = Math.max(1, days * Math.max(1, planPlatforms.length));
     pollAbortRef.current = false;
     setPlanning(true);
-    setPlanProgress({ current: 0, total: days, message: "Starting…" });
+    setPlanProgress({ current: 0, total: workTotal, message: "Starting…" });
     setError(null);
     const promptSnapshot = planPrompt.trim();
     const platformsSnapshot = [...planPlatforms];
@@ -800,8 +801,8 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
             <div className="rounded-lg border border-border bg-muted/20 px-3 py-3 space-y-2">
               <p className="text-xs font-medium text-foreground">Platforms</p>
               <p className="text-[10px] text-muted-foreground">
-                Only connected accounts appear selectable. Each day rotates across the platforms you
-                check below.
+                Each selected platform gets its own post on the same day (times staggered by your queue
+                gap in Settings).
               </p>
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-4">
                 {PLAN_PUBLISHABLE.map((platform) => {

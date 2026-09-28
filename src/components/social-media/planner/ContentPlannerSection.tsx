@@ -3,11 +3,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Calendar, History, Pencil, RefreshCcw, RotateCcw, Save, Square, Wand2 } from "lucide-react";
+import { Calendar, History, Pencil, RefreshCcw, RotateCcw, Save, Square, Trash2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 import socialMediaApi from "@/api/endpoints/social-media.api";
 import { PlatformIcon } from "@/components/platform-icon";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,15 +48,40 @@ import { fetchSocialAccounts } from "@/features/social-media/socialAccountsThunk
 import { cn } from "@/lib/utils";
 import { contentPlanDayCap, planDisplayName } from "@/lib/plans";
 import {
+  clearContentPlanHistory,
   loadContentPlanHistory,
+  postIdsFromHistoryEntry,
+  removeContentPlanHistoryEntry,
   saveContentPlanHistoryRun,
   type ContentPlanHistoryEntry,
 } from "@/lib/contentPlanHistory";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import type { CalendarPost, SocialPlatform, SocialPost } from "@/types/social-media.types";
+import type { CalendarPost, SocialPlatform, SocialPost, SocialPostStatus } from "@/types/social-media.types";
 import { PLATFORM_LABELS } from "@/types/social-media.types";
 
 const PLAN_PUBLISHABLE: SocialPlatform[] = ["facebook", "instagram"];
+
+async function deletePlannerPostFromApi(
+  orgId: string,
+  postId: string,
+  status: SocialPostStatus,
+): Promise<void> {
+  if (status === "scheduled") {
+    await socialMediaApi.cancelSchedule(orgId, postId);
+    await socialMediaApi.deletePost(orgId, postId);
+    return;
+  }
+  if (status === "published") {
+    await socialMediaApi.archivePost(orgId, postId);
+    await socialMediaApi.deletePost(orgId, postId);
+    return;
+  }
+  if (status === "draft" || status === "failed" || status === "archived") {
+    await socialMediaApi.deletePost(orgId, postId);
+    return;
+  }
+  throw new Error(`Cannot delete a post while it is ${status.replace("_", " ")}`);
+}
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   const detail = (err as { response?: { data?: { detail?: string | { message?: string } } } })
@@ -138,6 +173,11 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   const [savingPost, setSavingPost] = useState(false);
   const [regeneratingPostId, setRegeneratingPostId] = useState<string | null>(null);
   const [loadingPost, setLoadingPost] = useState(false);
+  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
+  const [postToDelete, setPostToDelete] = useState<CalendarPost | null>(null);
+  const [historyEntryToClear, setHistoryEntryToClear] = useState<ContentPlanHistoryEntry | null>(null);
+  const [historyRunToDeletePosts, setHistoryRunToDeletePosts] = useState<ContentPlanHistoryEntry | null>(null);
+  const [clearAllHistoryOpen, setClearAllHistoryOpen] = useState(false);
 
   const [planProgress, setPlanProgress] = useState<{ current: number; total: number; message: string } | null>(
     null,
@@ -447,6 +487,91 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     setEditSchedule(toDatetimeLocalValue(post.scheduledAt));
   };
 
+  const confirmDeletePost = async () => {
+    if (!orgId || !postToDelete) return;
+    setDeletingPostId(postToDelete.id);
+    try {
+      let status: SocialPostStatus = postToDelete.status;
+      if (fullPost?.id === postToDelete.id) {
+        status = fullPost.status;
+      } else {
+        try {
+          const fresh = await socialMediaApi.getPost(orgId, postToDelete.id);
+          status = fresh.status;
+        } catch {
+          /* use calendar status */
+        }
+      }
+      await deletePlannerPostFromApi(orgId, postToDelete.id, status);
+      setItems((prev) => prev.filter((p) => p.id !== postToDelete.id));
+      if (selectedPost?.id === postToDelete.id) {
+        setSelectedPost(null);
+        setFullPost(null);
+      }
+      toast.success("Post deleted");
+      setPostToDelete(null);
+    } catch (err) {
+      toast.error(extractErrorMessage(err, "Could not delete post"));
+    } finally {
+      setDeletingPostId(null);
+    }
+  };
+
+  const confirmRemoveHistoryEntry = () => {
+    if (!orgId || !historyEntryToClear) return;
+    removeContentPlanHistoryEntry(orgId, historyEntryToClear.id);
+    setPlanHistory((prev) => prev.filter((e) => e.id !== historyEntryToClear.id));
+    setHistoryEntryToClear(null);
+    toast.success("Removed from history");
+  };
+
+  const confirmClearAllHistory = () => {
+    if (!orgId) return;
+    clearContentPlanHistory(orgId);
+    setPlanHistory([]);
+    setClearAllHistoryOpen(false);
+    toast.success("History cleared");
+  };
+
+  const confirmDeleteHistoryRunPosts = async () => {
+    if (!orgId || !historyRunToDeletePosts) return;
+    const ids = postIdsFromHistoryEntry(historyRunToDeletePosts);
+    if (ids.length === 0) {
+      toast.message("No posts linked to this run");
+      setHistoryRunToDeletePosts(null);
+      return;
+    }
+    setDeletingPostId("bulk");
+    let deleted = 0;
+    try {
+      for (const postId of ids) {
+        let status: SocialPostStatus = "draft";
+        try {
+          const post = await socialMediaApi.getPost(orgId, postId);
+          status = post.status;
+        } catch {
+          continue;
+        }
+        try {
+          await deletePlannerPostFromApi(orgId, postId, status);
+          deleted += 1;
+        } catch {
+          /* skip */
+        }
+      }
+      setItems((prev) => prev.filter((p) => !ids.includes(p.id)));
+      if (selectedPost && ids.includes(selectedPost.id)) {
+        setSelectedPost(null);
+        setFullPost(null);
+      }
+      await load();
+      toast.success(`Deleted ${deleted} of ${ids.length} post(s) from this run`);
+    } finally {
+      setDeletingPostId(null);
+      setHistoryRunToDeletePosts(null);
+    }
+  };
+
   const savePostEdits = async () => {
     if (!orgId || !fullPost) return;
     const platform = fullPost.platforms[0];
@@ -615,8 +740,10 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                   bucket={bucket}
                   index={index}
                   onPostClick={setSelectedPost}
+                  onDeletePost={(post) => setPostToDelete(post)}
                   onGenerateDay={() => openGenerateDialog(bucket.key)}
                   canGenerate={hasPlanAccount && !planning}
+                  deletingPostId={deletingPostId}
                 />
               ))}
             </div>
@@ -774,10 +901,19 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                       <span className="text-xs text-muted-foreground">
                         {new Date(entry.createdAt).toLocaleString()}
                       </span>
-                      <div className="flex gap-1">
+                      <div className="flex items-center gap-1">
                         {entry.platforms.map((p) => (
                           <PlatformIcon key={p} platform={p} size="sm" />
                         ))}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-muted-foreground"
+                          onClick={() => setHistoryEntryToClear(entry)}
+                        >
+                          Remove
+                        </Button>
                       </div>
                     </div>
                     <p className="mt-1 font-medium line-clamp-2">{entry.message}</p>
@@ -788,12 +924,34 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                       {entry.days} post(s) · {entry.scheduledCount} scheduled
                       {entry.errors.length ? ` · ${entry.errors.length} note(s)` : ""}
                     </p>
+                    {postIdsFromHistoryEntry(entry).length > 0 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 h-7 text-xs text-destructive hover:text-destructive"
+                        disabled={deletingPostId === "bulk"}
+                        onClick={() => setHistoryRunToDeletePosts(entry)}
+                      >
+                        <Trash2 className="mr-1 h-3 w-3" />
+                        Delete posts from this run
+                      </Button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             )}
           </div>
-          <DialogFooter className="border-t border-border px-6 py-4">
+          <DialogFooter className="border-t border-border px-6 py-4 flex-col gap-2 sm:flex-row sm:justify-between">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              disabled={planHistory.length === 0}
+              onClick={() => setClearAllHistoryOpen(true)}
+            >
+              Clear all history
+            </Button>
             <Button variant="outline" onClick={() => setHistoryOpen(false)}>
               Close
             </Button>
@@ -946,11 +1104,103 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                 <Button variant="ghost" className="w-full" asChild>
                   <Link href={`/dashboard/posts/${selectedPost.id}`}>Full post details</Link>
                 </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="w-full"
+                  disabled={!!deletingPostId || loadingPost}
+                  onClick={() => setPostToDelete(selectedPost)}
+                >
+                  {deletingPostId === selectedPost.id ? (
+                    <>
+                      <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Deleting…
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="mr-1.5 h-4 w-4" /> Delete post
+                    </>
+                  )}
+                </Button>
               </SheetFooter>
             </>
           )}
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={!!postToDelete} onOpenChange={(o) => !o && setPostToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this planned post?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the post from your calendar and Posts list. Scheduled posts are unscheduled
+              first. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmDeletePost()}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!historyEntryToClear} onOpenChange={(o) => !o && setHistoryEntryToClear(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove from history?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This only clears the log on this browser. Calendar posts are not affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmRemoveHistoryEntry}>Remove</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={clearAllHistoryOpen} onOpenChange={setClearAllHistoryOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear all plan history?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Removes every run from this browser&apos;s history. Your scheduled posts stay as they are.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmClearAllHistory}>Clear all</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!historyRunToDeletePosts}
+        onOpenChange={(o) => !o && setHistoryRunToDeletePosts(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete all posts from this plan run?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deletes up to {historyRunToDeletePosts ? postIdsFromHistoryEntry(historyRunToDeletePosts).length : 0}{" "}
+              post(s) created in that run (draft/scheduled; published posts are archived then removed).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmDeleteHistoryRunPosts()}
+            >
+              Delete posts
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
@@ -959,14 +1209,18 @@ function DayCard({
   bucket,
   index,
   onPostClick,
+  onDeletePost,
   onGenerateDay,
   canGenerate,
+  deletingPostId,
 }: {
   bucket: DayBucket;
   index: number;
   onPostClick: (post: CalendarPost) => void;
+  onDeletePost: (post: CalendarPost) => void;
   onGenerateDay: () => void;
   canGenerate: boolean;
+  deletingPostId: string | null;
 }) {
   const empty = bucket.posts.length === 0;
 
@@ -1013,21 +1267,43 @@ function DayCard({
           {bucket.posts.map((post) => {
             const platform = post.platforms[0] ?? "instagram";
             return (
-              <button
+              <div
                 key={post.id}
-                type="button"
-                onClick={() => onPostClick(post)}
-                className="w-full rounded-lg border border-border/80 bg-background p-2.5 text-left transition hover:border-primary/50 hover:bg-muted/30"
+                className="relative rounded-lg border border-border/80 bg-background transition hover:border-primary/50 hover:bg-muted/30"
               >
-                <div className="flex items-center gap-1.5">
-                  <PlatformIcon platform={platform} size="sm" />
-                  <span className="text-[11px] font-medium">{PLATFORM_LABELS[platform]}</span>
-                </div>
-                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                  {post.captionPreview || post.title}
-                </p>
-                <p className="mt-1.5 text-[10px] font-medium text-primary">Edit · Regenerate</p>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onPostClick(post)}
+                  className="w-full p-2.5 text-left"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <PlatformIcon platform={platform} size="sm" />
+                    <span className="text-[11px] font-medium">{PLATFORM_LABELS[platform]}</span>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                    {post.captionPreview || post.title}
+                  </p>
+                  <p className="mt-1.5 text-[10px] font-medium text-primary">Edit · Regenerate</p>
+                </button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-1 top-1 h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                  disabled={deletingPostId === post.id}
+                  aria-label="Delete post"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeletePost(post);
+                  }}
+                >
+                  {deletingPostId === post.id ? (
+                    <RefreshCcw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </div>
             );
           })}
         </div>

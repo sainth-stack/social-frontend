@@ -61,3 +61,30 @@ export function saveContentPlanHistoryRun(
   }
   return entry;
 }
+
+function persistHistory(orgId: string, entries: ContentPlanHistoryEntry[]): void {
+  try {
+    window.localStorage.setItem(storageKey(orgId), JSON.stringify(entries.slice(0, MAX_ENTRIES)));
+  } catch {
+    /* quota */
+  }
+}
+
+export function removeContentPlanHistoryEntry(orgId: string, entryId: string): void {
+  if (typeof window === "undefined" || !orgId) return;
+  const next = loadContentPlanHistory(orgId).filter((e) => e.id !== entryId);
+  persistHistory(orgId, next);
+}
+
+export function clearContentPlanHistory(orgId: string): void {
+  if (typeof window === "undefined" || !orgId) return;
+  try {
+    window.localStorage.removeItem(storageKey(orgId));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function postIdsFromHistoryEntry(entry: ContentPlanHistoryEntry): string[] {
+  return [...new Set(entry.items.map((i) => i.postId).filter(Boolean) as string[])];
+}

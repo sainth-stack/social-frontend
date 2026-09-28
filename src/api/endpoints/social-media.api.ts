@@ -168,8 +168,15 @@ export const socialMediaApi = {
     return normalizePost(data);
   },
 
-  async deletePost(orgId: string, postId: string): Promise<void> {
-    await apiClient.delete(`${base(orgId)}/posts/${postId}`);
+  async deletePost(
+    orgId: string,
+    postId: string,
+    options?: { deleteFromPlatforms?: boolean },
+  ): Promise<void> {
+    const deleteFromPlatforms = options?.deleteFromPlatforms ?? true;
+    await apiClient.delete(`${base(orgId)}/posts/${postId}`, {
+      params: { deleteFromPlatforms },
+    });
   },
 
   async duplicatePost(orgId: string, postId: string): Promise<SocialPost> {

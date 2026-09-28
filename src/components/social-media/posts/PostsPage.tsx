@@ -181,6 +181,7 @@ export default function PostsPage({ initialStatus = "all" }: PostsPageProps) {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState<SocialPost | null>(null);
+  const [deleteFromPlatforms, setDeleteFromPlatforms] = useState(true);
   const [preview, setPreview] = useState<SocialPost | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -266,7 +267,9 @@ export default function PostsPage({ initialStatus = "all" }: PostsPageProps) {
     if (!workspaceId || selected.size === 0) return;
     await runAction(async () => {
       await Promise.all(
-        [...selected].map((id) => socialMediaApi.deletePost(workspaceId, id)),
+        [...selected].map((id) =>
+          socialMediaApi.deletePost(workspaceId, id, { deleteFromPlatforms }),
+        ),
       );
     }, `Deleted ${selected.size} post${selected.size === 1 ? "" : "s"}`);
   };
@@ -624,10 +627,25 @@ export default function PostsPage({ initialStatus = "all" }: PostsPageProps) {
           <DialogHeader>
             <DialogTitle>Delete this post?</DialogTitle>
             <DialogDescription>
-              This can&apos;t be undone. The post will be removed from OpsBrain, but any
-              already-published content stays live on the platform.
+              This can&apos;t be undone. The post will be removed from OpsBrain.
+              {deleteFromPlatforms
+                ? " If it was published, we will also try to delete it from Facebook, Instagram, and LinkedIn (when connected)."
+                : " Published posts will stay live on social networks."}
             </DialogDescription>
           </DialogHeader>
+          <div className="flex items-start gap-2 py-1">
+            <Checkbox
+              id="delete-from-platforms"
+              checked={deleteFromPlatforms}
+              onCheckedChange={(v) => setDeleteFromPlatforms(v === true)}
+            />
+            <label
+              htmlFor="delete-from-platforms"
+              className="text-sm leading-snug text-muted-foreground"
+            >
+              Also remove from connected platforms (if already published)
+            </label>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmDelete(null)}>
               Cancel
@@ -638,7 +656,10 @@ export default function PostsPage({ initialStatus = "all" }: PostsPageProps) {
               onClick={() => {
                 if (!confirmDelete || !workspaceId) return;
                 void runAction(
-                  () => socialMediaApi.deletePost(workspaceId, confirmDelete.id),
+                  () =>
+                    socialMediaApi.deletePost(workspaceId, confirmDelete.id, {
+                      deleteFromPlatforms,
+                    }),
                   "Post deleted",
                 ).then(() => setConfirmDelete(null));
               }}

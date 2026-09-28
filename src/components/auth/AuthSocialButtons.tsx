@@ -4,6 +4,7 @@ import { Box, Button, Tooltip, Typography } from "@mui/material";
 
 import { colors } from "@/lib/theme";
 
+/* Google SSO disabled for now
 function GoogleIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
@@ -26,6 +27,7 @@ function GoogleIcon() {
     </svg>
   );
 }
+*/
 
 function MicrosoftIcon() {
   return (
@@ -44,12 +46,13 @@ type AuthSocialButtonsProps = {
 
 export default function AuthSocialButtons({ mode }: AuthSocialButtonsProps) {
   const providers = [
-    { name: "Google", Icon: GoogleIcon },
+    // Google SSO disabled for now
+    // { name: "Google", Icon: GoogleIcon },
     { name: "Microsoft", Icon: MicrosoftIcon },
   ] as const;
 
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5 }}>
+    <Box sx={{ display: "grid", gridTemplateColumns: "1fr", gap: 1.5 }}>
       {providers.map(({ name, Icon }) => (
         <Tooltip key={name} title="SSO coming soon" arrow placement="top">
           <span style={{ display: "block" }}>

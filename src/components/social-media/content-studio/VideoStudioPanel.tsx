@@ -116,10 +116,10 @@ export default function VideoStudioPanel({
       )}
 
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
-        <Chip label="Sora 2" size="small" color="primary" variant="outlined" sx={{ fontSize: "0.6875rem" }} />
-        <Chip label="Preview" size="small" variant="outlined" sx={{ fontSize: "0.6875rem" }} />
+        <Chip label="Video" size="small" color="primary" variant="outlined" sx={{ fontSize: "0.6875rem" }} />
+        <Chip label="Upload or generate" size="small" variant="outlined" sx={{ fontSize: "0.6875rem" }} />
         <Tooltip
-          title="Sora 2 is in gated preview on Azure. Access requires applying at aka.ms/oai/sora2access."
+          title="AI video generation is optional. You can always upload an MP4 to Amazon S3."
           arrow
         >
           <InfoOutlinedIcon sx={{ fontSize: 14, color: colors.textMuted, cursor: "help" }} />
@@ -133,7 +133,7 @@ export default function VideoStudioPanel({
           onClose={() => setSoraUnavailable(null)}
           sx={{ fontSize: "0.8125rem" }}
         >
-          <strong>Sora 2 not available for your subscription.</strong> {soraUnavailable} You can still upload a
+          <strong>Video generation is not configured.</strong> {soraUnavailable} You can still upload a
           video manually below.
         </Alert>
       )}
@@ -159,7 +159,7 @@ export default function VideoStudioPanel({
 
           {!canRefineVideo && videoUrl && (
             <Alert severity="info" sx={{ fontSize: "0.8125rem" }}>
-              Refine is available for AI-generated videos only. Uploaded videos cannot be edited with Sora.
+              Refine is available for AI-generated videos only. Uploaded videos cannot be edited.
             </Alert>
           )}
 
@@ -264,7 +264,7 @@ export default function VideoStudioPanel({
       {generationMode === "create" && (
       <SectionCard
         title="Reference image (optional)"
-        description="Guide Sora with a logo, brand asset, or first frame. Resized automatically to match orientation."
+        description="Guide generation with a logo, brand asset, or first frame. Resized automatically to match orientation."
       >
         <Stack spacing={1.25}>
           {postImageUrl && (
@@ -348,7 +348,7 @@ export default function VideoStudioPanel({
           </Stack>
 
           <Typography variant="caption" sx={{ color: colors.textMuted, lineHeight: 1.4 }}>
-            JPEG, PNG, or WebP. Sora requires the reference to match video resolution — we crop and resize it for you.
+            JPEG, PNG, or WebP. The reference is cropped and resized to match the video resolution.
           </Typography>
         </Stack>
       </SectionCard>
@@ -393,7 +393,7 @@ export default function VideoStudioPanel({
 
           <GenerationStatusBar
             loading={generating || uploading}
-            loadingLabel={generating ? (generationMode === "refine" ? "Refining with Sora 2" : "Generating with Sora 2") : "Uploading video"}
+            loadingLabel={generating ? (generationMode === "refine" ? "Refining video" : "Generating video") : "Uploading video"}
             loadingHint={generating ? (generationMode === "refine" ? "Refining can take several minutes" : "This can take up to 10 minutes for longer clips") : undefined}
             error={error}
             onDismissError={() => setError(null)}

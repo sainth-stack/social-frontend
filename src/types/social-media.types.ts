@@ -275,7 +275,7 @@ export type CalendarResponse = {
 };
 
 export type ContentPlanGeneratePayload = {
-  days: 7 | 15 | 30;
+  days: 1 | 7 | 15 | 30;
   /** User brief — what the content plan should be about */
   prompt: string;
   /** @deprecated use prompt */
@@ -285,6 +285,9 @@ export type ContentPlanGeneratePayload = {
   autoSchedule?: boolean;
   generateImages?: boolean;
   skipFilledDays?: boolean;
+  startDayOffset?: number;
+  /** YYYY-MM-DD — generate a single post for this date */
+  targetDate?: string;
 };
 
 export type ContentPlanJobStartResponse = {

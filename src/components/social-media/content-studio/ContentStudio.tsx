@@ -28,7 +28,7 @@ const ACTIONS = [
   },
   {
     title: "Media Library",
-    description: "Browse AI-generated and uploaded images and videos stored in Azure.",
+    description: "Browse AI-generated and uploaded images and videos stored in Amazon S3.",
     href: "/dashboard/content-studio/media",
     icon: PermMediaOutlinedIcon,
   },

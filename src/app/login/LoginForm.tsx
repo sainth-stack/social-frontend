@@ -7,10 +7,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import SparkAuthLayout, {
-  GoogleButton,
-  OrDivider,
-} from "@/components/auth/SparkAuthLayout";
+import SparkAuthLayout from "@/components/auth/SparkAuthLayout";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -25,7 +22,7 @@ import {
 } from "@/features/auth/authSlice";
 import { login } from "@/features/auth/authThunks";
 import { getHomeRoute } from "@/lib/auth/users";
-import { startGoogleAuth } from "@/lib/auth/googleAuth";
+// Google SSO disabled for now — re-enable with GoogleButton, OrDivider, startGoogleAuth
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 const REMEMBER_EMAIL_KEY = "opsbrain_remember_email";
@@ -178,8 +175,10 @@ export default function LoginForm() {
           )}
         </Button>
 
+        {/* Google SSO disabled for now
         <OrDivider />
         <GoogleButton onClick={() => void startGoogleAuth()} />
+        */}
       </form>
     </SparkAuthLayout>
   );

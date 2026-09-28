@@ -7,10 +7,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import SparkAuthLayout, {
-  GoogleButton,
-  OrDivider,
-} from "@/components/auth/SparkAuthLayout";
+import SparkAuthLayout from "@/components/auth/SparkAuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +21,7 @@ import {
 } from "@/features/auth/authSlice";
 import { register as registerUser } from "@/features/auth/authThunks";
 import { getHomeRoute } from "@/lib/auth/users";
-import { startGoogleAuth } from "@/lib/auth/googleAuth";
+// Google SSO disabled for now — re-enable with GoogleButton, OrDivider, startGoogleAuth
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 const schema = z
@@ -215,8 +212,10 @@ export default function RegisterForm() {
           )}
         </Button>
 
+        {/* Google SSO disabled for now
         <OrDivider />
         <GoogleButton onClick={() => void startGoogleAuth()} />
+        */}
 
         <p className="text-center text-xs text-muted-foreground">
           By creating an account, you agree to our Terms and Privacy Policy.

@@ -47,6 +47,7 @@ export default function SparkAuthLayout({
   );
 }
 
+/** Google SSO — wire up from login/register when GOOGLE_* env is configured. */
 export function GoogleButton({
   label = "Continue with Google",
   onClick,

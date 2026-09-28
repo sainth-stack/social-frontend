@@ -98,7 +98,7 @@ export default function ImageStudioPanel({
 
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
         <Chip label="gpt-image-2" size="small" color="primary" variant="outlined" sx={{ fontSize: "0.6875rem" }} />
-        <Chip label="Azure OpenAI" size="small" variant="outlined" sx={{ fontSize: "0.6875rem" }} />
+        <Chip label="OpenAI" size="small" variant="outlined" sx={{ fontSize: "0.6875rem" }} />
       </Box>
 
       <SectionCard title="Choose a template" description="Start from a visual style">

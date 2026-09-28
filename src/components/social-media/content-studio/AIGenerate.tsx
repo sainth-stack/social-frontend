@@ -1043,8 +1043,8 @@ export default function AIGenerate() {
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: { error?: string; message?: string } | string } } };
       const detail = axiosErr?.response?.data?.detail;
-      if (detail && typeof detail === "object" && detail.error === "sora_unavailable") {
-        setSoraUnavailable(detail.message ?? "Sora 2 is not available for your Azure subscription.");
+      if (detail && typeof detail === "object" && (detail.error === "video_unavailable" || detail.error === "sora_unavailable")) {
+        setSoraUnavailable(detail.message ?? "Video generation is not configured. You can upload a video instead.");
       } else {
         const msg = typeof detail === "string" ? detail : "Video generation failed. You can upload a video instead.";
         setVideoError(msg);

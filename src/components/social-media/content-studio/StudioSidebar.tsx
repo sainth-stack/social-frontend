@@ -300,7 +300,7 @@ export default function StudioSidebar(props: StudioSidebarProps) {
           ? "Write your post brief and distribution settings"
           : studioMode === "image"
             ? "Pick a template and generate with gpt-image-2"
-            : "Pick a template and generate with Sora 2"}
+            : "Pick a template and generate or upload a video"}
       </Typography>
 
       <Stack spacing={0} sx={{ flex: 1, overflowY: "auto", pr: 0.5, pb: 2, minHeight: 0 }}>
@@ -418,8 +418,8 @@ export default function StudioSidebar(props: StudioSidebarProps) {
             sx={{ display: "block", textAlign: "center", mt: 1 }}
           >
             {studioMode === "image"
-              ? "Uses gpt-image-2 on Azure OpenAI"
-              : "Uses Sora 2 on Azure OpenAI (preview)"}
+              ? "Uses OpenAI image generation"
+              : "Upload a video or generate when a video provider is configured"}
           </Typography>
         )}
       </Box>

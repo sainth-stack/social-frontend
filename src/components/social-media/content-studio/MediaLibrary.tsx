@@ -165,7 +165,7 @@ function AssetCard({
           <AppButton variant="primary" size="small" onClick={() => onUse(asset)} sx={{ flex: 1 }}>
             Use in post
           </AppButton>
-          <Tooltip title={canEditAsset(asset) ? "Edit with AI" : "Only AI-generated Sora videos can be refined"}>
+          <Tooltip title={canEditAsset(asset) ? "Edit with AI" : "Only AI-generated videos can be refined"}>
             <span>
               <AppButton
                 variant="secondary"
@@ -498,7 +498,7 @@ export default function MediaLibrary() {
               <AppButton variant="primary" onClick={() => handleUse(preview)}>
                 Use in post
               </AppButton>
-              <Tooltip title={canEditAsset(preview) ? "Edit with AI" : "Only AI-generated Sora videos can be refined"}>
+              <Tooltip title={canEditAsset(preview) ? "Edit with AI" : "Only AI-generated videos can be refined"}>
                 <span>
                   <AppButton
                     variant="secondary"
@@ -561,7 +561,7 @@ export default function MediaLibrary() {
 
               {editTarget.mediaType === "video" && !editTarget.soraVideoId && (
                 <Alert severity="info" sx={{ mb: 2 }}>
-                  Uploaded videos cannot be refined with Sora. Generate a new video in AI Studio, or upload a
+                  Uploaded videos cannot be refined. Generate a new video in AI Studio, or upload a
                   replacement.
                 </Alert>
               )}
@@ -595,7 +595,7 @@ export default function MediaLibrary() {
                   <CircularProgress size={18} />
                   <Typography variant="body2" color="text.secondary">
                     {editTarget.mediaType === "video"
-                      ? "Refining with Sora 2 — this can take several minutes"
+                      ? "Refining video — this can take several minutes"
                       : "Applying edit with gpt-image-2"}
                   </Typography>
                 </Stack>

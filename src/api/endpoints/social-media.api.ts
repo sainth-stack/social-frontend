@@ -147,13 +147,22 @@ export const socialMediaApi = {
   async regeneratePostContent(
     orgId: string,
     postId: string,
-    payload?: { prompt?: string; regenerateImage?: boolean },
+    payload?: {
+      prompt?: string;
+      regenerateImage?: boolean;
+      regenerateCaption?: boolean;
+      tone?: string;
+      cta?: string;
+    },
   ): Promise<SocialPost> {
     const { data } = await apiClient.post<SocialPost & { workspaceId?: string }>(
       `${base(orgId)}/posts/${postId}/regenerate-content`,
       {
         prompt: payload?.prompt,
         regenerateImage: payload?.regenerateImage ?? true,
+        regenerateCaption: payload?.regenerateCaption ?? true,
+        tone: payload?.tone,
+        cta: payload?.cta,
       },
     );
     return normalizePost(data);

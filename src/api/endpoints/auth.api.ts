@@ -49,6 +49,11 @@ export const authApi = {
     const { data } = await apiClient.get<{ url: string }>("/api/v1/auth/google/url");
     return data;
   },
+
+  async getGoogleAuthStatus(): Promise<{ enabled: boolean }> {
+    const { data } = await apiClient.get<{ enabled: boolean }>("/api/v1/auth/google/status");
+    return data;
+  },
 };
 
 export default authApi;

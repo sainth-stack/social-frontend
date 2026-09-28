@@ -322,7 +322,9 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
 
   const openGenerateDialog = (targetDate: string | null = null) => {
     setPlanTargetDate(targetDate);
-    setPlanFormDays(targetDate ? 1 : viewDays);
+    if (!targetDate) {
+      setPlanFormDays(viewDays);
+    }
     setPlanDialogOpen(true);
   };
 

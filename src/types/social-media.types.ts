@@ -288,6 +288,8 @@ export type ContentPlanGeneratePayload = {
   startDayOffset?: number;
   /** YYYY-MM-DD — generate a single post for this date */
   targetDate?: string;
+  /** Limit generation to these publishable platforms (default: all connected) */
+  platforms?: SocialPlatform[];
 };
 
 export type ContentPlanJobStartResponse = {

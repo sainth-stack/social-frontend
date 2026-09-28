@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Calendar, Pencil, RefreshCcw, RotateCcw, Save, Wand2 } from "lucide-react";
+import { Calendar, History, Pencil, RefreshCcw, RotateCcw, Save, Square, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 import socialMediaApi from "@/api/endpoints/social-media.api";
@@ -37,9 +37,16 @@ import { selectSocialAccounts } from "@/features/social-media/socialAccountsSele
 import { fetchSocialAccounts } from "@/features/social-media/socialAccountsThunks";
 import { cn } from "@/lib/utils";
 import { contentPlanDayCap, planDisplayName } from "@/lib/plans";
+import {
+  loadContentPlanHistory,
+  saveContentPlanHistoryRun,
+  type ContentPlanHistoryEntry,
+} from "@/lib/contentPlanHistory";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import type { CalendarPost, SocialPost } from "@/types/social-media.types";
+import type { CalendarPost, SocialPlatform, SocialPost } from "@/types/social-media.types";
 import { PLATFORM_LABELS } from "@/types/social-media.types";
+
+const PLAN_PUBLISHABLE: SocialPlatform[] = ["facebook", "instagram"];
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   const detail = (err as { response?: { data?: { detail?: string | { message?: string } } } })
@@ -112,6 +119,12 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   const [planCta, setPlanCta] = useState("");
   const [generateImages, setGenerateImages] = useState(true);
   const [skipFilledDays, setSkipFilledDays] = useState(true);
+  const [planPlatforms, setPlanPlatforms] = useState<SocialPlatform[]>([]);
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [planHistory, setPlanHistory] = useState<ContentPlanHistoryEntry[]>([]);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const pollAbortRef = useRef(false);
 
   const [selectedPost, setSelectedPost] = useState<CalendarPost | null>(null);
   const [fullPost, setFullPost] = useState<SocialPost | null>(null);
@@ -137,10 +150,30 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   const hasPlanAccount = useMemo(
     () =>
       accounts.some(
-        (a) => a.isActive && (a.platform === "facebook" || a.platform === "instagram"),
+        (a) => a.isActive && PLAN_PUBLISHABLE.includes(a.platform),
       ),
     [accounts],
   );
+
+  const connectedPlanPlatforms = useMemo(
+    () =>
+      [
+        ...new Set(
+          accounts
+            .filter((a) => a.isActive && PLAN_PUBLISHABLE.includes(a.platform))
+            .map((a) => a.platform),
+        ),
+      ] as SocialPlatform[],
+    [accounts],
+  );
+
+  useEffect(() => {
+    setPlanPlatforms((prev) => {
+      const kept = prev.filter((p) => connectedPlanPlatforms.includes(p));
+      if (kept.length > 0) return kept;
+      return connectedPlanPlatforms;
+    });
+  }, [connectedPlanPlatforms]);
 
   useEffect(() => {
     if (!orgId) return;
@@ -253,6 +286,67 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     setPlanDialogOpen(true);
   };
 
+  const openHistory = () => {
+    if (orgId) setPlanHistory(loadContentPlanHistory(orgId));
+    setHistoryOpen(true);
+  };
+
+  const togglePlanPlatform = (platform: SocialPlatform) => {
+    setPlanPlatforms((prev) => {
+      if (prev.includes(platform)) {
+        if (prev.length <= 1) {
+          toast.error("Select at least one platform");
+          return prev;
+        }
+        return prev.filter((p) => p !== platform);
+      }
+      return [...prev, platform];
+    });
+  };
+
+  const stopPlan = async () => {
+    pollAbortRef.current = true;
+    const jobId = activeJobId;
+    if (orgId && jobId && !jobId.startsWith("sync-")) {
+      try {
+        await socialMediaApi.cancelContentPlanJob(orgId, jobId);
+      } catch {
+        /* still stop UI polling */
+      }
+    }
+    setPlanning(false);
+    setPlanProgress(null);
+    setActiveJobId(null);
+    toast.message("Stopping… posts already created stay on your calendar.");
+    void load();
+  };
+
+  const finishPlanRun = async (
+    result: NonNullable<Awaited<ReturnType<typeof socialMediaApi.getContentPlanJob>>["result"]>,
+    jobId: string,
+    meta: { prompt: string; platforms: SocialPlatform[] },
+  ) => {
+    if (result.calendarItems?.length) {
+      setItems((prev) => {
+        const ids = new Set(result.calendarItems.map((p) => p.id));
+        return [...result.calendarItems, ...prev.filter((p) => !ids.has(p.id))];
+      });
+    }
+    saveContentPlanHistoryRun(orgId, {
+      jobId,
+      prompt: meta.prompt,
+      platforms: meta.platforms,
+      result,
+    });
+    await load();
+    toast.success(result.message || `Planned ${result.days} day(s)`);
+    if (result.errors?.length) {
+      toast.message(result.errors.slice(0, 2).join(" · "));
+    }
+    setPlanDialogOpen(false);
+    setPlanTargetDate(null);
+  };
+
   const generatePlan = async () => {
     if (!orgId) return;
     if (!planPrompt.trim() || planPrompt.trim().length < 10) {
@@ -263,26 +357,52 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
       toast.error("Connect Facebook or Instagram first");
       return;
     }
+    if (planPlatforms.length === 0) {
+      toast.error("Select at least one platform");
+      return;
+    }
 
     const days = planTargetDate ? 1 : planFormDays;
+    pollAbortRef.current = false;
     setPlanning(true);
     setPlanProgress({ current: 0, total: days, message: "Starting…" });
     setError(null);
+    const promptSnapshot = planPrompt.trim();
+    const platformsSnapshot = [...planPlatforms];
     try {
       const { jobId } = await socialMediaApi.startContentPlanJob(orgId, {
         days: days as 1 | 7 | 15 | 30,
-        prompt: planPrompt.trim(),
+        prompt: promptSnapshot,
         tone: planTone.trim() || undefined,
         cta: planCta.trim() || undefined,
         autoSchedule: true,
         generateImages,
         skipFilledDays: planTargetDate ? false : skipFilledDays,
         targetDate: planTargetDate || undefined,
+        platforms: platformsSnapshot,
       });
+      setActiveJobId(jobId);
 
       const deadline = Date.now() + 20 * 60 * 1000;
       let result = null;
       while (Date.now() < deadline) {
+        if (pollAbortRef.current) {
+          for (let i = 0; i < 8 && !result; i++) {
+            await new Promise((r) => setTimeout(r, 1500));
+            const status = await socialMediaApi.getContentPlanJob(orgId, jobId);
+            if (status.status === "completed" && status.result) {
+              result = status.result;
+              break;
+            }
+          }
+          if (result) {
+            await finishPlanRun(result, jobId, {
+              prompt: promptSnapshot,
+              platforms: platformsSnapshot,
+            });
+          }
+          return;
+        }
         const status = await socialMediaApi.getContentPlanJob(orgId, jobId);
         if (status.status === "running" && status.progress) {
           setPlanProgress(status.progress);
@@ -300,26 +420,21 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         throw new Error("Still running — refresh the planner in a minute.");
       }
 
-      if (result.calendarItems?.length) {
-        setItems((prev) => {
-          const ids = new Set(result!.calendarItems.map((p) => p.id));
-          return [...result!.calendarItems, ...prev.filter((p) => !ids.has(p.id))];
-        });
-      }
-      await load();
-      toast.success(result.message || `Planned ${result.days} day(s)`);
-      if (result.errors?.length) {
-        toast.message(result.errors.slice(0, 2).join(" · "));
-      }
-      setPlanDialogOpen(false);
-      setPlanTargetDate(null);
+      await finishPlanRun(result, jobId, {
+        prompt: promptSnapshot,
+        platforms: platformsSnapshot,
+      });
     } catch (err) {
-      const message = extractPlanError(err, "Failed to generate plan");
-      setError(message);
-      toast.error(message);
+      if (!pollAbortRef.current) {
+        const message = extractPlanError(err, "Failed to generate plan");
+        setError(message);
+        toast.error(message);
+      }
     } finally {
       setPlanning(false);
       setPlanProgress(null);
+      setActiveJobId(null);
+      pollAbortRef.current = false;
     }
   };
 
@@ -384,7 +499,11 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     }
   };
 
-  const canSubmitPlan = planPrompt.trim().length >= 10 && hasPlanAccount && !planning;
+  const canSubmitPlan =
+    planPrompt.trim().length >= 10 &&
+    hasPlanAccount &&
+    planPlatforms.length > 0 &&
+    !planning;
 
   return (
     <>
@@ -416,6 +535,10 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                   </button>
                 ))}
               </div>
+              <Button variant="outline" size="sm" onClick={openHistory}>
+                <History className="mr-1.5 h-4 w-4" />
+                History
+              </Button>
               <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || planning}>
                 <RefreshCcw className={cn("mr-1.5 h-4 w-4", loading && "animate-spin")} />
                 Refresh
@@ -439,11 +562,23 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         <CardContent>
           {planning && planProgress && (
             <div className="mb-4 space-y-2 rounded-xl border border-border bg-muted/40 px-4 py-3">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between gap-2 text-xs">
                 <span className="font-medium">{planProgress.message}</span>
-                <span className="text-muted-foreground">
-                  {planProgress.current}/{planProgress.total || planFormDays}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">
+                    {planProgress.current}/{planProgress.total || planFormDays}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => void stopPlan()}
+                  >
+                    <Square className="mr-1 h-3 w-3 fill-current" />
+                    Stop
+                  </Button>
+                </div>
               </div>
               <Progress
                 value={
@@ -452,6 +587,9 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                     : 0
                 }
               />
+              <p className="text-[10px] text-muted-foreground">
+                Running in background — Stop cancels remaining days; finished posts stay scheduled.
+              </p>
             </div>
           )}
           {loading && !planning ? (
@@ -495,7 +633,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
             <DialogDescription>
               {planTargetDate
                 ? `Create and schedule one post for ${planTargetDate}.`
-                : "One AI post per day from your brief. Adjust options below."}
+                : "One flagship-quality post per day from your brief. Fill Brand Profile for best voice and CTAs."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 px-6 py-4">
@@ -554,6 +692,25 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
               </div>
             </div>
             <div className="rounded-lg border border-border bg-muted/20 px-3 py-3 space-y-2">
+              <p className="text-xs font-medium text-foreground">Platforms</p>
+              <p className="text-[10px] text-muted-foreground">
+                Each day rotates across selected accounts (not Instagram-only unless you choose it).
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {connectedPlanPlatforms.map((platform) => (
+                  <label key={platform} className="flex items-center gap-2 text-xs">
+                    <Checkbox
+                      checked={planPlatforms.includes(platform)}
+                      onCheckedChange={() => togglePlanPlatform(platform)}
+                      disabled={planning}
+                    />
+                    <PlatformIcon platform={platform} size="sm" />
+                    {PLATFORM_LABELS[platform]}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-3 space-y-2">
               <p className="text-xs font-medium text-foreground">Options</p>
               <label className="flex items-center gap-2 text-xs">
                 <Checkbox
@@ -590,6 +747,55 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                   {planTargetDate ? "Generate this day" : `Generate ${planFormDays} days`}
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="gap-0 p-0 sm:max-w-lg">
+          <DialogHeader className="border-b border-border px-6 py-4 text-left">
+            <DialogTitle className="text-lg">Plan history</DialogTitle>
+            <DialogDescription>
+              Recent runs on this browser — posts remain on your calendar after each run.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[min(60vh,420px)] overflow-y-auto px-6 py-4">
+            {planHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No completed plans yet.</p>
+            ) : (
+              <ul className="space-y-3">
+                {planHistory.map((entry) => (
+                  <li
+                    key={entry.id}
+                    className="rounded-lg border border-border bg-muted/20 px-3 py-3 text-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(entry.createdAt).toLocaleString()}
+                      </span>
+                      <div className="flex gap-1">
+                        {entry.platforms.map((p) => (
+                          <PlatformIcon key={p} platform={p} size="sm" />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="mt-1 font-medium line-clamp-2">{entry.message}</p>
+                    <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
+                      {entry.promptPreview}
+                    </p>
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      {entry.days} post(s) · {entry.scheduledCount} scheduled
+                      {entry.errors.length ? ` · ${entry.errors.length} note(s)` : ""}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <DialogFooter className="border-t border-border px-6 py-4">
+            <Button variant="outline" onClick={() => setHistoryOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

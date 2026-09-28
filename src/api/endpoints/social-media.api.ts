@@ -260,6 +260,13 @@ export const socialMediaApi = {
     return data;
   },
 
+  async cancelContentPlanJob(orgId: string, jobId: string): Promise<{ jobId: string; cancelled: boolean }> {
+    const { data } = await apiClient.post<{ jobId: string; cancelled: boolean }>(
+      `${base(orgId)}/content-plan/jobs/${jobId}/cancel`,
+    );
+    return data;
+  },
+
   /** @deprecated Use startContentPlanJob + getContentPlanJob polling */
   async generateContentPlan(
     orgId: string,

@@ -752,7 +752,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
       </Card>
 
       <Dialog open={planDialogOpen} onOpenChange={(o) => !planning && setPlanDialogOpen(o)}>
-        <DialogContent className="gap-0 p-0 sm:max-w-md">
+        <DialogContent className="gap-0 p-0 w-[calc(100vw-2rem)] max-w-[42rem] sm:max-w-2xl">
           <DialogHeader className="border-b border-border px-6 py-4 text-left">
             <DialogTitle className="text-lg">
               {planTargetDate ? "Generate for one day" : "Generate content plan"}

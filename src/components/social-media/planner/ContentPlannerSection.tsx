@@ -412,6 +412,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         platforms: platformsSnapshot,
       });
       setActiveJobId(jobId);
+      setPlanDialogOpen(false);
 
       const deadline = Date.now() + 20 * 60 * 1000;
       let result = null;
@@ -685,7 +686,8 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                 }
               />
               <p className="text-[10px] text-muted-foreground">
-                Running in background — Stop cancels remaining days; finished posts stay scheduled.
+                Running in background — close this dialog anytime; progress stays below. Celery worker
+                required for auto-publish.
               </p>
             </div>
           )}
@@ -723,7 +725,12 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         </CardContent>
       </Card>
 
-      <Dialog open={planDialogOpen} onOpenChange={(o) => !planning && setPlanDialogOpen(o)}>
+      <Dialog
+        open={planDialogOpen}
+        onOpenChange={(open) => {
+          setPlanDialogOpen(open);
+        }}
+      >
         <DialogContent className="gap-0 p-0 w-[calc(100vw-2rem)] max-w-[42rem] sm:max-w-2xl">
           <DialogHeader className="border-b border-border px-6 py-4 text-left">
             <DialogTitle className="text-lg">
@@ -861,13 +868,13 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
             </div>
           </div>
           <DialogFooter className="border-t border-border px-6 py-4">
-            <Button variant="outline" onClick={() => setPlanDialogOpen(false)} disabled={planning}>
-              Cancel
+            <Button variant="outline" onClick={() => setPlanDialogOpen(false)}>
+              {planning ? "Close" : "Cancel"}
             </Button>
-            <Button onClick={() => void generatePlan()} disabled={!canSubmitPlan}>
+            <Button onClick={() => void generatePlan()} disabled={!canSubmitPlan || planning}>
               {planning ? (
                 <>
-                  <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Working…
+                  <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Started…
                 </>
               ) : (
                 <>

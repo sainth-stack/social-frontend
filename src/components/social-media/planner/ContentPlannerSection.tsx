@@ -59,7 +59,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import type { CalendarPost, SocialPlatform, SocialPost } from "@/types/social-media.types";
 import { PLATFORM_LABELS } from "@/types/social-media.types";
 
-const PLAN_PUBLISHABLE: SocialPlatform[] = ["facebook", "instagram"];
+const PLAN_PUBLISHABLE: SocialPlatform[] = ["facebook", "instagram", "linkedin"];
 
 async function deletePlannerPostFromApi(orgId: string, postId: string): Promise<void> {
   await socialMediaApi.deletePost(orgId, postId);
@@ -384,7 +384,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
       return;
     }
     if (!hasPlanAccount) {
-      toast.error("Connect Facebook or Instagram first");
+      toast.error("Connect Facebook, Instagram, or LinkedIn first");
       return;
     }
     if (planPlatforms.length === 0) {
@@ -648,7 +648,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
           </div>
           {!hasPlanAccount && (
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
-              Connect Facebook or Instagram to generate and schedule posts.
+              Connect Facebook, Instagram, or LinkedIn to generate and schedule posts.
             </div>
           )}
           <p className="text-[11px] text-muted-foreground">

@@ -35,12 +35,24 @@ import type { SocialAccount, SocialPlatform } from "@/types/social-media.types";
 import { PLATFORM_LABELS } from "@/types/social-media.types";
 import { openSocialOAuthPopup } from "./OAuthConnectButton";
 
-const PLATFORMS: { platform: SocialPlatform; name: string }[] = [
+const ACCOUNTS_CONNECT_PLATFORMS: { platform: SocialPlatform; name: string }[] = [
   { platform: "instagram", name: "Instagram" },
   { platform: "linkedin", name: "LinkedIn" },
-  { platform: "x", name: "X" },
   { platform: "facebook", name: "Facebook" },
 ];
+
+/** X connect is disabled in Accounts; existing links stay visible so users can disconnect. */
+const X_ACCOUNTS_DISABLED = true;
+
+function accountSections(
+  accounts: SocialAccount[],
+): { platform: SocialPlatform; name: string }[] {
+  const sections = [...ACCOUNTS_CONNECT_PLATFORMS];
+  if (X_ACCOUNTS_DISABLED && accounts.some((a) => a.platform === "x")) {
+    sections.push({ platform: "x", name: "X" });
+  }
+  return sections;
+}
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "—";
@@ -147,6 +159,10 @@ export default function AccountsPage() {
 
   const startConnect = async (platform: SocialPlatform) => {
     if (!workspaceId) return;
+    if (X_ACCOUNTS_DISABLED && platform === "x") {
+      toast.message("X (Twitter) connections are disabled.");
+      return;
+    }
     if (limitReached) {
       toast.error("You've reached your account limit. Request an upgrade from admin.");
       return;
@@ -189,6 +205,10 @@ export default function AccountsPage() {
 
   const reconnect = async (account: SocialAccount) => {
     if (!workspaceId) return;
+    if (X_ACCOUNTS_DISABLED && account.platform === "x") {
+      toast.message("X (Twitter) reconnect is disabled. Disconnect this account if you no longer need it.");
+      return;
+    }
     setBusyId(account.id);
     try {
       const { url } = await socialMediaApi.reconnectAccount(workspaceId, account.id);
@@ -234,6 +254,8 @@ export default function AccountsPage() {
       setBusyId(null);
     }
   };
+
+  const platformSections = useMemo(() => accountSections(accounts), [accounts]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -303,7 +325,7 @@ export default function AccountsPage() {
 
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {PLATFORMS.map((p) => (
+          {platformSections.map((p) => (
             <Card key={p.platform} className="shadow-soft">
               <CardHeader className="flex-row items-center gap-3 space-y-0">
                 <Skeleton className="h-12 w-12 rounded-lg" />
@@ -320,10 +342,11 @@ export default function AccountsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {PLATFORMS.map(({ platform, name }) => {
+          {platformSections.map(({ platform, name }) => {
             const platformAccounts = byPlatform.get(platform) ?? [];
             const primary =
               platformAccounts.find((a) => a.isDefault) ?? platformAccounts[0] ?? null;
+            const xDisabled = X_ACCOUNTS_DISABLED && platform === "x";
 
             return (
               <Card key={platform} className="shadow-soft">
@@ -347,8 +370,18 @@ export default function AccountsPage() {
                   ) : (
                     <Badge variant="outline">Disconnected</Badge>
                   )}
+                  {xDisabled ? (
+                    <Badge variant="secondary" className="ml-2">
+                      Unavailable
+                    </Badge>
+                  ) : null}
                 </CardHeader>
                 <CardContent>
+                  {xDisabled ? (
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      New X connections are turned off. You can disconnect existing accounts below.
+                    </p>
+                  ) : null}
                   {primary ? (
                     <>
                       <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-muted/30 p-4">
@@ -398,7 +431,7 @@ export default function AccountsPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={busyId === primary.id}
+                          disabled={busyId === primary.id || xDisabled}
                           onClick={() => void reconnect(primary)}
                         >
                           <Link2 className="mr-1.5 h-3.5 w-3.5" /> Reconnect
@@ -411,7 +444,7 @@ export default function AccountsPage() {
                         >
                           <Link2Off className="mr-1.5 h-3.5 w-3.5" /> Disconnect
                         </Button>
-                        {!limitReached && (
+                        {!limitReached && !xDisabled && (
                           <Button
                             variant="ghost"
                             size="sm"

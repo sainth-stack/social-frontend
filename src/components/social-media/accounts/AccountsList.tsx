@@ -17,7 +17,8 @@ import { colors } from "@/lib/theme";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import type { SocialPlatform } from "@/types/social-media.types";
 
-const PLATFORMS: SocialPlatform[] = ["facebook", "instagram", "linkedin", "x"];
+const PLATFORMS: SocialPlatform[] = ["facebook", "instagram", "linkedin"];
+const SHOW_X_ACCOUNTS = false;
 
 const PLATFORM_LABELS: Record<SocialPlatform, string> = {
   facebook: "Facebook",
@@ -87,12 +88,12 @@ export default function AccountsList() {
             >
               <Typography sx={{ fontWeight: 600, mb: 1 }}>Connect your first account</Typography>
               <Typography variant="body2" color="text.secondary">
-                Link Facebook, Instagram, LinkedIn, or X to start creating and scheduling posts.
+                Link Facebook, Instagram, or LinkedIn to start creating and scheduling posts.
               </Typography>
             </Box>
           )}
 
-          {PLATFORMS.map((platform) => {
+          {[...PLATFORMS, ...(SHOW_X_ACCOUNTS ? (["x"] as const) : [])].map((platform) => {
             const platformAccounts = accountsFor(platform);
             const color = PLATFORM_COLORS[platform];
 
@@ -128,7 +129,7 @@ export default function AccountsList() {
                       <AccountCard orgId={orgId} account={account} onChanged={refresh} />
                     </Grid>
                   ))}
-                  {orgId && (
+                  {orgId && platform !== "x" && (
                     <Grid size={{ xs: 12, md: 6, lg: 4 }}>
                       <ConnectAccountCard
                         orgId={orgId}

@@ -56,31 +56,13 @@ import {
   type ContentPlanHistoryEntry,
 } from "@/lib/contentPlanHistory";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import type { CalendarPost, SocialPlatform, SocialPost, SocialPostStatus } from "@/types/social-media.types";
+import type { CalendarPost, SocialPlatform, SocialPost } from "@/types/social-media.types";
 import { PLATFORM_LABELS } from "@/types/social-media.types";
 
 const PLAN_PUBLISHABLE: SocialPlatform[] = ["facebook", "instagram"];
 
-async function deletePlannerPostFromApi(
-  orgId: string,
-  postId: string,
-  status: SocialPostStatus,
-): Promise<void> {
-  if (status === "scheduled") {
-    await socialMediaApi.cancelSchedule(orgId, postId);
-    await socialMediaApi.deletePost(orgId, postId);
-    return;
-  }
-  if (status === "published") {
-    await socialMediaApi.archivePost(orgId, postId);
-    await socialMediaApi.deletePost(orgId, postId);
-    return;
-  }
-  if (status === "draft" || status === "failed" || status === "archived") {
-    await socialMediaApi.deletePost(orgId, postId);
-    return;
-  }
-  throw new Error(`Cannot delete a post while it is ${status.replace("_", " ")}`);
+async function deletePlannerPostFromApi(orgId: string, postId: string): Promise<void> {
+  await socialMediaApi.deletePost(orgId, postId);
 }
 
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -493,18 +475,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     if (!orgId || !postToDelete) return;
     setDeletingPostId(postToDelete.id);
     try {
-      let status: SocialPostStatus = postToDelete.status;
-      if (fullPost?.id === postToDelete.id) {
-        status = fullPost.status;
-      } else {
-        try {
-          const fresh = await socialMediaApi.getPost(orgId, postToDelete.id);
-          status = fresh.status;
-        } catch {
-          /* use calendar status */
-        }
-      }
-      await deletePlannerPostFromApi(orgId, postToDelete.id, status);
+      await deletePlannerPostFromApi(orgId, postToDelete.id);
       setItems((prev) => prev.filter((p) => p.id !== postToDelete.id));
       if (selectedPost?.id === postToDelete.id) {
         setSelectedPost(null);
@@ -547,15 +518,8 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     let deleted = 0;
     try {
       for (const postId of ids) {
-        let status: SocialPostStatus = "draft";
         try {
-          const post = await socialMediaApi.getPost(orgId, postId);
-          status = post.status;
-        } catch {
-          continue;
-        }
-        try {
-          await deletePlannerPostFromApi(orgId, postId, status);
+          await deletePlannerPostFromApi(orgId, postId);
           deleted += 1;
         } catch {
           /* skip */
@@ -1135,7 +1099,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
             <AlertDialogTitle>Delete this planned post?</AlertDialogTitle>
             <AlertDialogDescription>
               This removes the post from your calendar and Posts list. Scheduled posts are unscheduled
-              first. This cannot be undone.
+              automatically. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1189,7 +1153,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
             <AlertDialogTitle>Delete all posts from this plan run?</AlertDialogTitle>
             <AlertDialogDescription>
               Deletes up to {historyRunToDeletePosts ? postIdsFromHistoryEntry(historyRunToDeletePosts).length : 0}{" "}
-              post(s) created in that run (draft/scheduled; published posts are archived then removed).
+              post(s) from that plan run.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

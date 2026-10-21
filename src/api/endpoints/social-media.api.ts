@@ -256,6 +256,7 @@ export const socialMediaApi = {
     const { data } = await apiClient.post<ContentPlanJobStartResponse>(
       `${base(orgId)}/content-plan/generate`,
       payload,
+      { timeout: 600_000 },
     );
     return data;
   },
@@ -359,6 +360,7 @@ export const socialMediaApi = {
     const { data } = await apiClient.post<BrandVoiceTestResult>(
       `${base(orgId)}/brand-voice/test`,
       payload,
+      { timeout: 120_000 },
     );
     return data;
   },
@@ -613,6 +615,11 @@ export const socialMediaApi = {
     scheduledPosts: SocialPost[];
   }> {
     const { data } = await apiClient.get(`${base(orgId)}/dashboard/home`);
+    return data;
+  },
+
+  async getUsage(orgId: string): Promise<SocialDashboardStats["usage"]> {
+    const { data } = await apiClient.get<SocialDashboardStats["usage"]>(`${base(orgId)}/usage`);
     return data;
   },
 

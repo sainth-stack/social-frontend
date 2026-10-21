@@ -595,6 +595,7 @@ export type MediaAssetListResponse = {
   page: number;
   pageSize: number;
   totalPages: number;
+  stats?: { images: number; videos: number; totalBytes: number };
 };
 
 export type VideoGenerationUnavailableError = {

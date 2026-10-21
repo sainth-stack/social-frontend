@@ -20,20 +20,17 @@ export type ApiWorkspaceSummary = {
   social_level: SocialPermissionLevel | string;
 };
 
-export type TokenResponse = {
-  access_token: string;
-  token_type: string;
-};
-
 export type MeResponse = {
   user: ApiUserRaw;
   workspaces: ApiWorkspaceSummary[];
 };
 
-export type RegisterResponse = {
+export type AuthSessionResponse = MeResponse & {
   access_token: string;
   token_type: string;
-  user: ApiUserRaw;
+};
+
+export type RegisterResponse = AuthSessionResponse & {
   workspace: ApiWorkspaceSummary;
 };
 

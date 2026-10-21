@@ -31,6 +31,7 @@ import {
 import { login } from "@/features/auth/authThunks";
 import { authFooterLinkSx, authInlineLinkSx, authInputSx, authLayout, authPrimaryButtonSx } from "@/lib/authStyles";
 import { getHomeRoute } from "@/lib/auth/users";
+import { prefetchDashboardHome } from "@/lib/dashboard-cache";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 const REMEMBER_EMAIL_KEY = "opsbrain_remember_email";
@@ -72,10 +73,12 @@ export default function LoginForm() {
   useEffect(() => {
     const savedEmail = window.localStorage.getItem(REMEMBER_EMAIL_KEY);
     if (savedEmail) setValue("email", savedEmail);
-  }, [setValue]);
+    router.prefetch("/dashboard");
+  }, [router, setValue]);
 
   useEffect(() => {
     if (!isHydrated || !isAuthenticated || !user) return;
+    if (!user.isPlatformAdmin && user.workspaceId) prefetchDashboardHome(user.workspaceId);
     const redirect = searchParams.get("redirect");
     router.replace(redirect ?? getHomeRoute(user));
   }, [isAuthenticated, isHydrated, router, searchParams, user]);

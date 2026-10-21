@@ -142,6 +142,14 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   const [planHistory, setPlanHistory] = useState<ContentPlanHistoryEntry[]>([]);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const pollAbortRef = useRef(false);
+  const unmountedRef = useRef(false);
+
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
 
   const [selectedPost, setSelectedPost] = useState<CalendarPost | null>(null);
   const [fullPost, setFullPost] = useState<SocialPost | null>(null);
@@ -203,8 +211,9 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   }, [connectedPlanPlatforms]);
 
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId || accounts.length > 0) return;
     void dispatch(fetchSocialAccounts({ orgId }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, orgId]);
 
   useEffect(() => {
@@ -417,14 +426,21 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
 
       const deadline = Date.now() + 20 * 60 * 1000;
       let result = null;
+      let pollErrors = 0;
       while (Date.now() < deadline) {
+        if (unmountedRef.current) return;
         if (pollAbortRef.current) {
           for (let i = 0; i < 8 && !result; i++) {
             await new Promise((r) => setTimeout(r, 1500));
-            const status = await socialMediaApi.getContentPlanJob(orgId, jobId);
-            if (status.status === "completed" && status.result) {
-              result = status.result;
-              break;
+            if (unmountedRef.current) return;
+            try {
+              const status = await socialMediaApi.getContentPlanJob(orgId, jobId);
+              if (status.status === "completed" && status.result) {
+                result = status.result;
+                break;
+              }
+            } catch {
+              continue;
             }
           }
           if (result) {
@@ -435,7 +451,16 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
           }
           return;
         }
-        const status = await socialMediaApi.getContentPlanJob(orgId, jobId);
+        let status;
+        try {
+          status = await socialMediaApi.getContentPlanJob(orgId, jobId);
+          pollErrors = 0;
+        } catch (pollErr) {
+          pollErrors += 1;
+          if (pollErrors >= 3) throw pollErr;
+          await new Promise((r) => setTimeout(r, 3000));
+          continue;
+        }
         if (status.status === "running" && status.progress) {
           setPlanProgress(status.progress);
         }

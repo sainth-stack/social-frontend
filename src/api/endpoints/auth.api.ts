@@ -1,15 +1,15 @@
 import apiClient from "@/api/client";
 import type {
+  AuthSessionResponse,
   LoginRequest,
   MeResponse,
   RegisterRequest,
   RegisterResponse,
-  TokenResponse,
 } from "@/types/auth";
 
 export const authApi = {
-  async login(payload: LoginRequest): Promise<TokenResponse> {
-    const { data } = await apiClient.post<TokenResponse>("/api/v1/auth/login", payload);
+  async login(payload: LoginRequest): Promise<AuthSessionResponse> {
+    const { data } = await apiClient.post<AuthSessionResponse>("/api/v1/auth/login", payload);
     return data;
   },
 

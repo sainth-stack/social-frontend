@@ -14,11 +14,10 @@ export const login = createAsyncThunk<AuthSuccessPayload, LoginRequest, { reject
   "auth/login",
   async (credentials, { rejectWithValue }) => {
     try {
-      const tokenRes = await authApi.login(credentials);
-      const me = await authApi.me(tokenRes.access_token);
+      const data = await authApi.login(credentials);
       return {
-        user: mapMeResponseToUser(me),
-        accessToken: tokenRes.access_token,
+        user: mapMeResponseToUser(data),
+        accessToken: data.access_token,
       };
     } catch (error) {
       return rejectWithValue(toApiError(error).message);

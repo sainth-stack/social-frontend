@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { ChevronDown, Sparkle, Zap } from "lucide-react";
 
 import type { NavItem, NavSection } from "@/components/layouts/nav-config";
-import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { useDashboardUsage } from "@/hooks/useDashboardUsage";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -161,15 +161,15 @@ function NavGroup({
 
 function UsageCard() {
   const user = useAppSelector(selectUser);
-  const stats = useDashboardStats(
+  const usage = useDashboardUsage(
     user?.workspaceId,
     Boolean(user?.workspaceId && !user?.isPlatformAdmin),
   );
 
   const plan = user?.plan ?? "starter";
   const catalog = DEFAULT_PRICING_CATALOG.find((p) => p.id === plan);
-  const postsUsed = stats?.usage.postsThisMonth.used ?? 0;
-  const limit = stats?.usage.postsThisMonth.limit ?? catalog?.limits.postsPerMonth ?? 60;
+  const postsUsed = usage?.postsThisMonth.used ?? 0;
+  const limit = usage?.postsThisMonth.limit ?? catalog?.limits.postsPerMonth ?? 60;
   const pct = limit ? Math.min(100, (postsUsed / limit) * 100) : 0;
   const nearLimit = pct >= 85;
 

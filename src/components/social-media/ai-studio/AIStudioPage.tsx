@@ -208,11 +208,14 @@ function extractPlanError(err: unknown, fallback: string): string {
 }
 
 function extractErrorMessage(err: unknown, fallback: string): string {
-  const detail = (err as { response?: { data?: { detail?: string | { message?: string } } } })
-    ?.response?.data?.detail;
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
   if (typeof detail === "string") return detail;
-  if (detail && typeof detail === "object" && typeof detail.message === "string") {
-    return detail.message;
+  if (Array.isArray(detail)) {
+    const first = detail[0] as { msg?: unknown } | undefined;
+    if (first && typeof first.msg === "string") return first.msg.replace(/^Value error, /, "");
+  }
+  if (detail && typeof detail === "object" && typeof (detail as { message?: unknown }).message === "string") {
+    return (detail as { message: string }).message;
   }
   if (err instanceof Error && err.message) return err.message;
   return fallback;
@@ -494,8 +497,9 @@ function GenerateTab({
   }, [orgId, assetId, draftId, onSetPrefillMedia]);
 
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId || accounts.length > 0) return;
     void dispatch(fetchSocialAccounts({ orgId }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, orgId]);
 
   // Keep preview tab on a selected platform.
@@ -603,6 +607,36 @@ function GenerateTab({
     mediaNote: prefillMedia ? prefillMedia.name : undefined,
   });
 
+  const buildImageTopic = (withFormat: boolean) => {
+    const suffix = [
+      tone ? `Style/tone: ${tone}.` : "",
+      withFormat && type !== "Caption" ? `Format: ${type}.` : "",
+      "Premium commercial social image — scroll-stopping, high-end lighting, no text overlays, no watermark.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const room = Math.max(5, 500 - suffix.length - 1);
+    return `${prompt.trim().slice(0, room)} ${suffix}`.slice(0, 500);
+  };
+
+  const runImageGeneration = async (withFormat: boolean, successMessage: string, failMessage: string) => {
+    setImageLoading(true);
+    try {
+      const img = await socialMediaApi.generateImage(orgId, {
+        topic: buildImageTopic(withFormat),
+        mode: "create",
+        size: "1024x1024",
+      });
+      setGeneratedImageUrl(img.imageUrl);
+      setMediaSource("ai_generated");
+      toast.success(successMessage);
+    } catch (err) {
+      toast.error(extractErrorMessage(err, failMessage));
+    } finally {
+      setImageLoading(false);
+    }
+  };
+
   const generate = async () => {
     if (!orgId) {
       toast.error("Workspace not ready");
@@ -610,6 +644,10 @@ function GenerateTab({
     }
     if (!prompt.trim()) {
       toast.error("Add a prompt to generate content");
+      return;
+    }
+    if (prompt.trim().length < 5) {
+      toast.error("Prompt must be at least 5 characters");
       return;
     }
     if (type === "Thread") {
@@ -628,26 +666,32 @@ function GenerateTab({
     setError(null);
     setVariations(null);
     setPicked(null);
-    setGeneratedImageUrl(null);
-    onClearMedia();
+    const shouldImage = alsoGenerateImage && !prefillMedia;
+    if (shouldImage) setGeneratedImageUrl(null);
+    const imageTask = shouldImage
+      ? runImageGeneration(true, "Image generated and attached", "Caption ready, but image generation failed")
+      : null;
     try {
       const results: Variation[] = [];
       const allHashtags: string[] = [];
       const formatKey = CONTENT_TYPE_TO_FORMAT[type] ?? "single";
 
-      for (let i = 0; i < effectiveVariations; i++) {
-        const topic = buildTopic(i);
-        const data: GeneratedContent = await socialMediaApi.generatePost(orgId, {
-          topic,
-          tone,
-          platforms: platformsForGen,
-          cta: cta.trim() || undefined,
-          includeHashtags,
-          includeComment: false,
-          format: formatKey,
-          ...generationMeta(),
-        });
+      const responses = await Promise.all(
+        Array.from({ length: effectiveVariations }, (_, i) =>
+          socialMediaApi.generatePost(orgId, {
+            topic: buildTopic(i),
+            tone,
+            platforms: platformsForGen,
+            cta: cta.trim() || undefined,
+            includeHashtags,
+            includeComment: false,
+            format: formatKey,
+            ...generationMeta(),
+          }),
+        ),
+      );
 
+      responses.forEach((data: GeneratedContent, i) => {
         const parsed = parseGeneratedContent(data, formatKey, platformsForGen, results.length);
         if (effectiveVariations > 1 && parsed.length === 1 && formatKey === "single") {
           parsed[0] = {
@@ -659,7 +703,7 @@ function GenerateTab({
           results.push(v);
           allHashtags.push(...v.hashtags);
         }
-      }
+      });
 
       if (results.length === 0) throw new Error("No caption returned");
 
@@ -676,36 +720,6 @@ function GenerateTab({
               ? `${results.length} versions generated`
               : "Content generated",
       );
-
-      const shouldImage =
-        alsoGenerateImage &&
-        !prefillMedia &&
-        !generatedImageUrl;
-      if (shouldImage) {
-        setImageLoading(true);
-        try {
-          const imageTopic = [
-            prompt.trim(),
-            tone ? `Style/tone: ${tone}.` : "",
-            type !== "Caption" ? `Format: ${type}.` : "",
-            "Premium commercial social image — scroll-stopping, high-end lighting, no text overlays, no watermark.",
-          ]
-            .filter(Boolean)
-            .join(" ");
-          const img = await socialMediaApi.generateImage(orgId, {
-            topic: imageTopic,
-            mode: "create",
-            size: "1024x1024",
-          });
-          setGeneratedImageUrl(img.imageUrl);
-          setMediaSource("ai_generated");
-          toast.success("Image generated and attached");
-        } catch (imgErr) {
-          toast.error(extractErrorMessage(imgErr, "Caption ready, but image generation failed"));
-        } finally {
-          setImageLoading(false);
-        }
-      }
     } catch (err) {
       const message = extractErrorMessage(err, "Generation failed");
       setError(message);
@@ -713,35 +727,15 @@ function GenerateTab({
     } finally {
       setLoading(false);
     }
+    if (imageTask) await imageTask;
   };
 
   const generateImage = async () => {
-    if (!orgId || !prompt.trim()) {
-      toast.error("Add a prompt first");
+    if (!orgId || prompt.trim().length < 5) {
+      toast.error("Add a prompt (at least 5 characters) first");
       return;
     }
-    setImageLoading(true);
-    try {
-      const imageTopic = [
-        prompt.trim(),
-        tone ? `Style/tone: ${tone}.` : "",
-        "Premium commercial social image — scroll-stopping, high-end lighting, no text overlays, no watermark.",
-      ]
-        .filter(Boolean)
-        .join(" ");
-      const result = await socialMediaApi.generateImage(orgId, {
-        topic: imageTopic,
-        mode: "create",
-        size: "1024x1024",
-      });
-      setGeneratedImageUrl(result.imageUrl);
-      setMediaSource("ai_generated");
-      toast.success("Image generated");
-    } catch (err) {
-      toast.error(extractErrorMessage(err, "Image generation failed"));
-    } finally {
-      setImageLoading(false);
-    }
+    await runImageGeneration(false, "Image generated", "Image generation failed");
   };
 
   const buildPlatformPayload = (variation?: Variation) => {
@@ -844,7 +838,10 @@ function GenerateTab({
             : "Draft saved",
         );
       }
-      router.replace(`/dashboard/content-studio/generate?draftId=${post.id}`);
+      draftLoadedRef.current = post.id;
+      if (draftId !== post.id) {
+        router.replace(`/dashboard/content-studio/generate?draftId=${post.id}`);
+      }
       return post;
     } catch (err) {
       if (!quiet) toast.error(extractErrorMessage(err, "Failed to save draft"));
@@ -1497,6 +1494,9 @@ function BrandTab({ orgId }: { orgId: string }) {
     setError(null);
     try {
       const bv = await socialMediaApi.getBrandVoice(orgId);
+      const override = bv.systemPromptOverride ?? "";
+      const websiteMatch = override.match(/^Website: ([^\n]*)\n?/);
+      const restOverride = websiteMatch ? override.slice(websiteMatch[0].length) : override;
       setForm({
         brandName: bv.brandName,
         industry: bv.industry,
@@ -1509,9 +1509,11 @@ function BrandTab({ orgId }: { orgId: string }) {
         sentenceLength: bv.sentenceLength,
         emojiUsage: bv.emojiUsage,
         primaryLanguage: bv.primaryLanguage,
-        systemPromptOverride: bv.systemPromptOverride,
+        systemPromptOverride: restOverride || null,
         logoUrl: bv.logoUrl ?? null,
       });
+      setWebsite(websiteMatch?.[1]?.trim() ?? "");
+      setProducts(bv.wordsToUse.join(", "));
       setDescription(bv.tagline || "");
       setPreview(
         bv.tagline ||
@@ -1528,21 +1530,30 @@ function BrandTab({ orgId }: { orgId: string }) {
     void load();
   }, [load]);
 
+  const buildBrandPayload = (): BrandVoicePayload => {
+    const keywords = products
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const site = website.trim();
+    return {
+      ...form,
+      tagline: description,
+      wordsToUse: keywords,
+      systemPromptOverride:
+        [site ? `Website: ${site}` : "", form.systemPromptOverride ?? ""].filter(Boolean).join("\n") || null,
+    };
+  };
+
   const refreshPreview = async () => {
     if (!orgId) return;
     setRefreshing(true);
     try {
-      const result = await socialMediaApi.testBrandVoice(orgId, {
-        ...form,
-        tagline: description || form.tagline,
-      });
+      const result = await socialMediaApi.testBrandVoice(orgId, buildBrandPayload());
       setPreview(result.caption);
       toast.success("Preview refreshed");
-    } catch {
-      setPreview(
-        `At ${form.brandName || "your brand"}, we help ${(form.targetAudience || "customers").split(" ")[0]?.toLowerCase() || "customers"} tell better stories.\n\nHere's what a ${(form.tones[0] || "friendly").toLowerCase()} caption sounds like in your voice.\n\n#${(form.brandName || "brand").replace(/\s+/g, "")}`,
-      );
-      toast.success("Preview refreshed");
+    } catch (err) {
+      toast.error(extractPlanError(err, "Could not refresh preview"));
     } finally {
       setRefreshing(false);
     }
@@ -1571,19 +1582,9 @@ function BrandTab({ orgId }: { orgId: string }) {
     if (!orgId) return;
     setSaving(true);
     try {
-      const keywords = products
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const payload: BrandVoicePayload = {
-        ...form,
-        tagline: description || form.tagline,
-        wordsToUse: keywords.length ? keywords : form.wordsToUse,
-        systemPromptOverride: website
-          ? `Website: ${website}${form.systemPromptOverride ? `\n${form.systemPromptOverride}` : ""}`
-          : form.systemPromptOverride,
-      };
+      const payload = buildBrandPayload();
       await socialMediaApi.saveBrandVoice(orgId, payload);
+      setForm((prev) => ({ ...prev, tagline: payload.tagline, wordsToUse: payload.wordsToUse }));
       toast.success("Brand profile saved");
     } catch (err) {
       toast.error(extractErrorMessage(err, "Failed to save brand profile"));
@@ -1701,6 +1702,7 @@ function BrandTab({ orgId }: { orgId: string }) {
             <Textarea
               rows={3}
               value={description}
+              maxLength={255}
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
@@ -1716,7 +1718,7 @@ function BrandTab({ orgId }: { orgId: string }) {
             <Label>Products / services / keywords</Label>
             <Textarea
               rows={2}
-              value={products || form.wordsToUse.join(", ")}
+              value={products}
               onChange={(e) => setProducts(e.target.value)}
               placeholder="Comma-separated"
             />
@@ -1848,9 +1850,11 @@ function BrandTab({ orgId }: { orgId: string }) {
 
 function MediaTab({
   orgId,
+  active,
   onUseInGenerate,
 }: {
   orgId: string;
+  active: boolean;
   onUseInGenerate: (asset: MediaAsset) => void;
 }) {
   const user = useAppSelector(selectUser);
@@ -1861,6 +1865,7 @@ function MediaTab({
   const [filter, setFilter] = useState<"all" | MediaAssetType>("all");
   const [items, setItems] = useState<MediaAsset[]>([]);
   const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState({ images: 0, videos: 0, totalBytes: 0 });
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1871,9 +1876,11 @@ function MediaTab({
   const [videoLoading, setVideoLoading] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const requestSeqRef = useRef(0);
 
   const load = useCallback(async () => {
     if (!orgId) return;
+    const seq = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -1883,22 +1890,31 @@ function MediaTab({
         page: 1,
         pageSize: 48,
       });
+      if (seq !== requestSeqRef.current) return;
       setItems(data.items);
       setTotal(data.total);
+      if (data.stats) setStats(data.stats);
     } catch (err) {
+      if (seq !== requestSeqRef.current) return;
       setError(extractErrorMessage(err, "Failed to load media"));
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
   }, [orgId, filter, query]);
 
   useEffect(() => {
-    const handle = window.setTimeout(() => void load(), 250);
+    if (!active) return;
+    const handle = window.setTimeout(() => void load(), query.trim() ? 250 : 0);
     return () => window.clearTimeout(handle);
-  }, [load]);
+  }, [load, active, query]);
 
   const handleUpload = async (file: File, type: MediaAssetType) => {
     if (!orgId) return;
+    const maxMb = type === "image" ? 8 : 200;
+    if (file.size > maxMb * 1024 * 1024) {
+      toast.error(`${type === "image" ? "Image" : "Video"} must be under ${maxMb} MB`);
+      return;
+    }
     setUploading(true);
     try {
       if (type === "image") await socialMediaApi.uploadImage(orgId, file);
@@ -1914,13 +1930,14 @@ function MediaTab({
 
   const handleDelete = async (asset: MediaAsset) => {
     if (!orgId) return;
+    setItems((prev) => prev.filter((m) => m.id !== asset.id));
     try {
       await socialMediaApi.deleteMediaAsset(orgId, asset.id);
       toast.success("Deleted");
-      void load();
     } catch (err) {
       toast.error(extractErrorMessage(err, "Delete failed"));
     }
+    void load();
   };
 
   const handleGenerateVideo = async () => {
@@ -1952,9 +1969,9 @@ function MediaTab({
     }
   };
 
-  const imageCount = items.filter((m) => m.mediaType === "image").length;
-  const videoCount = items.filter((m) => m.mediaType === "video").length;
-  const usedBytes = items.reduce((sum, m) => sum + (m.fileSizeBytes || 0), 0);
+  const imageCount = stats.images;
+  const videoCount = stats.videos;
+  const usedBytes = stats.totalBytes;
   const limitGb = 5;
   const usedGb = usedBytes / (1024 * 1024 * 1024);
   const pct = Math.min(100, Math.round((usedGb / limitGb) * 100));
@@ -1965,7 +1982,9 @@ function MediaTab({
         <div>
           <CardTitle className="text-base">Media library</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            {loading ? "Loading…" : `${imageCount} images · ${videoCount} videos · ${total} total`}
+            {loading && items.length === 0
+              ? "Loading…"
+              : `${imageCount} images · ${videoCount} videos · ${total} ${filter === "all" && !query.trim() ? "total" : "matching"}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2136,7 +2155,7 @@ function MediaTab({
 
         <div className="rounded-xl border border-border bg-card p-3">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-medium">Storage (loaded assets)</span>
+            <span className="font-medium">Storage</span>
             <span className="text-muted-foreground">
               {usedGb.toFixed(2)} GB / {limitGb} GB
             </span>
@@ -2144,7 +2163,7 @@ function MediaTab({
           <Progress value={pct} className="mt-2 h-1.5" />
         </div>
 
-        {loading ? (
+        {loading && items.length === 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="aspect-square animate-pulse rounded-xl bg-muted" />
@@ -2186,6 +2205,8 @@ function MediaTab({
                     <img
                       src={m.url}
                       alt={m.prompt ?? "Asset"}
+                      loading="lazy"
+                      decoding="async"
                       className="h-full w-full object-cover"
                     />
                   )}
@@ -2259,6 +2280,7 @@ export default function AIStudioPage({
   const user = useAppSelector(selectUser);
   const orgId = user?.workspaceId ?? "";
   const [tab, setTab] = useState<AIStudioTab>(initialTab);
+  const [visited, setVisited] = useState<Set<AIStudioTab>>(() => new Set([initialTab]));
   const [prefillMedia, setPrefillMedia] = useState<PrefillMedia>(null);
 
   const draftId = searchParams.get("draftId");
@@ -2266,9 +2288,16 @@ export default function AIStudioPage({
   const assetId = searchParams.get("assetId");
   const scheduleAtParam = searchParams.get("scheduleAt");
 
+  const changeTab = useCallback((next: AIStudioTab) => {
+    setTab(next);
+    setVisited((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
+  }, []);
+
+  const clearPrefillMedia = useCallback(() => setPrefillMedia(null), []);
+
   useEffect(() => {
-    setTab(initialTab);
-  }, [initialTab]);
+    changeTab(initialTab);
+  }, [initialTab, changeTab]);
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -2287,7 +2316,7 @@ export default function AIStudioPage({
 
         <Tabs
           value={tab}
-          onValueChange={(v) => setTab(v as AIStudioTab)}
+          onValueChange={(v) => changeTab(v as AIStudioTab)}
           className="space-y-6"
         >
           <TabsList className="bg-muted/60 p-1">
@@ -2305,37 +2334,42 @@ export default function AIStudioPage({
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="generate">
-            <GenerateTab
-              orgId={orgId}
-              prefillMedia={prefillMedia}
-              onClearMedia={() => setPrefillMedia(null)}
-              onSetPrefillMedia={setPrefillMedia}
-              draftId={draftId}
-              templateId={templateId}
-              assetId={assetId}
-              scheduleAtParam={scheduleAtParam}
-            />
+          <TabsContent value="generate" forceMount className="data-[state=inactive]:hidden">
+            {visited.has("generate") && (
+              <GenerateTab
+                orgId={orgId}
+                prefillMedia={prefillMedia}
+                onClearMedia={clearPrefillMedia}
+                onSetPrefillMedia={setPrefillMedia}
+                draftId={draftId}
+                templateId={templateId}
+                assetId={assetId}
+                scheduleAtParam={scheduleAtParam}
+              />
+            )}
           </TabsContent>
-          <TabsContent value="planner">
-            <ContentPlannerSection orgId={orgId} />
+          <TabsContent value="planner" forceMount className="data-[state=inactive]:hidden">
+            {visited.has("planner") && <ContentPlannerSection orgId={orgId} />}
           </TabsContent>
-          <TabsContent value="brand">
-            <BrandTab orgId={orgId} />
+          <TabsContent value="brand" forceMount className="data-[state=inactive]:hidden">
+            {visited.has("brand") && <BrandTab orgId={orgId} />}
           </TabsContent>
-          <TabsContent value="media">
-            <MediaTab
-              orgId={orgId}
-              onUseInGenerate={(asset) => {
-                setPrefillMedia({
-                  name: asset.prompt?.slice(0, 48) || asset.id.slice(0, 8),
-                  url: asset.url,
-                  mediaType: asset.mediaType,
-                });
-                setTab("generate");
-                toast.success("Media attached — jump to AI Generate");
-              }}
-            />
+          <TabsContent value="media" forceMount className="data-[state=inactive]:hidden">
+            {visited.has("media") && (
+              <MediaTab
+                orgId={orgId}
+                active={tab === "media"}
+                onUseInGenerate={(asset) => {
+                  setPrefillMedia({
+                    name: asset.prompt?.slice(0, 48) || asset.id.slice(0, 8),
+                    url: asset.url,
+                    mediaType: asset.mediaType,
+                  });
+                  changeTab("generate");
+                  toast.success("Media attached — jump to AI Generate");
+                }}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </div>

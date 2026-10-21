@@ -4,52 +4,53 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   fetchDashboardHomeCached,
-  invalidateDashboardCache,
+  getCachedDashboardHome,
+  isDashboardHomeFresh,
   type DashboardHomePayload,
 } from "@/lib/dashboard-cache";
 
+const LOAD_ERROR = "We couldn't load your dashboard. Please try again.";
+
 export function useDashboardHome(workspaceId: string | undefined) {
-  const [data, setData] = useState<DashboardHomePayload | null>(null);
-  const [loading, setLoading] = useState(Boolean(workspaceId));
+  const [data, setData] = useState<DashboardHomePayload | null>(() =>
+    workspaceId ? getCachedDashboardHome(workspaceId) : null,
+  );
   const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(() => {
-    if (!workspaceId) return;
-    invalidateDashboardCache(workspaceId);
-    setLoading(true);
-    setError(null);
-    fetchDashboardHomeCached(workspaceId)
-      .then(setData)
-      .catch(() => setError("We couldn't load your dashboard. Please try again."))
-      .finally(() => setLoading(false));
-  }, [workspaceId]);
+  const load = useCallback(
+    (force: boolean, isActive: () => boolean = () => true) => {
+      if (!workspaceId) return;
+      setError(null);
+      fetchDashboardHomeCached(workspaceId, { force })
+        .then((payload) => {
+          if (isActive()) setData(payload);
+        })
+        .catch(() => {
+          if (isActive()) setError(LOAD_ERROR);
+        });
+    },
+    [workspaceId],
+  );
+
+  const reload = useCallback(() => load(true), [load]);
 
   useEffect(() => {
     if (!workspaceId) {
       setData(null);
-      setLoading(false);
       return;
     }
 
+    setData(getCachedDashboardHome(workspaceId));
+    if (isDashboardHomeFresh(workspaceId)) return;
+
     let active = true;
-    setLoading(true);
-    setError(null);
-
-    fetchDashboardHomeCached(workspaceId)
-      .then((payload) => {
-        if (active) setData(payload);
-      })
-      .catch(() => {
-        if (active) setError("We couldn't load your dashboard. Please try again.");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
+    load(false, () => active);
     return () => {
       active = false;
     };
-  }, [workspaceId]);
+  }, [workspaceId, load]);
+
+  const loading = !data && Boolean(workspaceId) && !error;
 
   return { data, loading, error, reload };
 }

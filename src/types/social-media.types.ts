@@ -179,10 +179,50 @@ export type BrandVoice = {
   primaryLanguage: string;
   systemPromptOverride: string | null;
   logoUrl: string | null;
+  primaryColor?: string | null;
+  accentColor?: string | null;
   updatedAt: string | null;
 };
 
 export type BrandVoicePayload = Omit<BrandVoice, "id" | "orgId" | "updatedAt">;
+
+export type CreativeFormat = "post" | "banner" | "story" | "carousel" | "quote" | "product";
+
+export type LogoPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+export type GenerateImagePayload = {
+  topic: string;
+  style?: string;
+  size?: string;
+  mode?: "create" | "edit";
+  sourceImageUrl?: string | null;
+  format?: CreativeFormat;
+  platform?: SocialPlatform;
+  headline?: string;
+  subtext?: string;
+  cta?: string;
+  caption?: string;
+  textOverlay?: boolean;
+  autoCopy?: boolean;
+  includeLogo?: boolean;
+  logoPosition?: LogoPosition;
+  useBrand?: boolean;
+  slideIndex?: number;
+  slideCount?: number;
+};
+
+export type GenerateImageResult = {
+  imageUrl: string;
+  source: string;
+  assetId?: string | null;
+  width?: number | null;
+  height?: number | null;
+  format?: CreativeFormat | null;
+  headline?: string | null;
+  subtext?: string | null;
+  cta?: string | null;
+  logoApplied?: boolean;
+};
 
 export type GeneratedPlatformContent = {
   caption: string;

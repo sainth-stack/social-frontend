@@ -15,6 +15,8 @@ import type {
   GeneratedContent,
   GeneratedSlide,
   GeneratedTweet,
+  GenerateImagePayload,
+  GenerateImageResult,
   GeneratePostPayload,
   MediaAsset,
   MediaAssetListResponse,
@@ -409,20 +411,11 @@ export const socialMediaApi = {
     return data;
   },
 
-  async generateImage(
-    orgId: string,
-    payload: {
-      topic: string;
-      style?: string;
-      size?: string;
-      mode?: "create" | "edit";
-      sourceImageUrl?: string | null;
-    },
-  ): Promise<{ imageUrl: string; source: string; assetId?: string | null }> {
-    const { data } = await apiClient.post<{ imageUrl: string; source: string }>(
+  async generateImage(orgId: string, payload: GenerateImagePayload): Promise<GenerateImageResult> {
+    const { data } = await apiClient.post<GenerateImageResult>(
       `${base(orgId)}/generate-image`,
-      { size: "1024x1024", mode: "create", ...payload },
-      { timeout: 120_000 },
+      payload.format ? { mode: "create", ...payload } : { size: "1024x1024", mode: "create", ...payload },
+      { timeout: 150_000 },
     );
     return data;
   },

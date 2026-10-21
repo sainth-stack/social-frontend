@@ -2,17 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import {
   Calendar,
   Copy,
   Download,
   FileText,
   Film,
+  GraduationCap,
   Image as ImageIcon,
+  Layers,
+  ListOrdered,
   Lock,
+  Megaphone,
+  MessageSquare,
+  Palette,
   Pencil,
   Play,
+  Quote,
+  RectangleHorizontal,
   RefreshCcw,
   Rocket,
   RotateCcw,
@@ -20,6 +27,10 @@ import {
   Gem,
   Mic2,
   Search,
+  Smartphone,
+  Sparkles,
+  Square,
+  Tag,
   Trash2,
   Upload,
   X as XIcon,
@@ -45,7 +56,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +82,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -99,10 +110,13 @@ import type {
   ApplyTemplateResult,
   BrandVoicePayload,
   CalendarPost,
+  CreativeFormat,
   EmojiUsage,
+  GenerateImageResult,
   GeneratedContent,
   GeneratedSlide,
   GeneratedTweet,
+  LogoPosition,
   MediaAsset,
   MediaAssetType,
   SentenceLength,
@@ -135,6 +149,135 @@ const CONTENT_TYPE_TO_FORMAT: Record<string, string> = {
   Educational: "single",
   Announcement: "single",
 };
+
+const CONTENT_TYPE_META: Record<string, { icon: React.ComponentType<{ className?: string }>; hint: string }> = {
+  Caption: { icon: MessageSquare, hint: "Single post" },
+  Carousel: { icon: Layers, hint: "Multi-slide" },
+  Thread: { icon: ListOrdered, hint: "X thread" },
+  Promotional: { icon: Tag, hint: "Offer & sale" },
+  Educational: { icon: GraduationCap, hint: "Tips & how-to" },
+  Announcement: { icon: Megaphone, hint: "News & launch" },
+};
+
+type VisualFormat = "auto" | Exclude<CreativeFormat, "carousel" | "product">;
+
+const VISUAL_FORMATS: { value: VisualFormat; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { value: "auto", label: "Auto", icon: Sparkles },
+  { value: "post", label: "Post", icon: Square },
+  { value: "banner", label: "Banner", icon: RectangleHorizontal },
+  { value: "story", label: "Story", icon: Smartphone },
+  { value: "quote", label: "Quote", icon: Quote },
+];
+
+const LOGO_POSITIONS: { value: LogoPosition; label: string }[] = [
+  { value: "top-left", label: "Top left" },
+  { value: "top-right", label: "Top right" },
+  { value: "bottom-left", label: "Bottom left" },
+  { value: "bottom-right", label: "Bottom right" },
+];
+
+const QUICK_STARTS = [
+  "Announce our new product launching this week",
+  "Share 3 practical tips for our audience",
+  "Promote a limited-time 20% discount",
+  "Celebrate a customer success story",
+];
+
+const MAX_CAROUSEL_VISUALS = 8;
+
+type BrandKit = {
+  brandName: string;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+};
+
+function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+}: {
+  value: T;
+  options: readonly T[];
+  onChange: (v: T) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div role="radiogroup" aria-label={ariaLabel} className="flex flex-wrap gap-1 rounded-lg border border-border p-0.5">
+      {options.map((o) => (
+        <button
+          key={o}
+          type="button"
+          role="radio"
+          aria-checked={value === o}
+          onClick={() => onChange(o)}
+          className={cn(
+            "flex-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition",
+            value === o ? "bg-primary text-primary-foreground shadow-soft" : "text-muted-foreground hover:bg-muted",
+          )}
+        >
+          {o}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ComposerSection({
+  step,
+  title,
+  aside,
+  children,
+}: {
+  step: number;
+  title: string;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+            {step}
+          </span>
+          <h3 className="text-sm font-semibold">{title}</h3>
+        </div>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ToggleRow({
+  id,
+  label,
+  hint,
+  checked,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <Label htmlFor={id} className="text-xs font-medium">
+          {label}
+        </Label>
+        {hint ? <p className="text-[11px] text-muted-foreground">{hint}</p> : null}
+      </div>
+      <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onChange} />
+    </div>
+  );
+}
 
 type PrefillMedia = { name: string; url: string; mediaType: MediaAssetType } | null;
 
@@ -356,6 +499,8 @@ function GenerateTab({
   templateId,
   assetId,
   scheduleAtParam,
+  onOpenBrand,
+  brandVersion,
 }: {
   orgId: string;
   prefillMedia: PrefillMedia;
@@ -365,6 +510,8 @@ function GenerateTab({
   templateId: string | null;
   assetId: string | null;
   scheduleAtParam: string | null;
+  onOpenBrand: () => void;
+  brandVersion: number;
 }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
@@ -389,6 +536,15 @@ function GenerateTab({
   const [includeHashtags, setIncludeHashtags] = useState(true);
   const [includeEmojis, setIncludeEmojis] = useState(true);
   const [alsoGenerateImage, setAlsoGenerateImage] = useState(false);
+  const [visualFormat, setVisualFormat] = useState<VisualFormat>("auto");
+  const [headlineOnImage, setHeadlineOnImage] = useState(true);
+  const [includeLogo, setIncludeLogo] = useState(true);
+  const [logoPosition, setLogoPosition] = useState<LogoPosition>("top-right");
+  const [imageMeta, setImageMeta] = useState<GenerateImageResult | null>(null);
+  const [brandKit, setBrandKit] = useState<BrandKit | null>(null);
+  const [slides, setSlides] = useState<GeneratedSlide[] | null>(null);
+  const [slideImages, setSlideImages] = useState<(string | null)[]>([]);
+  const [slidesLoading, setSlidesLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -502,6 +658,26 @@ function GenerateTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, orgId]);
 
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    void socialMediaApi
+      .getBrandVoice(orgId)
+      .then((bv) => {
+        if (cancelled) return;
+        setBrandKit({
+          brandName: bv.brandName,
+          logoUrl: bv.logoUrl ?? null,
+          primaryColor: bv.primaryColor ?? null,
+          accentColor: bv.accentColor ?? null,
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, brandVersion]);
+
   // Keep preview tab on a selected platform.
   useEffect(() => {
     if (!selectedPlatforms.includes(activePlatform)) {
@@ -609,32 +785,113 @@ function GenerateTab({
 
   const buildImageTopic = (withFormat: boolean) => {
     const suffix = [
-      tone ? `Style/tone: ${tone}.` : "",
-      withFormat && type !== "Caption" ? `Format: ${type}.` : "",
-      "Premium commercial social image — scroll-stopping, high-end lighting, no text overlays, no watermark.",
+      tone ? `Mood: ${tone}.` : "",
+      withFormat && type !== "Caption" ? `Post type: ${type}.` : "",
     ]
       .filter(Boolean)
       .join(" ");
     const room = Math.max(5, 500 - suffix.length - 1);
-    return `${prompt.trim().slice(0, room)} ${suffix}`.slice(0, 500);
+    return `${prompt.trim().slice(0, room)} ${suffix}`.trim().slice(0, 500);
   };
 
-  const runImageGeneration = async (withFormat: boolean, successMessage: string, failMessage: string) => {
+  const resolvedVisualFormat: CreativeFormat =
+    visualFormat !== "auto"
+      ? visualFormat
+      : type === "Promotional"
+        ? "product"
+        : "post";
+
+  const runImageGeneration = async (
+    withFormat: boolean,
+    successMessage: string,
+    failMessage: string,
+    captionContext?: string,
+  ) => {
     setImageLoading(true);
     try {
       const img = await socialMediaApi.generateImage(orgId, {
         topic: buildImageTopic(withFormat),
         mode: "create",
-        size: "1024x1024",
+        format: resolvedVisualFormat,
+        platform: previewPlatform,
+        caption: (captionContext ?? activeVariation?.caption ?? "").slice(0, 3000) || undefined,
+        cta: cta.trim().slice(0, 40) || undefined,
+        textOverlay: headlineOnImage,
+        includeLogo,
+        logoPosition,
       });
       setGeneratedImageUrl(img.imageUrl);
+      setImageMeta(img);
       setMediaSource("ai_generated");
       toast.success(successMessage);
     } catch (err) {
-      toast.error(extractErrorMessage(err, failMessage));
+      toast.error(extractPlanError(err, failMessage));
     } finally {
       setImageLoading(false);
     }
+  };
+
+  const generateSlideVisuals = async (list: GeneratedSlide[], captionContext: string) => {
+    const count = Math.min(list.length, MAX_CAROUSEL_VISUALS);
+    if (count === 0) return;
+    const results: (string | null)[] = Array(count).fill(null);
+    setSlideImages([...results]);
+    setSlidesLoading(true);
+    let next = 0;
+    let failed = 0;
+    const worker = async () => {
+      while (next < count) {
+        const i = next++;
+        const slide = list[i];
+        const topic = (slide.imagePrompt || `${slide.headline}. ${prompt.trim()}`).trim().slice(0, 500);
+        try {
+          const img = await socialMediaApi.generateImage(orgId, {
+            topic: topic.length >= 3 ? topic : prompt.trim().slice(0, 500),
+            mode: "create",
+            format: "carousel",
+            platform: previewPlatform,
+            headline: slide.headline.slice(0, 160),
+            subtext: slide.body.slice(0, 220),
+            cta: i === count - 1 ? cta.trim().slice(0, 40) || undefined : undefined,
+            caption: captionContext.slice(0, 3000) || undefined,
+            textOverlay: headlineOnImage,
+            autoCopy: false,
+            includeLogo,
+            logoPosition,
+            slideIndex: i + 1,
+            slideCount: count,
+          });
+          results[i] = img.imageUrl;
+          setSlideImages([...results]);
+          if (i === 0) {
+            setGeneratedImageUrl(img.imageUrl);
+            setImageMeta(img);
+            setMediaSource("ai_generated");
+          }
+        } catch (err) {
+          failed += 1;
+          if (failed === 1) toast.error(extractPlanError(err, `Slide ${i + 1} visual failed`));
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    setSlidesLoading(false);
+    const done = results.filter(Boolean).length;
+    if (done > 0) {
+      toast.success(`${done} of ${count} slide visuals ready — all saved to your media library`);
+    }
+  };
+
+  const selectSlideImage = (url: string | null) => {
+    if (!url) return;
+    setGeneratedImageUrl(url);
+    setMediaSource("ai_generated");
+  };
+
+  const removeGeneratedImage = () => {
+    setGeneratedImageUrl(null);
+    setImageMeta(null);
+    setMediaSource("none");
   };
 
   const generate = async () => {
@@ -666,11 +923,16 @@ function GenerateTab({
     setError(null);
     setVariations(null);
     setPicked(null);
+    setSlides(null);
+    setSlideImages([]);
     const shouldImage = alsoGenerateImage && !prefillMedia;
-    if (shouldImage) setGeneratedImageUrl(null);
-    const imageTask = shouldImage
-      ? runImageGeneration(true, "Image generated and attached", "Caption ready, but image generation failed")
-      : null;
+    if (shouldImage) {
+      setGeneratedImageUrl(null);
+      setImageMeta(null);
+    }
+    let captionForImage = "";
+    let generatedSlides: GeneratedSlide[] = [];
+    let captionsOk = false;
     try {
       const results: Variation[] = [];
       const allHashtags: string[] = [];
@@ -711,6 +973,10 @@ function GenerateTab({
       setHashtags([...new Set(allHashtags)]);
       const recIdx = results.findIndex((v) => v.recommended);
       setPicked(recIdx >= 0 ? recIdx : 0);
+      captionForImage = results[recIdx >= 0 ? recIdx : 0]?.caption ?? "";
+      generatedSlides = formatKey === "carousel" ? (responses[0]?.slides ?? []) : [];
+      if (generatedSlides.length) setSlides(generatedSlides);
+      captionsOk = true;
       toast.success(
         formatKey === "thread"
           ? `Thread generated (${results[0]?.caption.split("\n\n").length ?? 0} tweets)`
@@ -727,7 +993,17 @@ function GenerateTab({
     } finally {
       setLoading(false);
     }
-    if (imageTask) await imageTask;
+    if (!shouldImage || !captionsOk) return;
+    if (generatedSlides.length) {
+      await generateSlideVisuals(generatedSlides, captionForImage);
+    } else {
+      await runImageGeneration(
+        true,
+        "Visual generated and attached",
+        "Caption ready, but the visual could not be generated",
+        captionForImage,
+      );
+    }
   };
 
   const generateImage = async () => {
@@ -930,6 +1206,9 @@ function GenerateTab({
     setVariations(null);
     setPicked(null);
     setGeneratedImageUrl(null);
+    setImageMeta(null);
+    setSlides(null);
+    setSlideImages([]);
     setMediaSource("none");
     setError(null);
     templateBootstrappedRef.current = false;
@@ -1019,11 +1298,19 @@ function GenerateTab({
       />
 
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-      <Card className="shadow-soft lg:col-span-2">
-        <CardHeader>
-          <CardTitle className="text-base">Compose</CardTitle>
+      <Card className="shadow-soft lg:col-span-2 lg:self-start">
+        <CardHeader className="space-y-1 border-b border-border pb-4">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <div>
+              <CardTitle className="text-base">Create with AI</CardTitle>
+              <p className="text-xs text-muted-foreground">On-brand copy and visuals in one pass.</p>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent className="space-y-6 pt-5">
           {prefillMedia && (
             <div className="flex items-center justify-between rounded-lg border border-border bg-accent/40 px-3 py-2 text-xs">
               <span className="flex items-center gap-2">
@@ -1042,23 +1329,68 @@ function GenerateTab({
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label>Prompt</Label>
+          <ComposerSection step={1} title="Format">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {CONTENT_TYPES.map((t) => {
+                const meta = CONTENT_TYPE_META[t];
+                const Icon = meta.icon;
+                const active = type === t;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setType(t)}
+                    className={cn(
+                      "flex flex-col items-start gap-1 rounded-lg border p-2.5 text-left transition",
+                      active
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "border-border hover:border-primary/40 hover:bg-muted/50",
+                    )}
+                  >
+                    <Icon className={cn("h-4 w-4", active ? "text-primary" : "text-muted-foreground")} />
+                    <span className="text-xs font-semibold">{t}</span>
+                    <span className="text-[10px] text-muted-foreground">{meta.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </ComposerSection>
+
+          <ComposerSection
+            step={2}
+            title="Brief"
+            aside={<span className="text-[10px] text-muted-foreground">{prompt.length}/2000</span>}
+          >
             <Textarea
-              placeholder="e.g. Announce our fall collection launching this Friday…"
-              rows={4}
+              aria-label="Brief"
+              placeholder="What should this post say? Include the offer, audience, key facts and any must-have details…"
+              rows={5}
+              maxLength={2000}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
             />
-          </div>
+            {!prompt.trim() && (
+              <div className="flex flex-wrap gap-1.5">
+                {QUICK_STARTS.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => setPrompt(q)}
+                    className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+          </ComposerSection>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Platforms</Label>
-              <span className="text-[10px] text-muted-foreground">
-                Select one or more — available on all plans
-              </span>
-            </div>
+          <ComposerSection
+            step={3}
+            title="Channels"
+            aside={<span className="text-[10px] text-muted-foreground">{selectedPlatforms.length} selected</span>}
+          >
             <div className="flex flex-wrap gap-2">
               {PLATFORMS.map((p) => {
                 const active = selectedPlatforms.includes(p);
@@ -1066,171 +1398,242 @@ function GenerateTab({
                   <button
                     key={p}
                     type="button"
+                    aria-pressed={active}
                     onClick={() => togglePlatform(p)}
                     className={cn(
-                      "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium capitalize transition",
+                      "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
                       active
                         ? "border-primary bg-primary/10 text-primary"
                         : "border-border hover:bg-muted",
                     )}
                   >
-                    <PlatformIcon platform={p} size="sm" /> {p}
+                    <PlatformIcon platform={p} size="sm" /> {PLATFORM_LABELS[p]}
                   </button>
                 );
               })}
             </div>
-          </div>
+          </ComposerSection>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label>Content type</Label>
-              <Select value={type} onValueChange={setType}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CONTENT_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <ComposerSection step={4} title="Voice & style">
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Tone</Label>
+                <SegmentedControl ariaLabel="Tone" value={tone} options={TONES} onChange={setTone} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Length</Label>
+                  <SegmentedControl ariaLabel="Length" value={length} options={LENGTHS} onChange={setLength} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="studio-cta" className="text-xs text-muted-foreground">
+                    Call to action
+                  </Label>
+                  <Input
+                    id="studio-cta"
+                    placeholder="Shop now"
+                    maxLength={40}
+                    value={cta}
+                    onChange={(e) => setCta(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Versions</Label>
+                  {!canMultiVariation ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                      Pro plan <ProBadge />
+                    </span>
+                  ) : multiPlatform ? (
+                    <span className="text-[10px] text-muted-foreground">
+                      Locked to 1 while multi-platform
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex rounded-lg border border-border p-0.5">
+                  {([1, 2, 3] as const).map((n) => {
+                    const locked =
+                      n > 1 && (!canMultiVariation || multiPlatform);
+                    const active = effectiveVariations === n;
+                    const btn = (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => !locked && setVariationsWanted(n)}
+                        disabled={locked}
+                        className={cn(
+                          "flex flex-1 items-center justify-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition",
+                          active && !locked
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:bg-muted",
+                          locked && "cursor-not-allowed opacity-60 hover:bg-transparent",
+                        )}
+                      >
+                        {n} {locked && <Lock className="h-3 w-3" />}
+                      </button>
+                    );
+                    return locked ? (
+                      <Tooltip key={n}>
+                        <TooltipTrigger asChild>{btn}</TooltipTrigger>
+                        <TooltipContent>
+                          {multiPlatform
+                            ? "Pick a single platform to generate A/B versions"
+                            : "Upgrade to Pro to generate multiple versions"}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      btn
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="space-y-2.5 rounded-lg border border-border p-3">
+                <ToggleRow
+                  id="studio-hashtags"
+                  label="Hashtags"
+                  checked={includeHashtags}
+                  onChange={setIncludeHashtags}
+                />
+                <ToggleRow
+                  id="studio-emojis"
+                  label="Emojis"
+                  checked={includeEmojis}
+                  onChange={setIncludeEmojis}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Tone</Label>
-              <Select value={tone} onValueChange={setTone}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TONES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Length</Label>
-              <Select value={length} onValueChange={setLength}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LENGTHS.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Call to action</Label>
-              <Input
-                placeholder="Shop now"
-                value={cta}
-                onChange={(e) => setCta(e.target.value)}
-              />
-            </div>
-          </div>
+          </ComposerSection>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Variations</Label>
-              {!canMultiVariation ? (
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                  Pro plan <ProBadge />
-                </span>
-              ) : multiPlatform ? (
-                <span className="text-[10px] text-muted-foreground">
-                  Locked to 1 while multi-platform
-                </span>
-              ) : null}
-            </div>
-            <div className="flex rounded-lg border border-border p-0.5">
-              {([1, 2, 3] as const).map((n) => {
-                const locked =
-                  n > 1 && (!canMultiVariation || multiPlatform);
-                const active = effectiveVariations === n;
-                const btn = (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => !locked && setVariationsWanted(n)}
-                    disabled={locked}
-                    className={cn(
-                      "flex flex-1 items-center justify-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition",
-                      active && !locked
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-muted",
-                      locked && "cursor-not-allowed opacity-60 hover:bg-transparent",
-                    )}
-                  >
-                    {n} {locked && <Lock className="h-3 w-3" />}
-                  </button>
-                );
-                return locked ? (
-                  <Tooltip key={n}>
-                    <TooltipTrigger asChild>{btn}</TooltipTrigger>
-                    <TooltipContent>
-                      {multiPlatform
-                        ? "Pick a single platform to generate A/B versions"
-                        : "Upgrade to Pro to generate multiple versions"}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  btn
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex items-center gap-2 text-xs">
-              <Checkbox
-                checked={includeHashtags}
-                onCheckedChange={(v) => setIncludeHashtags(!!v)}
-              />
-              Include hashtags
-            </label>
-            <label className="flex items-center gap-2 text-xs">
-              <Checkbox
-                checked={includeEmojis}
-                onCheckedChange={(v) => setIncludeEmojis(!!v)}
-              />
-              Include emojis
-            </label>
-            <label className="col-span-2 flex items-center gap-2 text-xs">
-              <Checkbox
+          <ComposerSection
+            step={5}
+            title="Visual"
+            aside={
+              promptSuggestsImage(prompt, type) && !prefillMedia ? (
+                <Badge variant="secondary" className="text-[10px]">
+                  Suggested
+                </Badge>
+              ) : null
+            }
+          >
+            <div className="space-y-3 rounded-lg border border-border p-3">
+              <ToggleRow
+                id="studio-visual"
+                label={type === "Carousel" ? "Create slide visuals" : "Create a visual"}
+                hint={
+                  prefillMedia
+                    ? "Media already attached"
+                    : type === "Carousel"
+                      ? `Up to ${MAX_CAROUSEL_VISUALS} branded slides, sized for ${PLATFORM_LABELS[previewPlatform]}`
+                      : "Generated after the copy so it matches the caption"
+                }
                 checked={alsoGenerateImage}
                 disabled={!!prefillMedia}
-                onCheckedChange={(v) => setAlsoGenerateImage(!!v)}
+                onChange={setAlsoGenerateImage}
               />
-              Also generate image from prompt
-              {promptSuggestsImage(prompt, type) && !prefillMedia ? (
-                <span className="text-[10px] text-muted-foreground">(suggested)</span>
+              {type !== "Carousel" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Size</Label>
+                  <div className="grid grid-cols-5 gap-1">
+                    {VISUAL_FORMATS.map((f) => {
+                      const Icon = f.icon;
+                      const active = visualFormat === f.value;
+                      return (
+                        <button
+                          key={f.value}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => setVisualFormat(f.value)}
+                          className={cn(
+                            "flex flex-col items-center gap-1 rounded-md border px-1 py-2 text-[10px] font-medium transition",
+                            active
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border text-muted-foreground hover:bg-muted/60",
+                          )}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                          {f.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <ToggleRow
+                id="studio-headline"
+                label="Headline on image"
+                hint="Adds a short headline and CTA in your brand colors"
+                checked={headlineOnImage}
+                onChange={setHeadlineOnImage}
+              />
+              <ToggleRow
+                id="studio-logo"
+                label="Brand logo"
+                hint={brandKit?.logoUrl ? undefined : "Upload a logo in Brand profile"}
+                checked={includeLogo && Boolean(brandKit?.logoUrl)}
+                disabled={!brandKit?.logoUrl}
+                onChange={setIncludeLogo}
+              />
+              {includeLogo && brandKit?.logoUrl ? (
+                <Select value={logoPosition} onValueChange={(v) => setLogoPosition(v as LogoPosition)}>
+                  <SelectTrigger className="h-8 text-xs" aria-label="Logo position">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOGO_POSITIONS.map((p) => (
+                      <SelectItem key={p.value} value={p.value}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               ) : null}
-            </label>
-          </div>
+              <div className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2.5 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  {brandKit?.logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={brandKit.logoUrl} alt="" className="h-6 w-6 rounded object-contain" />
+                  ) : (
+                    <Palette className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span className="truncate text-[11px] font-medium">
+                    {brandKit?.brandName || "Brand kit"}
+                  </span>
+                  {[brandKit?.primaryColor, brandKit?.accentColor].filter(Boolean).map((c) => (
+                    <span
+                      key={c as string}
+                      className="h-3.5 w-3.5 shrink-0 rounded-full border border-border"
+                      style={{ backgroundColor: c as string }}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenBrand}
+                  className="shrink-0 text-[11px] font-medium text-primary hover:underline"
+                >
+                  {brandKit?.logoUrl && brandKit?.primaryColor ? "Edit" : "Set up"}
+                </button>
+              </div>
+            </div>
+          </ComposerSection>
 
           {error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {error}
             </div>
           )}
 
-          <div className="space-y-2">
-            <Button className="w-full" onClick={() => void generate()} disabled={loading || !orgId}>
+          <div className="sticky bottom-0 -mx-6 space-y-2 border-t border-border bg-card/95 px-6 pb-1 pt-4 backdrop-blur">
+            <Button className="w-full" size="lg" onClick={() => void generate()} disabled={loading || !orgId}>
               {loading ? (
                 <>
-                  <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Generating…
+                  <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Writing copy…
                 </>
               ) : (
                 <>
-                  <ProductGenerateIcon className="mr-1.5 h-4 w-4" /> Generate content
+                  <ProductGenerateIcon className="mr-1.5 h-4 w-4" />
+                  {alsoGenerateImage && !prefillMedia ? "Generate copy + visual" : "Generate copy"}
                 </>
               )}
             </Button>
@@ -1238,16 +1641,16 @@ function GenerateTab({
               type="button"
               variant="outline"
               className="w-full"
-              disabled={imageLoading || !orgId}
+              disabled={imageLoading || slidesLoading || !orgId}
               onClick={() => void generateImage()}
             >
               {imageLoading ? (
                 <>
-                  <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Generating image…
+                  <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Creating visual…
                 </>
               ) : (
                 <>
-                  <ImageIcon className="mr-1.5 h-4 w-4" /> Generate image
+                  <ImageIcon className="mr-1.5 h-4 w-4" /> Visual only
                 </>
               )}
             </Button>
@@ -1347,7 +1750,7 @@ function GenerateTab({
                     hashtags={previewHashtags}
                     imageUrl={previewImageUrl}
                     videoUrl={previewVideoUrl}
-                    brandName="Your Brand"
+                    brandName={brandKit?.brandName || "Your Brand"}
                     account={previewAccount}
                   />
                 </PhoneFrame>
@@ -1375,6 +1778,100 @@ function GenerateTab({
               />
             ) : null}
           </div>
+
+          {(imageLoading || generatedImageUrl || slideImages.length > 0) && !prefillMedia && (
+            <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold">Visual</p>
+                  {imageMeta?.width && imageMeta?.height ? (
+                    <Badge variant="secondary" className="text-[10px]">
+                      {imageMeta.width}×{imageMeta.height}
+                    </Badge>
+                  ) : null}
+                  {imageMeta?.format ? (
+                    <Badge variant="outline" className="text-[10px] capitalize">
+                      {imageMeta.format}
+                    </Badge>
+                  ) : null}
+                  {imageMeta?.logoApplied ? (
+                    <Badge variant="outline" className="border-success/30 bg-success/10 text-[10px] text-success">
+                      Logo applied
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={imageLoading || slidesLoading}
+                    onClick={() =>
+                      slides?.length && type === "Carousel"
+                        ? void generateSlideVisuals(slides, previewCaption)
+                        : void generateImage()
+                    }
+                  >
+                    <RefreshCcw className={cn("mr-1 h-3.5 w-3.5", (imageLoading || slidesLoading) && "animate-spin")} />
+                    Regenerate
+                  </Button>
+                  {generatedImageUrl ? (
+                    <>
+                      <Button size="sm" variant="outline" asChild>
+                        <a href={generatedImageUrl} target="_blank" rel="noopener noreferrer" download>
+                          <Download className="mr-1 h-3.5 w-3.5" /> Download
+                        </a>
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={removeGeneratedImage}>
+                        <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+              {imageMeta?.headline ? (
+                <p className="text-xs text-muted-foreground">
+                  Headline: <span className="font-medium text-foreground">{imageMeta.headline}</span>
+                  {imageMeta.cta ? <> · CTA: <span className="font-medium text-foreground">{imageMeta.cta}</span></> : null}
+                </p>
+              ) : null}
+              {imageLoading && !generatedImageUrl ? (
+                <div className="h-40 animate-pulse rounded-lg bg-muted" />
+              ) : null}
+              {slideImages.length > 0 ? (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] text-muted-foreground">
+                    Slides — click to preview. The selected slide is attached to the post; all slides are saved to your media library.
+                  </p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {slideImages.map((url, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        disabled={!url}
+                        onClick={() => selectSlideImage(url)}
+                        aria-label={`Preview slide ${i + 1}`}
+                        className={cn(
+                          "relative h-24 w-20 shrink-0 overflow-hidden rounded-md border bg-muted transition",
+                          url && url === generatedImageUrl ? "border-primary ring-2 ring-primary" : "border-border",
+                        )}
+                      >
+                        {url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={url} alt={`Slide ${i + 1}`} className="h-full w-full object-cover" loading="lazy" />
+                        ) : (
+                          <span className="absolute inset-0 animate-pulse bg-muted" />
+                        )}
+                        <span className="absolute bottom-1 left-1 rounded bg-background/80 px-1 text-[9px] font-semibold">
+                          {i + 1}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -1470,9 +1967,54 @@ const emptyBrand: BrandVoicePayload = {
   primaryLanguage: "en",
   systemPromptOverride: null,
   logoUrl: null,
+  primaryColor: "",
+  accentColor: "",
 };
 
-function BrandTab({ orgId }: { orgId: string }) {
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+function BrandColorField({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const valid = HEX_COLOR.test(value);
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          aria-label={`${label} picker`}
+          value={valid ? value : "#000000"}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-9 w-10 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
+        />
+        <Input
+          id={id}
+          value={value}
+          maxLength={7}
+          placeholder="#1E40AF"
+          onChange={(e) => {
+            const next = e.target.value.trim();
+            onChange(next && !next.startsWith("#") ? `#${next}` : next);
+          }}
+          className={cn("h-9 font-mono text-xs uppercase", value && !valid && "border-destructive")}
+        />
+      </div>
+    </div>
+  );
+}
+
+function BrandTab({ orgId, onSaved }: { orgId: string; onSaved?: () => void }) {
   const [form, setForm] = useState<BrandVoicePayload>(emptyBrand);
   const [description, setDescription] = useState("");
   const [products, setProducts] = useState("");
@@ -1511,6 +2053,8 @@ function BrandTab({ orgId }: { orgId: string }) {
         primaryLanguage: bv.primaryLanguage,
         systemPromptOverride: restOverride || null,
         logoUrl: bv.logoUrl ?? null,
+        primaryColor: bv.primaryColor ?? "",
+        accentColor: bv.accentColor ?? "",
       });
       setWebsite(websiteMatch?.[1]?.trim() ?? "");
       setProducts(bv.wordsToUse.join(", "));
@@ -1540,6 +2084,8 @@ function BrandTab({ orgId }: { orgId: string }) {
       ...form,
       tagline: description,
       wordsToUse: keywords,
+      primaryColor: HEX_COLOR.test(form.primaryColor ?? "") ? form.primaryColor : "",
+      accentColor: HEX_COLOR.test(form.accentColor ?? "") ? form.accentColor : "",
       systemPromptOverride:
         [site ? `Website: ${site}` : "", form.systemPromptOverride ?? ""].filter(Boolean).join("\n") || null,
     };
@@ -1570,6 +2116,7 @@ function BrandTab({ orgId }: { orgId: string }) {
       const { logoUrl } = await socialMediaApi.uploadLogo(orgId, file);
       patch("logoUrl", logoUrl);
       toast.success("Logo uploaded");
+      onSaved?.();
     } catch (err) {
       toast.error(extractErrorMessage(err, "Logo upload failed"));
     } finally {
@@ -1586,6 +2133,7 @@ function BrandTab({ orgId }: { orgId: string }) {
       await socialMediaApi.saveBrandVoice(orgId, payload);
       setForm((prev) => ({ ...prev, tagline: payload.tagline, wordsToUse: payload.wordsToUse }));
       toast.success("Brand profile saved");
+      onSaved?.();
     } catch (err) {
       toast.error(extractErrorMessage(err, "Failed to save brand profile"));
     } finally {
@@ -1620,109 +2168,105 @@ function BrandTab({ orgId }: { orgId: string }) {
 
   const tone = form.tones[0] || "Friendly";
 
-  return (
-    <Card className="shadow-soft">
-      <CardHeader>
-        <CardTitle className="text-base">Brand profile</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          The more we know about your business, the better the AI writes for you.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div
-          className="rounded-xl border-2 p-4"
-          style={{
-            borderColor: "color-mix(in oklch, var(--success, #16a34a) 40%, transparent)",
-            backgroundColor: "color-mix(in oklch, var(--success, #16a34a) 6%, transparent)",
-          }}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-600 text-white">
-                <Mic2 className="h-3.5 w-3.5" />
-              </span>
-              <p className="text-sm font-semibold">Brand voice preview</p>
-              <Badge variant="secondary" className="text-[10px]">
-                Live
-              </Badge>
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void refreshPreview()}
-              disabled={refreshing}
-            >
-              <RefreshCcw className={cn("mr-1.5 h-3.5 w-3.5", refreshing && "animate-spin")} />
-              Refresh preview
-            </Button>
-          </div>
-          <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-foreground">
-            {preview || "Save your profile and refresh to see a sample caption."}
-          </p>
-        </div>
+  const primary = HEX_COLOR.test(form.primaryColor ?? "") ? (form.primaryColor as string) : "";
+  const accent = HEX_COLOR.test(form.accentColor ?? "") ? (form.accentColor as string) : "";
 
-        <form className="grid grid-cols-1 gap-5 md:grid-cols-2" onSubmit={(e) => void handleSave(e)}>
-          <div className="space-y-2">
-            <Label>Business name</Label>
-            <Input
-              value={form.brandName}
-              onChange={(e) => patch("brandName", e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Industry</Label>
-            <Input
-              value={form.industry}
-              onChange={(e) => patch("industry", e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Website</Label>
-            <Input
-              value={website}
-              onChange={(e) => setWebsite(e.target.value)}
-              placeholder="https://"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Call to action</Label>
-            <Input
-              value={form.ctaPhrases[0] ?? ""}
-              onChange={(e) =>
-                patch(
-                  "ctaPhrases",
-                  e.target.value.trim() ? [e.target.value.trim()] : [],
-                )
-              }
-              placeholder="Book a discovery call"
-            />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label>Business description</Label>
-            <Textarea
-              rows={3}
-              value={description}
-              maxLength={255}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label>Target audience</Label>
-            <Textarea
-              rows={2}
-              value={form.targetAudience}
-              onChange={(e) => patch("targetAudience", e.target.value)}
-            />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label>Products / services / keywords</Label>
-            <Textarea
-              rows={2}
-              value={products}
-              onChange={(e) => setProducts(e.target.value)}
-              placeholder="Comma-separated"
-            />
-          </div>
+  return (
+    <form
+      className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px]"
+      onSubmit={(e) => void handleSave(e)}
+    >
+      <Card className="shadow-soft">
+        <CardHeader>
+          <CardTitle className="text-base">Brand profile</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            The more we know about your business, the better the AI writes and designs for you.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-8">
+          <ComposerSection step={1} title="Identity">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="brand-name">Business name</Label>
+                <Input
+                  id="brand-name"
+                  value={form.brandName}
+                  onChange={(e) => patch("brandName", e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="brand-industry">Industry</Label>
+                <Input
+                  id="brand-industry"
+                  value={form.industry}
+                  onChange={(e) => patch("industry", e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="brand-website">Website</Label>
+                <Input
+                  id="brand-website"
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                  placeholder="https://"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="brand-description">Business description</Label>
+                  <span className="text-[11px] text-muted-foreground">{description.length}/255</span>
+                </div>
+                <Textarea
+                  id="brand-description"
+                  rows={3}
+                  value={description}
+                  maxLength={255}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+            </div>
+          </ComposerSection>
+
+          <ComposerSection step={2} title="Audience & offer">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="brand-audience">Target audience</Label>
+                <Textarea
+                  id="brand-audience"
+                  rows={2}
+                  value={form.targetAudience}
+                  onChange={(e) => patch("targetAudience", e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="brand-products">Products / services / keywords</Label>
+                <Textarea
+                  id="brand-products"
+                  rows={2}
+                  value={products}
+                  onChange={(e) => setProducts(e.target.value)}
+                  placeholder="Comma-separated"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="brand-cta">Default call to action</Label>
+                <Input
+                  id="brand-cta"
+                  value={form.ctaPhrases[0] ?? ""}
+                  onChange={(e) =>
+                    patch(
+                      "ctaPhrases",
+                      e.target.value.trim() ? [e.target.value.trim()] : [],
+                    )
+                  }
+                  placeholder="Book a discovery call"
+                />
+              </div>
+            </div>
+          </ComposerSection>
+
+          <ComposerSection step={3} title="Voice">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="space-y-2">
             <Label>Brand tone</Label>
             <Select
@@ -1773,46 +2317,66 @@ function BrandTab({ orgId }: { orgId: string }) {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label>Things to avoid</Label>
-            <Textarea
-              rows={2}
-              value={form.wordsToAvoid.join(", ")}
-              onChange={(e) =>
-                patch(
-                  "wordsToAvoid",
-                  e.target.value
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                )
-              }
-            />
           </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label>Logo</Label>
+          </ComposerSection>
+
+          <ComposerSection step={4} title="Guardrails">
+            <div className="space-y-2">
+              <Label htmlFor="brand-avoid">Things to avoid</Label>
+              <Textarea
+                id="brand-avoid"
+                rows={2}
+                value={form.wordsToAvoid.join(", ")}
+                placeholder="Comma-separated words, topics or claims"
+                onChange={(e) =>
+                  patch(
+                    "wordsToAvoid",
+                    e.target.value
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  )
+                }
+              />
+            </div>
+          </ComposerSection>
+        </CardContent>
+      </Card>
+
+      <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+        <Card className="shadow-soft">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Palette className="h-4 w-4 text-primary" />
+              <CardTitle className="text-sm">Brand kit</CardTitle>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Applied to every AI visual — logo stamp, headline accents and CTA buttons.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <label
               htmlFor="logo"
-              className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 px-6 py-8 text-center hover:bg-muted/50"
+              className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 px-4 py-6 text-center transition hover:bg-muted/50"
             >
               {form.logoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={form.logoUrl}
                   alt={`${form.brandName || "Brand"} logo`}
-                  className="mb-3 max-h-20 max-w-[160px] object-contain"
+                  className="mb-2 max-h-16 max-w-[160px] object-contain"
                 />
               ) : (
                 <Upload className="h-6 w-6 text-muted-foreground" />
               )}
-              <p className="mt-2 text-sm font-medium">
+              <p className="mt-1 text-sm font-medium">
                 {uploadingLogo
                   ? "Uploading…"
                   : form.logoUrl
                     ? "Click to replace logo"
-                    : "Drop your logo here, or click to upload"}
+                    : "Upload your logo"}
               </p>
-              <p className="text-xs text-muted-foreground">PNG, JPG, SVG · up to 5 MB</p>
+              <p className="text-[11px] text-muted-foreground">PNG with transparency works best · up to 5 MB</p>
               <input
                 id="logo"
                 type="file"
@@ -1826,23 +2390,79 @@ function BrandTab({ orgId }: { orgId: string }) {
                 }}
               />
             </label>
-          </div>
-          <div className="flex flex-col items-end gap-1 md:col-span-2">
-            <Button type="submit" disabled={saving || !orgId}>
-              {saving ? (
-                <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="mr-1.5 h-4 w-4" />
-              )}
-              Save brand profile
+            <div className="grid grid-cols-2 gap-3">
+              <BrandColorField
+                id="brand-primary"
+                label="Primary"
+                value={form.primaryColor ?? ""}
+                onChange={(v) => patch("primaryColor", v)}
+              />
+              <BrandColorField
+                id="brand-accent"
+                label="Accent"
+                value={form.accentColor ?? ""}
+                onChange={(v) => patch("accentColor", v)}
+              />
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div
+                className="flex h-20 flex-col justify-end gap-1.5 bg-muted p-3"
+                style={primary ? { backgroundColor: primary } : undefined}
+              >
+                <span
+                  className="h-1 w-8 rounded-full bg-primary"
+                  style={accent ? { backgroundColor: accent } : undefined}
+                />
+                <span className="text-xs font-semibold text-white drop-shadow">
+                  {form.brandName || "Your headline"}
+                </span>
+              </div>
+              <p className="bg-card px-3 py-1.5 text-[10px] text-muted-foreground">
+                {primary || accent ? "Creative preview" : "No colors set — the AI picks a palette per image"}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="rounded-xl border border-success/30 bg-success/10 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-success text-white">
+                <Mic2 className="h-3.5 w-3.5" />
+              </span>
+              <p className="text-sm font-semibold">Voice preview</p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void refreshPreview()}
+              disabled={refreshing}
+            >
+              <RefreshCcw className={cn("mr-1.5 h-3.5 w-3.5", refreshing && "animate-spin")} />
+              Refresh
             </Button>
-            <p className="text-[11px] text-muted-foreground">
-              Every caption in AI Generate uses this profile automatically.
-            </p>
           </div>
-        </form>
-      </CardContent>
-    </Card>
+          <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-foreground">
+            {preview || "Refresh to see a sample caption in your voice."}
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Button type="submit" className="w-full" disabled={saving || !orgId}>
+            {saving ? (
+              <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="mr-1.5 h-4 w-4" />
+            )}
+            Save brand profile
+          </Button>
+          <p className="text-center text-[11px] text-muted-foreground">
+            Every caption and visual in AI Generate uses this profile.
+          </p>
+        </div>
+      </div>
+    </form>
   );
 }
 
@@ -1863,6 +2483,7 @@ function MediaTab({
 
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | MediaAssetType>("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "ai_generated" | "uploaded">("all");
   const [items, setItems] = useState<MediaAsset[]>([]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState({ images: 0, videos: 0, totalBytes: 0 });
@@ -1886,6 +2507,7 @@ function MediaTab({
     try {
       const data = await socialMediaApi.listMediaAssets(orgId, {
         mediaType: filter === "all" ? undefined : filter,
+        source: sourceFilter === "all" ? undefined : sourceFilter,
         search: query.trim() || undefined,
         page: 1,
         pageSize: 48,
@@ -1900,7 +2522,7 @@ function MediaTab({
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [orgId, filter, query]);
+  }, [orgId, filter, sourceFilter, query]);
 
   useEffect(() => {
     if (!active) return;
@@ -1984,7 +2606,7 @@ function MediaTab({
           <p className="mt-1 text-xs text-muted-foreground">
             {loading && items.length === 0
               ? "Loading…"
-              : `${imageCount} images · ${videoCount} videos · ${total} ${filter === "all" && !query.trim() ? "total" : "matching"}`}
+              : `${imageCount} images · ${videoCount} videos · ${total} ${filter === "all" && sourceFilter === "all" && !query.trim() ? "total" : "matching"}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2011,6 +2633,27 @@ function MediaTab({
                 )}
               >
                 {f}
+              </button>
+            ))}
+          </div>
+          <div className="flex rounded-lg border border-border p-0.5">
+            {([
+              ["all", "Any source"],
+              ["ai_generated", "AI"],
+              ["uploaded", "Uploaded"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setSourceFilter(value)}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-medium transition",
+                  sourceFilter === value
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {label}
               </button>
             ))}
           </div>
@@ -2210,7 +2853,17 @@ function MediaTab({
                       className="h-full w-full object-cover"
                     />
                   )}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60 p-2 opacity-0 transition group-hover:opacity-100">
+                  <span
+                    className={cn(
+                      "pointer-events-none absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                      m.source === "ai_generated"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background/90 text-foreground",
+                    )}
+                  >
+                    {m.source === "ai_generated" ? "AI" : "Upload"}
+                  </span>
+                  <div className="absolute inset-x-0 bottom-0 flex flex-col items-center justify-end gap-1.5 bg-gradient-to-t from-black/70 to-transparent p-2 transition focus-within:opacity-100 md:inset-0 md:justify-center md:bg-black/60 md:opacity-0 md:group-hover:opacity-100">
                     <Button
                       size="sm"
                       variant="secondary"
@@ -2257,7 +2910,7 @@ function MediaTab({
                     {m.prompt?.slice(0, 40) || m.mimeType || m.id.slice(0, 8)}
                   </p>
                   <p className="text-[10px] text-muted-foreground">
-                    {formatBytes(m.fileSizeBytes)} · {m.source === "ai_generated" ? "AI" : "Upload"}
+                    {formatBytes(m.fileSizeBytes)} · {m.mediaType === "video" ? "Video" : "Image"}
                   </p>
                 </div>
               </div>
@@ -2294,6 +2947,9 @@ export default function AIStudioPage({
   }, []);
 
   const clearPrefillMedia = useCallback(() => setPrefillMedia(null), []);
+  const [brandVersion, setBrandVersion] = useState(0);
+  const bumpBrandVersion = useCallback(() => setBrandVersion((v) => v + 1), []);
+  const openBrand = useCallback(() => changeTab("brand"), [changeTab]);
 
   useEffect(() => {
     changeTab(initialTab);
@@ -2345,6 +3001,8 @@ export default function AIStudioPage({
                 templateId={templateId}
                 assetId={assetId}
                 scheduleAtParam={scheduleAtParam}
+                onOpenBrand={openBrand}
+                brandVersion={brandVersion}
               />
             )}
           </TabsContent>
@@ -2352,7 +3010,7 @@ export default function AIStudioPage({
             {visited.has("planner") && <ContentPlannerSection orgId={orgId} />}
           </TabsContent>
           <TabsContent value="brand" forceMount className="data-[state=inactive]:hidden">
-            {visited.has("brand") && <BrandTab orgId={orgId} />}
+            {visited.has("brand") && <BrandTab orgId={orgId} onSaved={bumpBrandVersion} />}
           </TabsContent>
           <TabsContent value="media" forceMount className="data-[state=inactive]:hidden">
             {visited.has("media") && (

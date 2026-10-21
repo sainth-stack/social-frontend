@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, Sparkle } from "lucide-react";
+import { ChevronDown, Sparkle, Zap } from "lucide-react";
 
-import socialMediaApi from "@/api/endpoints/social-media.api";
 import type { NavItem, NavSection } from "@/components/layouts/nav-config";
-import { Badge } from "@/components/ui/badge";
+import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { selectUser } from "@/features/auth/authSlice";
@@ -46,6 +46,15 @@ function planLabel(plan: PlanTier | string | undefined): string {
   return PLAN_DISPLAY_NAMES[key] ?? plan.charAt(0).toUpperCase() + plan.slice(1);
 }
 
+function workspaceInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
 function NavLink({
   item,
   pathname,
@@ -65,19 +74,30 @@ function NavLink({
       href={item.href}
       onClick={onNavigate}
       className={cn(
-        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-        nested && "ml-3 pl-3",
+        "group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
+        nested && "ml-2 pl-3",
         active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+          ? "bg-primary/[0.08] text-foreground shadow-sm shadow-primary/5"
+          : "text-muted-foreground hover:bg-muted/80 hover:text-foreground",
       )}
     >
-      <Icon className={cn("h-4 w-4", active && "text-primary")} />
+      {active ? (
+        <span
+          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary"
+          aria-hidden
+        />
+      ) : null}
+      <Icon
+        className={cn(
+          "h-[18px] w-[18px] shrink-0",
+          active ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
+        )}
+      />
       <span className="flex-1 truncate">{item.label}</span>
       {item.badge ? (
-        <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-[10px]">
+        <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
           {item.badge}
-        </Badge>
+        </span>
       ) : null}
     </Link>
   );
@@ -110,20 +130,20 @@ function NavGroup({
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         className={cn(
-          "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+          "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
           groupActive
-            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+            ? "bg-primary/[0.08] text-foreground"
+            : "text-muted-foreground hover:bg-muted/80 hover:text-foreground",
         )}
       >
-        <Icon className={cn("h-4 w-4", groupActive && "text-primary")} />
+        <Icon className={cn("h-[18px] w-[18px]", groupActive && "text-primary")} />
         <span className="flex-1 truncate text-left">{item.label}</span>
         <ChevronDown
-          className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")}
+          className={cn("h-4 w-4 opacity-60 transition-transform", open && "rotate-180")}
         />
       </button>
       {open ? (
-        <div className="mt-0.5 space-y-0.5 pb-1">
+        <div className="mt-0.5 space-y-0.5 border-l border-border/60 ml-4 pl-1">
           {item.children.map((child) => (
             <NavLink
               key={child.href}
@@ -141,58 +161,107 @@ function NavGroup({
 
 function UsageCard() {
   const user = useAppSelector(selectUser);
-  const [postsUsed, setPostsUsed] = useState(0);
-  const [postsLimit, setPostsLimit] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!user?.workspaceId || user.isPlatformAdmin) return;
-    let active = true;
-
-    socialMediaApi
-      .getDashboardStats(user.workspaceId)
-      .then((stats) => {
-        if (!active) return;
-        setPostsUsed(stats.usage.postsThisMonth.used);
-        setPostsLimit(stats.usage.postsThisMonth.limit);
-      })
-      .catch(() => {
-        if (!active) return;
-        const plan =
-          DEFAULT_PRICING_CATALOG.find((p) => p.id === user.plan) ?? DEFAULT_PRICING_CATALOG[0];
-        setPostsLimit(plan.limits.postsPerMonth);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [user?.workspaceId, user?.isPlatformAdmin, user?.plan]);
+  const stats = useDashboardStats(
+    user?.workspaceId,
+    Boolean(user?.workspaceId && !user?.isPlatformAdmin),
+  );
 
   const plan = user?.plan ?? "starter";
   const catalog = DEFAULT_PRICING_CATALOG.find((p) => p.id === plan);
-  const limit = postsLimit ?? catalog?.limits.postsPerMonth ?? 60;
+  const postsUsed = stats?.usage.postsThisMonth.used ?? 0;
+  const limit = stats?.usage.postsThisMonth.limit ?? catalog?.limits.postsPerMonth ?? 60;
   const pct = limit ? Math.min(100, (postsUsed / limit) * 100) : 0;
+  const nearLimit = pct >= 85;
 
   return (
-    <div className="m-3 rounded-xl border border-sidebar-border bg-card p-4 shadow-soft">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground">{planLabel(plan)} plan</span>
-        <Badge variant="secondary" className="text-[10px]">
+    <div className="mx-3 mb-3 rounded-xl border border-border/80 bg-gradient-to-b from-card to-muted/30 p-3.5 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Current plan
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-foreground">{planLabel(plan)}</p>
+        </div>
+        <Link
+          href="/dashboard/billing"
+          className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/15"
+        >
+          <Zap className="h-3 w-3" />
           Upgrade
-        </Badge>
+        </Link>
       </div>
-      <div className="mt-3 space-y-2">
+      <div className="mt-3 space-y-1.5">
         <div className="flex justify-between text-xs">
-          <span className="text-muted-foreground">Posts</span>
-          <span className="font-medium">
+          <span className="text-muted-foreground">Posts this month</span>
+          <span className={cn("font-medium tabular-nums", nearLimit && "text-amber-600")}>
             {postsUsed}/{limit ?? "∞"}
           </span>
         </div>
-        <Progress value={pct} className="h-1.5" />
+        <Progress value={pct} className="h-1" />
       </div>
-      <Button size="sm" className="mt-3 w-full" asChild>
-        <Link href="/dashboard/billing">View plan</Link>
+      <Button variant="outline" size="sm" className="mt-3 h-8 w-full text-xs" asChild>
+        <Link href="/dashboard/billing">Manage billing</Link>
       </Button>
     </div>
+  );
+}
+
+function SidebarHeader({
+  brand,
+  homeHref,
+  onNavigate,
+}: {
+  brand: SidebarBrand;
+  homeHref: string;
+  onNavigate?: () => void;
+}) {
+  const isAdmin = brand.type === "platform";
+
+  if (isAdmin) {
+    return (
+      <Link
+        href={homeHref}
+        onClick={onNavigate}
+        className="flex h-[4.25rem] items-center gap-2.5 border-b border-sidebar-border px-4 no-underline"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/brand/mark.png"
+          alt=""
+          width={36}
+          height={36}
+          className="h-9 w-9 shrink-0 rounded-[22%] object-cover"
+          aria-hidden
+        />
+        <div className="min-w-0 flex flex-col">
+          <span className="truncate text-sm font-semibold text-foreground">
+            OpsBrain <span className="text-primary">AI</span>
+          </span>
+          <span className="truncate text-[11px] text-muted-foreground">Admin console</span>
+        </div>
+      </Link>
+    );
+  }
+
+  const org = brand as { type: "organization"; name: string; logoUrl?: string | null };
+
+  return (
+    <Link
+      href={homeHref}
+      onClick={onNavigate}
+      className="flex h-[4.25rem] items-center gap-2.5 border-b border-sidebar-border px-4 no-underline"
+    >
+      <Avatar className="h-9 w-9 shrink-0 rounded-lg border border-border/60">
+        {org.logoUrl ? <AvatarImage src={org.logoUrl} alt="" /> : null}
+        <AvatarFallback className="rounded-lg bg-primary/10 text-xs font-semibold text-primary">
+          {workspaceInitials(org.name || "WS")}
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex flex-col">
+        <span className="truncate text-sm font-semibold text-foreground">{org.name}</span>
+        <span className="truncate text-[11px] text-muted-foreground">Social workspace</span>
+      </div>
+    </Link>
   );
 }
 
@@ -211,61 +280,39 @@ function SidebarContent({
 
   return (
     <div className="flex h-full flex-col bg-sidebar">
-      <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-5">
-        <Link
-          href={homeHref}
-          onClick={onNavigate}
-          className="flex min-w-0 items-center gap-2 text-inherit no-underline"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/brand/mark.png"
-            alt=""
-            width={32}
-            height={32}
-            className="h-8 w-8 shrink-0 rounded-[22%] object-cover"
-            aria-hidden
-          />
-          <div className="flex min-w-0 flex-col leading-tight">
-            <span className="truncate text-sm font-semibold text-sidebar-foreground">
-              OpsBrain <span className="text-primary">AI</span>
-            </span>
-            <span className="truncate text-[11px] text-muted-foreground">
-              {isAdmin ? "Admin Console" : "Social Media Manager"}
-            </span>
-          </div>
-        </Link>
-      </div>
+      <SidebarHeader brand={brand} homeHref={homeHref} onNavigate={onNavigate} />
 
-      <nav className="flex-1 space-y-3 overflow-y-auto p-3">
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
         {sections.map((section, sectionIndex) => (
           <div key={section.title ?? `section-${sectionIndex}`} className="space-y-1">
             {section.title ? (
-              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/90">
                 {section.title}
               </p>
             ) : null}
-            {section.items.map((item) => (
-              <NavGroup
-                key={item.href}
-                item={item}
-                pathname={pathname}
-                onNavigate={onNavigate}
-              />
-            ))}
+            <div className="space-y-0.5">
+              {section.items.map((item) => (
+                <NavGroup
+                  key={item.href}
+                  item={item}
+                  pathname={pathname}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
           </div>
         ))}
       </nav>
 
       {!isAdmin ? <UsageCard /> : null}
       {isAdmin ? (
-        <div className="m-3 rounded-xl border border-sidebar-border bg-card p-4">
+        <div className="mx-3 mb-3 rounded-xl border border-border/80 bg-card p-3">
           <Link
             href="/dashboard"
             onClick={onNavigate}
-            className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="flex items-center gap-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
-            <Sparkle className="h-3.5 w-3.5" /> Back to app
+            <Sparkle className="h-3.5 w-3.5 text-primary" /> Back to workspace app
           </Link>
         </div>
       ) : null}
@@ -281,7 +328,7 @@ export default function Sidebar({
 }: SidebarProps) {
   return (
     <>
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar md:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[17rem] flex-col border-r border-sidebar-border bg-sidebar md:flex">
         <SidebarContent sections={sections} brand={brand} />
       </aside>
 
@@ -290,15 +337,11 @@ export default function Sidebar({
           <button
             type="button"
             aria-label="Close navigation"
-            className="absolute inset-0 bg-foreground/30 backdrop-blur-[1px]"
+            className="absolute inset-0 bg-foreground/40 backdrop-blur-[2px]"
             onClick={onMobileClose}
           />
-          <aside className="absolute inset-y-0 left-0 w-64 border-r border-sidebar-border bg-sidebar shadow-elevated">
-            <SidebarContent
-              sections={sections}
-              brand={brand}
-              onNavigate={onMobileClose}
-            />
+          <aside className="absolute inset-y-0 left-0 w-[17rem] border-r border-sidebar-border bg-sidebar shadow-2xl">
+            <SidebarContent sections={sections} brand={brand} onNavigate={onMobileClose} />
           </aside>
         </div>
       ) : null}

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Bell,
   ChevronDown,
   CreditCard,
   LogOut,
@@ -102,16 +101,6 @@ export default function Topbar({ onMenuClick, isAdmin = false }: TopbarProps) {
               <Plus className="h-4 w-4" /> New Post
             </Link>
           </Button>
-        ) : null}
-
-        {!isAdmin ? (
-          <Link
-            href="/dashboard/notifications"
-            className="relative inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted"
-            aria-label="Notifications"
-          >
-            <Bell className="h-4 w-4" />
-          </Link>
         ) : null}
 
         {user ? (

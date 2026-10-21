@@ -227,6 +227,10 @@ export type GeneratePostPayload = {
   cta?: string;
   includeHashtags?: boolean;
   includeComment?: boolean;
+  includeEmojis?: boolean;
+  contentType?: string;
+  length?: string;
+  mediaNote?: string;
   format?: string;
 };
 
@@ -514,11 +518,14 @@ export type SocialDashboardStats = {
 export type SocialActivityItem = {
   id: string;
   action: string;
-  type?: "generated" | "published" | "connected" | "scheduled";
+  type?: "generated" | "published" | "connected" | "scheduled" | "failed";
   text?: string;
+  title?: string | null;
   entityType: string;
   entityId: string | null;
   metadata: Record<string, unknown>;
+  platforms?: SocialPlatform[];
+  groupCount?: number;
   createdAt: string | null;
 };
 

@@ -2,102 +2,160 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Stack,
+  Typography,
+} from "@mui/material";
+import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import authApi from "@/api/endpoints/auth.api";
-import SparkAuthLayout from "@/components/auth/SparkAuthLayout";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { toApiError } from "@/api/errors";
+import AuthCardShell from "@/components/auth/AuthCardShell";
+import AppInput from "@/components/ui/AppInput";
+import {
+  authFooterLinkSx,
+  authInputSx,
+  authLayout,
+  authPrimaryButtonSx,
+} from "@/lib/authStyles";
+import { colors } from "@/lib/theme";
+
+const schema = z.object({
+  email: z.string().min(1, "Email is required").email("Enter a valid email"),
+});
+
+type ForgotValues = z.infer<typeof schema>;
 
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
-  const [err, setErr] = useState<string | undefined>();
+  const [apiError, setApiError] = useState<string | undefined>();
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const parsed = z.string().email().safeParse(email);
-    if (!parsed.success) {
-      setErr("Enter a valid email");
-      return;
-    }
-    setErr(undefined);
-    setLoading(true);
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<ForgotValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { email: "" },
+  });
+
+  const email = watch("email");
+
+  const onSubmit = handleSubmit(async (values) => {
+    setApiError(undefined);
     try {
-      await authApi.forgotPassword(parsed.data);
+      await authApi.forgotPassword(values.email);
       setSent(true);
     } catch (error) {
-      setErr(toApiError(error).message);
-    } finally {
-      setLoading(false);
+      setApiError(toApiError(error).message);
     }
-  }
+  });
 
   if (sent) {
     return (
-      <SparkAuthLayout
+      <AuthCardShell
         title="Check your email"
-        subtitle={`If an account exists for ${email}, we sent a reset link.`}
+        subtitle={`If an account exists for ${email}, we sent a password reset link.`}
         footer={
-          <Link href="/login" className="font-medium text-primary hover:underline">
-            Back to sign in
+          <Link href="/login" style={{ textDecoration: "none" }}>
+            <Typography component="span" sx={authFooterLinkSx}>
+              Back to sign in
+            </Typography>
           </Link>
         }
       >
-        <div className="flex flex-col items-center gap-4 py-4 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-success/15 text-success">
-            <CheckCircle2 className="h-6 w-6" />
-          </div>
-          <p className="text-sm text-muted-foreground">
+        <Stack sx={{ alignItems: "center", gap: 2, py: 1, textAlign: "center" }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              bgcolor: `${colors.success}22`,
+              color: colors.success,
+            }}
+          >
+            <CheckCircleOutlinedIcon sx={{ fontSize: 32 }} />
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 360, lineHeight: 1.55 }}>
             The link expires in 60 minutes. Didn&apos;t get it? Check spam or{" "}
-            <button type="button" className="text-primary hover:underline" onClick={() => setSent(false)}>
+            <Button
+              type="button"
+              variant="text"
+              size="small"
+              onClick={() => setSent(false)}
+              sx={{ minWidth: 0, p: 0, verticalAlign: "baseline", textTransform: "none", fontWeight: 600 }}
+            >
               try again
-            </button>
+            </Button>
             .
-          </p>
-        </div>
-      </SparkAuthLayout>
+          </Typography>
+        </Stack>
+      </AuthCardShell>
     );
   }
 
   return (
-    <SparkAuthLayout
+    <AuthCardShell
       title="Forgot your password?"
-      subtitle="Enter your email and we'll send you a reset link."
+      subtitle="Enter your work email and we'll send you a secure reset link."
       footer={
-        <Link href="/login" className="font-medium text-primary hover:underline">
-          Back to sign in
+        <Link href="/login" style={{ textDecoration: "none" }}>
+          <Typography component="span" sx={authFooterLinkSx}>
+            Back to sign in
+          </Typography>
         </Link>
       }
     >
-      <form className="space-y-4" onSubmit={onSubmit} noValidate>
-        <div className="space-y-1.5">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
+      <Box component="form" onSubmit={onSubmit} noValidate>
+        <Stack sx={{ gap: authLayout.fieldGap }}>
+          {apiError ? (
+            <Alert severity="error" variant="outlined" sx={{ borderRadius: "10px" }}>
+              {apiError}
+            </Alert>
+          ) : null}
+
+          <AppInput
+            label="Work email"
             type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@company.com"
             autoComplete="email"
             autoFocus
+            placeholder="you@company.com"
+            error={!!errors.email}
+            helperText={errors.email?.message}
+            sx={authInputSx}
+            {...register("email")}
           />
-          {err ? <p className="text-xs text-destructive">{err}</p> : null}
-        </div>
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending…
-            </>
-          ) : (
-            "Send reset link"
-          )}
-        </Button>
-      </form>
-    </SparkAuthLayout>
+
+          <Button
+            type="submit"
+            variant="contained"
+            color="primary"
+            fullWidth
+            disabled={isSubmitting}
+            sx={authPrimaryButtonSx}
+          >
+            {isSubmitting ? (
+              <>
+                <CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />
+                Sending…
+              </>
+            ) : (
+              "Send reset link"
+            )}
+          </Button>
+        </Stack>
+      </Box>
+    </AuthCardShell>
   );
 }

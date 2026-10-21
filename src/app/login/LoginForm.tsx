@@ -1,17 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { zodResolver } from "@hookform/resolvers/zod";
+import {
+  Alert,
+  Box,
+  Button,
+  Checkbox,
+  CircularProgress,
+  FormControlLabel,
+  Stack,
+  Typography,
+} from "@mui/material";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
-import SparkAuthLayout from "@/components/auth/SparkAuthLayout";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import AuthCardShell from "@/components/auth/AuthCardShell";
+import PasswordInput from "@/components/auth/PasswordInput";
+import AppInput from "@/components/ui/AppInput";
 import {
   clearAuthError,
   selectAuthError,
@@ -21,16 +29,19 @@ import {
   selectUser,
 } from "@/features/auth/authSlice";
 import { login } from "@/features/auth/authThunks";
+import { authFooterLinkSx, authInlineLinkSx, authInputSx, authLayout, authPrimaryButtonSx } from "@/lib/authStyles";
 import { getHomeRoute } from "@/lib/auth/users";
-// Google SSO disabled for now — re-enable with GoogleButton, OrDivider, startGoogleAuth
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 const REMEMBER_EMAIL_KEY = "opsbrain_remember_email";
 
-const schema = z.object({
-  email: z.string().email("Enter a valid email"),
+const loginSchema = z.object({
+  email: z.string().min(1, "Email is required").email("Enter a valid email"),
   password: z.string().min(1, "Password is required"),
+  remember: z.boolean(),
 });
+
+type LoginValues = z.infer<typeof loginSchema>;
 
 export default function LoginForm() {
   const router = useRouter();
@@ -42,16 +53,26 @@ export default function LoginForm() {
   const isHydrated = useAppSelector(selectIsAuthHydrated);
   const user = useAppSelector(selectUser);
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(true);
-  const [show, setShow] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const {
+    register,
+    control,
+    handleSubmit,
+    setValue,
+    formState: { errors },
+  } = useForm<LoginValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+      remember: true,
+    },
+    mode: "onSubmit",
+  });
 
   useEffect(() => {
     const savedEmail = window.localStorage.getItem(REMEMBER_EMAIL_KEY);
-    if (savedEmail) setEmail(savedEmail);
-  }, []);
+    if (savedEmail) setValue("email", savedEmail);
+  }, [setValue]);
 
   useEffect(() => {
     if (!isHydrated || !isAuthenticated || !user) return;
@@ -59,127 +80,122 @@ export default function LoginForm() {
     router.replace(redirect ?? getHomeRoute(user));
   }, [isAuthenticated, isHydrated, router, searchParams, user]);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const parsed = schema.safeParse({ email, password });
-    if (!parsed.success) {
-      const fieldErrors: typeof errors = {};
-      parsed.error.issues.forEach((issue) => {
-        const key = issue.path[0] as "email" | "password";
-        fieldErrors[key] = issue.message;
-      });
-      setErrors(fieldErrors);
-      return;
-    }
-    setErrors({});
+  const onSubmit = handleSubmit(async (values) => {
     dispatch(clearAuthError());
 
-    if (remember) {
-      window.localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+    if (values.remember) {
+      window.localStorage.setItem(REMEMBER_EMAIL_KEY, values.email);
     } else {
       window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
     }
 
     try {
-      const result = await dispatch(login(parsed.data)).unwrap();
-      const redirect = searchParams.get("redirect");
-      router.replace(redirect ?? getHomeRoute(result.user));
+      await dispatch(login({ email: values.email, password: values.password })).unwrap();
     } catch {
-      // Error stored in auth slice
+      // Error stored in auth slice; redirect runs in useEffect when auth state updates
     }
-  }
+  });
 
   return (
-    <SparkAuthLayout
+    <AuthCardShell
       title="Welcome back"
-      subtitle="Sign in to manage your social media in minutes."
+      subtitle="Sign in to plan, publish, and measure social content across your channels."
       footer={
         <>
           New to OpsBrain?{" "}
-          <Link href="/register" className="font-medium text-primary hover:underline">
-            Create an account
+          <Link href="/register" style={{ textDecoration: "none" }}>
+            <Typography component="span" sx={authFooterLinkSx}>
+              Create an account
+            </Typography>
           </Link>
         </>
       }
     >
-      <form className="space-y-4" onSubmit={onSubmit} noValidate>
-        {authError ? (
-          <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {authError}
-          </p>
-        ) : null}
+      <Box component="form" onSubmit={onSubmit} noValidate>
+        <Stack sx={{ gap: authLayout.fieldGap }}>
+          {authError ? (
+            <Alert severity="error" variant="outlined" sx={{ borderRadius: "10px" }}>
+              {authError}
+            </Alert>
+          ) : null}
 
-        <div className="space-y-1.5">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
+          <AppInput
+            label="Work email"
             type="email"
             autoComplete="email"
             autoFocus
             placeholder="you@company.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            aria-invalid={!!errors.email}
+            error={!!errors.email}
+            helperText={errors.email?.message}
+            sx={authInputSx}
+            {...register("email")}
           />
-          {errors.email ? <p className="text-xs text-destructive">{errors.email}</p> : null}
-        </div>
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="password">Password</Label>
-            <Link
-              href="/forgot-password"
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              Forgot password?
-            </Link>
-          </div>
-          <div className="relative">
-            <Input
-              id="password"
-              type={show ? "text" : "password"}
+          <Box>
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", mb: 0.5 }}>
+              <Link href="/forgot-password" style={{ textDecoration: "none" }}>
+                <Typography variant="body2" sx={{ ...authInlineLinkSx, fontSize: "0.8125rem" }}>
+                  Forgot password?
+                </Typography>
+              </Link>
+            </Box>
+            <PasswordInput
+              label="Password"
               autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              aria-invalid={!!errors.password}
-              className="pr-10"
+              placeholder="Enter your password"
+              error={!!errors.password}
+              helperText={errors.password?.message}
+              sx={authInputSx}
+              {...register("password")}
             />
-            <button
-              type="button"
-              onClick={() => setShow((s) => !s)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
-              aria-label={show ? "Hide password" : "Show password"}
-            >
-              {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </div>
-          {errors.password ? <p className="text-xs text-destructive">{errors.password}</p> : null}
-        </div>
+          </Box>
 
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={remember}
-            onCheckedChange={(v) => setRemember(v === true)}
-            id="remember"
+          <Controller
+            name="remember"
+            control={control}
+            render={({ field }) => (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    {...field}
+                    checked={field.value}
+                    onChange={(e) => field.onChange(e.target.checked)}
+                    size="small"
+                    sx={{ py: 0 }}
+                  />
+                }
+                label={
+                  <Typography variant="body2" color="text.secondary">
+                    Remember me on this device
+                  </Typography>
+                }
+              />
+            )}
           />
-          <span>Remember me for 30 days</span>
-        </label>
 
-        <Button type="submit" className="w-full" disabled={authLoading}>
-          {authLoading ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in…
-            </>
-          ) : (
-            "Sign in"
-          )}
-        </Button>
+          <Button
+            type="submit"
+            variant="contained"
+            color="primary"
+            fullWidth
+            disabled={authLoading}
+            sx={authPrimaryButtonSx}
+          >
+            {authLoading ? (
+              <>
+                <CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />
+                Signing in…
+              </>
+            ) : (
+              "Sign in"
+            )}
+          </Button>
 
-        {/* Google SSO disabled for now
-        <OrDivider />
-        <GoogleButton onClick={() => void startGoogleAuth()} />
-        */}
-      </form>
-    </SparkAuthLayout>
+          <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.5, textAlign: "center" }}>
+            Protected with encrypted credentials. We never post without your approval.
+          </Typography>
+        </Stack>
+      </Box>
+    </AuthCardShell>
   );
 }

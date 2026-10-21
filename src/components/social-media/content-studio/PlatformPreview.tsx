@@ -23,6 +23,7 @@ import ThumbUpOutlinedIcon from "@mui/icons-material/ThumbUpOutlined";
 import { Avatar, Box, Divider, Stack, Typography } from "@mui/material";
 
 import CarouselSlideRenderer from "@/components/social-media/content-studio/CarouselSlideRenderer";
+import { formatPostBody, formatTagsForDisplay, sanitizeCaptionAndHashtags } from "@/lib/socialCaption";
 import type { CarouselSlide, SocialPlatform } from "@/types/social-media.types";
 export type PreviewAccount = {
   accountName?: string | null;
@@ -134,8 +135,7 @@ function LinkedInPreview({ caption, hashtags, imageUrl, videoUrl, displayName, h
 }) {
   const [expanded, setExpanded] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
-  const tags = hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ");
-  const body = [caption, tags].filter(Boolean).join("\n\n");
+  const body = formatPostBody(caption, hashtags);
   const SHORT = 180;
   const isLong = body.length > SHORT;
   const displayed = !expanded && isLong ? body.slice(0, SHORT) + "…" : body;
@@ -326,10 +326,11 @@ function InstagramPreview({ caption, hashtags, imageUrl, videoUrl, displayName, 
       document.head.appendChild(link);
     }
   }, []);
-  const tags = hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ");
+  const { caption: cleanCaption } = sanitizeCaptionAndHashtags(caption, hashtags);
+  const tags = formatTagsForDisplay(hashtags);
   const SHORT = 90;
-  const isLong = caption.length > SHORT;
-  const displayedCaption = !expanded && isLong ? caption.slice(0, SHORT) + "…" : caption;
+  const isLong = cleanCaption.length > SHORT;
+  const displayedCaption = !expanded && isLong ? cleanCaption.slice(0, SHORT) + "…" : cleanCaption;
 
   return (
     <Box sx={{ bgcolor: "#fff", minHeight: "100%", fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
@@ -508,7 +509,7 @@ function XPreview({ caption, hashtags, imageUrl, videoUrl, displayName, handle, 
   displayName: string; handle: string; pictureUrl: string | null; initial: string;
   pollOptions?: string[];
 }) {
-  const tags = hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ");
+  const tags = formatTagsForDisplay(hashtags);
   const parts = caption.split(/\n\n+/).filter(Boolean);
   const isThread = parts.length > 1;
 
@@ -652,8 +653,7 @@ function FacebookPreview({ caption, hashtags, imageUrl, videoUrl, displayName, h
 }) {
   const [activeSlide, setActiveSlide] = useState(0);
   const [expanded, setExpanded] = useState(false);
-  const tags = hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ");
-  const body = [caption, tags].filter(Boolean).join("\n\n");
+  const body = formatPostBody(caption, hashtags);
   const SHORT = 180;
   const isLong = body.length > SHORT;
   const displayed = !expanded && isLong ? body.slice(0, SHORT) + "…" : body;
@@ -809,16 +809,17 @@ function FacebookPreview({ caption, hashtags, imageUrl, videoUrl, displayName, h
 
 export default function PlatformPreview({ platform, caption, hashtags, imageUrl, videoUrl, brandName = "Your Brand", account, slides, pollOptions }: PlatformPreviewProps) {
   const { displayName, handle, pictureUrl, initial } = resolveIdentity(platform, brandName, account);
+  const clean = sanitizeCaptionAndHashtags(caption, hashtags);
 
   switch (platform) {
     case "linkedin":
-      return <LinkedInPreview key="linkedin" caption={caption} hashtags={hashtags} imageUrl={imageUrl} videoUrl={videoUrl} displayName={displayName} handle={handle} pictureUrl={pictureUrl} initial={initial} slides={slides} pollOptions={pollOptions} />;
+      return <LinkedInPreview key="linkedin" caption={clean.caption} hashtags={clean.hashtags} imageUrl={imageUrl} videoUrl={videoUrl} displayName={displayName} handle={handle} pictureUrl={pictureUrl} initial={initial} slides={slides} pollOptions={pollOptions} />;
     case "instagram":
-      return <InstagramPreview key="instagram" caption={caption} hashtags={hashtags} imageUrl={imageUrl} videoUrl={videoUrl} displayName={displayName} handle={handle} pictureUrl={pictureUrl} initial={initial} slides={slides} pollOptions={pollOptions} />;
+      return <InstagramPreview key="instagram" caption={clean.caption} hashtags={clean.hashtags} imageUrl={imageUrl} videoUrl={videoUrl} displayName={displayName} handle={handle} pictureUrl={pictureUrl} initial={initial} slides={slides} pollOptions={pollOptions} />;
     case "x":
-      return <XPreview key="x" caption={caption} hashtags={hashtags} imageUrl={imageUrl} videoUrl={videoUrl} displayName={displayName} handle={handle} pictureUrl={pictureUrl} initial={initial} pollOptions={pollOptions} />;
+      return <XPreview key="x" caption={clean.caption} hashtags={clean.hashtags} imageUrl={imageUrl} videoUrl={videoUrl} displayName={displayName} handle={handle} pictureUrl={pictureUrl} initial={initial} pollOptions={pollOptions} />;
     case "facebook":
     default:
-      return <FacebookPreview key="facebook" caption={caption} hashtags={hashtags} imageUrl={imageUrl} videoUrl={videoUrl} displayName={displayName} handle={handle} pictureUrl={pictureUrl} initial={initial} pollOptions={pollOptions} slides={slides} />;
+      return <FacebookPreview key="facebook" caption={clean.caption} hashtags={clean.hashtags} imageUrl={imageUrl} videoUrl={videoUrl} displayName={displayName} handle={handle} pictureUrl={pictureUrl} initial={initial} pollOptions={pollOptions} slides={slides} />;
   }
 }

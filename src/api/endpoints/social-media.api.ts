@@ -606,6 +606,16 @@ export const socialMediaApi = {
     return data;
   },
 
+  async getDashboardHome(orgId: string): Promise<{
+    stats: SocialDashboardStats;
+    activity: SocialActivityItem[];
+    recommendations: Array<{ topic: string; reason: string }>;
+    scheduledPosts: SocialPost[];
+  }> {
+    const { data } = await apiClient.get(`${base(orgId)}/dashboard/home`);
+    return data;
+  },
+
   async getActivity(orgId: string, limit = 10): Promise<SocialActivityItem[]> {
     const { data } = await apiClient.get<SocialActivityItem[]>(`${base(orgId)}/activity`, {
       params: { limit },

@@ -8,11 +8,11 @@ import {
   LineChart,
   Settings,
   Share2,
-  Sparkles,
   Tag,
   Users,
-  Bell,
 } from "lucide-react";
+
+import { ProductAIStudioIcon, ProductDashboardIcon } from "@/components/icons/product-icons";
 
 import { hasSocialPermission } from "@/lib/permissions";
 import type { User } from "@/types/auth";
@@ -35,7 +35,7 @@ export type NavSection = {
 /** Flat Spark-style nav — tabbed pages (AI Studio, Settings) have no sidebar children. */
 export const dashboardNavSections: NavSection[] = [
   {
-    items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }],
+    items: [{ label: "Dashboard", href: "/dashboard", icon: ProductDashboardIcon }],
   },
   {
     title: "Create",
@@ -43,7 +43,7 @@ export const dashboardNavSections: NavSection[] = [
       {
         label: "AI Studio",
         href: "/dashboard/content-studio",
-        icon: Sparkles,
+        icon: ProductAIStudioIcon,
         minPermission: "editor",
       },
       { label: "Calendar", href: "/dashboard/calendar", icon: CalendarDays },
@@ -51,15 +51,14 @@ export const dashboardNavSections: NavSection[] = [
     ],
   },
   {
-    title: "Grow",
+    title: "Insights",
     items: [
       { label: "Accounts", href: "/dashboard/accounts", icon: Share2, minPermission: "admin" },
       { label: "Analytics", href: "/dashboard/analytics", icon: LineChart },
-      { label: "Notifications", href: "/dashboard/notifications", icon: Bell },
     ],
   },
   {
-    title: "Configuration",
+    title: "Workspace",
     items: [
       { label: "Plan", href: "/dashboard/billing", icon: CreditCard },
       {
@@ -79,6 +78,7 @@ export const adminNavSections: NavSection[] = [
       { label: "Overview", href: "/admin", icon: LayoutDashboard },
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Plans", href: "/admin/pricing", icon: Tag },
+      { label: "Coupons", href: "/admin/coupons", icon: CreditCard },
       { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
     ],
   },

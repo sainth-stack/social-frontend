@@ -80,6 +80,8 @@ export type PricingPlan = {
   name: string;
   tagline: string;
   priceMonthlyUsd: number | null;
+  /** INR list price for self-serve checkout (Pro / Growth). */
+  priceMonthlyInr?: number | null;
   priceAnnualUsd: number | null;
   isCustom: boolean;
   recommended?: boolean;

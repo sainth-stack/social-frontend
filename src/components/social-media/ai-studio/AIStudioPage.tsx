@@ -17,16 +17,18 @@ import {
   Rocket,
   RotateCcw,
   Save,
+  Gem,
+  Mic2,
   Search,
-  Sparkles,
   Trash2,
   Upload,
-  Wand2,
   X as XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import socialMediaApi from "@/api/endpoints/social-media.api";
+import { ProductAIStudioIcon, ProductGenerateIcon } from "@/components/icons/product-icons";
+import { PageHeader } from "@/components/layouts/PageHeader";
 import { PlatformIcon } from "@/components/platform-icon";
 import PhoneFrame from "@/components/social-media/content-studio/PhoneFrame";
 import PlatformPreview from "@/components/social-media/content-studio/PlatformPreview";
@@ -90,6 +92,7 @@ import {
   updateSocialPost,
 } from "@/features/social-media/socialPostsThunks";
 import { canUseMultiVariations, contentPlanDayCap, planDisplayName } from "@/lib/plans";
+import { formatPostBody, sanitizeCaptionAndHashtags } from "@/lib/socialCaption";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import type {
@@ -131,12 +134,6 @@ const CONTENT_TYPE_TO_FORMAT: Record<string, string> = {
   Promotional: "single",
   Educational: "single",
   Announcement: "single",
-};
-
-const LENGTH_HINT: Record<string, string> = {
-  Short: "Keep it concise (1–2 short paragraphs).",
-  Medium: "Aim for a medium-length caption.",
-  Long: "Write a longer, more detailed caption.",
 };
 
 type PrefillMedia = { name: string; url: string; mediaType: MediaAssetType } | null;
@@ -183,7 +180,7 @@ function ProBadge({ className }: { className?: string }) {
         className,
       )}
     >
-      <Sparkles className="h-2.5 w-2.5" /> Pro
+      <Gem className="h-2.5 w-2.5" /> Pro
     </span>
   );
 }
@@ -259,6 +256,15 @@ function flattenPollCaption(
   return [pollBlock, intro?.trim()].filter(Boolean).join("\n\n");
 }
 
+function withCleanCaption(
+  caption: string,
+  hashtags: string[],
+  rest: Omit<Variation, "caption" | "hashtags">,
+): Variation {
+  const clean = sanitizeCaptionAndHashtags(caption, hashtags);
+  return { ...rest, caption: clean.caption, hashtags: clean.hashtags };
+}
+
 function parseGeneratedContent(
   data: GeneratedContent,
   formatKey: string,
@@ -270,14 +276,14 @@ function parseGeneratedContent(
   if (formatKey === "thread" && data.tweets?.length) {
     const caption = flattenThreadCaption(data.tweets);
     const tags = data.hashtags ?? [];
-    results.push({
-      label: "Thread",
-      caption,
-      hashtags: tags,
-      platform: "x",
-      match: brandMatchScore(caption, startIndex),
-      recommended: startIndex === 0,
-    });
+    results.push(
+      withCleanCaption(caption, tags, {
+        label: "Thread",
+        platform: "x",
+        match: brandMatchScore(caption, startIndex),
+        recommended: startIndex === 0,
+      }),
+    );
     return results;
   }
 
@@ -285,14 +291,14 @@ function parseGeneratedContent(
     const caption = flattenCarouselCaption(data.slides ?? [], data.caption);
     const tags = data.hashtags ?? [];
     for (const p of selectedPlatforms) {
-      results.push({
-        label: PLATFORM_LABELS[p],
-        caption,
-        hashtags: tags,
-        platform: p,
-        match: brandMatchScore(caption, startIndex + results.length),
-        recommended: results.length === 0,
-      });
+      results.push(
+        withCleanCaption(caption, tags, {
+          label: PLATFORM_LABELS[p],
+          platform: p,
+          match: brandMatchScore(caption, startIndex + results.length),
+          recommended: results.length === 0,
+        }),
+      );
     }
     return results;
   }
@@ -305,14 +311,14 @@ function parseGeneratedContent(
     );
     const tags = data.hashtags ?? [];
     for (const p of selectedPlatforms) {
-      results.push({
-        label: PLATFORM_LABELS[p],
-        caption,
-        hashtags: tags,
-        platform: p,
-        match: brandMatchScore(caption, startIndex + results.length),
-        recommended: results.length === 0,
-      });
+      results.push(
+        withCleanCaption(caption, tags, {
+          label: PLATFORM_LABELS[p],
+          platform: p,
+          match: brandMatchScore(caption, startIndex + results.length),
+          recommended: results.length === 0,
+        }),
+      );
     }
     return results;
   }
@@ -323,14 +329,14 @@ function parseGeneratedContent(
       pc?.caption ?? (selectedPlatforms.length === 1 ? data.caption : "") ?? "";
     if (!caption) continue;
     const tags = pc?.hashtags ?? data.hashtags ?? [];
-    results.push({
-      label: PLATFORM_LABELS[p],
-      caption,
-      hashtags: tags,
-      platform: p,
-      match: brandMatchScore(caption, startIndex + results.length),
-      recommended: results.length === 0,
-    });
+    results.push(
+      withCleanCaption(caption, tags, {
+        label: PLATFORM_LABELS[p],
+        platform: p,
+        match: brandMatchScore(caption, startIndex + results.length),
+        recommended: results.length === 0,
+      }),
+    );
   }
 
   return results;
@@ -571,16 +577,6 @@ function GenerateTab({
     );
   };
 
-  const updateActiveHashtags = (tags: string[]) => {
-    if (activeIdx < 0) return;
-    setVariations((prev) =>
-      prev
-        ? prev.map((x, idx) => (idx === activeIdx ? { ...x, hashtags: tags } : x))
-        : prev,
-    );
-    setHashtags(tags);
-  };
-
   const togglePlatform = (p: SocialPlatform) => {
     setSelectedPlatforms((prev) => {
       if (prev.includes(p)) {
@@ -594,18 +590,18 @@ function GenerateTab({
     });
   };
 
-  const buildTopic = () => {
-    const parts = [
-      prompt.trim(),
-      // Backend elevates thin briefs; this nudges length/quality without overriding brand voice.
-      "Make it impressive, professional, and conversion-focused even if this brief is short.",
-    ];
-    if (length) parts.push(LENGTH_HINT[length] ?? "");
-    if (type && type !== "Caption") parts.push(`Content type: ${type}.`);
-    if (!includeEmojis) parts.push("Do not use emojis.");
-    if (prefillMedia) parts.push(`Reference attached media: ${prefillMedia.name}.`);
-    return parts.filter(Boolean).join(" ");
+  const buildTopic = (variationIndex = 0) => {
+    const base = prompt.trim();
+    if (variationIndex <= 0) return base;
+    return `${base}\n\nVariation ${variationIndex + 1}: same core message, different hook and structure.`;
   };
+
+  const generationMeta = () => ({
+    contentType: type,
+    length,
+    includeEmojis,
+    mediaNote: prefillMedia ? prefillMedia.name : undefined,
+  });
 
   const generate = async () => {
     if (!orgId) {
@@ -640,10 +636,7 @@ function GenerateTab({
       const formatKey = CONTENT_TYPE_TO_FORMAT[type] ?? "single";
 
       for (let i = 0; i < effectiveVariations; i++) {
-        const topic =
-          i === 0
-            ? buildTopic()
-            : `${buildTopic()} Variation ${i + 1}: rewrite with a distinct angle.`;
+        const topic = buildTopic(i);
         const data: GeneratedContent = await socialMediaApi.generatePost(orgId, {
           topic,
           tone,
@@ -652,6 +645,7 @@ function GenerateTab({
           includeHashtags,
           includeComment: false,
           format: formatKey,
+          ...generationMeta(),
         });
 
         const parsed = parseGeneratedContent(data, formatKey, platformsForGen, results.length);
@@ -1239,7 +1233,7 @@ function GenerateTab({
                 </>
               ) : (
                 <>
-                  <Wand2 className="mr-1.5 h-4 w-4" /> Generate content
+                  <ProductGenerateIcon className="mr-1.5 h-4 w-4" /> Generate content
                 </>
               )}
             </Button>
@@ -1378,10 +1372,8 @@ function GenerateTab({
                 platform={previewPlatform}
                 caption={activeVariation.caption}
                 hashtags={includeHashtags ? activeVariation.hashtags : []}
-                showHashtags={includeHashtags}
                 saving={saving}
                 onCaptionChange={updateActiveCaption}
-                onHashtagsChange={updateActiveHashtags}
                 onSaveDraft={() => void saveDraft(activeVariation)}
               />
             ) : null}
@@ -1398,19 +1390,15 @@ function CaptionEditor({
   platform,
   caption,
   hashtags,
-  showHashtags,
   saving,
   onCaptionChange,
-  onHashtagsChange,
   onSaveDraft,
 }: {
   platform: SocialPlatform;
   caption: string;
   hashtags: string[];
-  showHashtags: boolean;
   saving: boolean;
   onCaptionChange: (text: string) => void;
-  onHashtagsChange: (tags: string[]) => void;
   onSaveDraft: () => void;
 }) {
   const limit = PLATFORM_CHAR_LIMITS[platform];
@@ -1419,8 +1407,7 @@ function CaptionEditor({
   const pct = Math.min(100, (count / limit) * 100);
 
   const copyAll = () => {
-    const tags = hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ");
-    void navigator.clipboard.writeText([caption, tags].filter(Boolean).join("\n\n"));
+    void navigator.clipboard.writeText(formatPostBody(caption, hashtags));
     toast.success("Copied");
   };
 
@@ -1451,47 +1438,6 @@ function CaptionEditor({
           />
         </div>
       </div>
-
-      {showHashtags && (
-        <div className="space-y-2">
-          <Label className="text-xs">Hashtags</Label>
-          <Input
-            value={hashtags.map((h) => h.replace(/^#/, "")).join(" ")}
-            onChange={(e) =>
-              onHashtagsChange(
-                e.target.value
-                  .split(/[\s,]+/)
-                  .map((t) => t.replace(/^#/, "").trim())
-                  .filter(Boolean),
-              )
-            }
-            placeholder="growth saas marketing"
-            className="text-sm"
-          />
-          {hashtags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {hashtags.map((h) => {
-                const tag = h.replace(/^#/, "");
-                return (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() =>
-                      onHashtagsChange(
-                        hashtags.filter((x) => x.replace(/^#/, "") !== tag),
-                      )
-                    }
-                    className="group inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground hover:bg-accent/70"
-                  >
-                    #{tag}
-                    <XIcon className="h-3 w-3 opacity-50 group-hover:opacity-100" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="flex flex-wrap items-center gap-1.5">
         <Button size="sm" variant="ghost" disabled={!caption} onClick={copyAll}>
@@ -1692,7 +1638,7 @@ function BrandTab({ orgId }: { orgId: string }) {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-600 text-white">
-                <Sparkles className="h-3.5 w-3.5" />
+                <Mic2 className="h-3.5 w-3.5" />
               </span>
               <p className="text-sm font-semibold">Brand voice preview</p>
               <Badge variant="secondary" className="text-[10px]">
@@ -2180,7 +2126,7 @@ function MediaTab({
                   </>
                 ) : (
                   <>
-                    <Wand2 className="mr-1.5 h-4 w-4" /> Generate
+                    <ProductGenerateIcon className="mr-1.5 h-4 w-4" /> Generate
                   </>
                 )}
               </Button>
@@ -2250,7 +2196,7 @@ function MediaTab({
                       className="w-full text-[11px]"
                       onClick={() => onUseInGenerate(m)}
                     >
-                      <Sparkles className="mr-1 h-3 w-3" /> Use in AI Generate
+                      <ProductGenerateIcon className="mr-1 h-3 w-3" /> Use in AI Generate
                     </Button>
                     <div className="flex gap-1.5">
                       <Button
@@ -2327,12 +2273,11 @@ export default function AIStudioPage({
   return (
     <TooltipProvider delayDuration={200}>
       <div className="mx-auto max-w-7xl space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">AI Studio</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Generate posts, plan calendars, and teach the AI about your brand.
-          </p>
-        </div>
+        <PageHeader
+          icon={ProductAIStudioIcon}
+          title="AI Studio"
+          description="Generate posts, plan calendars, and teach the AI about your brand."
+        />
 
         {!orgId && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
@@ -2347,7 +2292,7 @@ export default function AIStudioPage({
         >
           <TabsList className="bg-muted/60 p-1">
             <TabsTrigger value="generate" className="gap-1.5">
-              <Sparkles className="h-3.5 w-3.5" /> AI Generate
+              <ProductGenerateIcon className="h-3.5 w-3.5" /> AI Generate
             </TabsTrigger>
             <TabsTrigger value="planner" className="gap-1.5">
               <Calendar className="h-3.5 w-3.5" /> Content Planner

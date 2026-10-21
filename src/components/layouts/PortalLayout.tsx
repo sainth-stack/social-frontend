@@ -36,7 +36,7 @@ export default function PortalLayout({
           mobileOpen={mobileOpen}
           onMobileClose={() => dispatch(setMobileSidebarOpen(false))}
         />
-        <div className="md:pl-64">
+        <div className="md:pl-[17rem]">
           <Topbar
             isAdmin={isAdmin}
             onMenuClick={() => dispatch(setMobileSidebarOpen(true))}

@@ -3,7 +3,7 @@ import type { PricingPlan } from "@/types/admin";
 /**
  * Fallback pricing catalog matching backend plan definitions.
  * DB keys: starter → Free, growth → Pro, enterprise → Growth.
- * New registrations start on Free. Pro / Growth are admin-assigned.
+ * New registrations start on Free. Pro ₹499/mo and Growth ₹999/mo via Razorpay checkout.
  */
 export const DEFAULT_PRICING_CATALOG: PricingPlan[] = [
   {
@@ -29,6 +29,7 @@ export const DEFAULT_PRICING_CATALOG: PricingPlan[] = [
     name: "Pro",
     tagline: "More posts, approval workflow, and multi-version AI",
     priceMonthlyUsd: 99,
+    priceMonthlyInr: 499,
     priceAnnualUsd: 990,
     isCustom: false,
     recommended: true,
@@ -48,6 +49,7 @@ export const DEFAULT_PRICING_CATALOG: PricingPlan[] = [
     name: "Growth",
     tagline: "For agencies and larger brands scaling content",
     priceMonthlyUsd: 299,
+    priceMonthlyInr: 999,
     priceAnnualUsd: 2990,
     isCustom: false,
     limits: {

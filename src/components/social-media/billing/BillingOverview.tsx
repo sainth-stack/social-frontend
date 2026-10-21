@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Check, Crown, Mail, Sparkles, Zap } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Check, Crown, Loader2, Sparkles, Tag } from "lucide-react";
 
+import billingApi from "@/api/endpoints/billing.api";
 import socialMediaApi from "@/api/endpoints/social-media.api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,16 +22,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { selectUser } from "@/features/auth/authSlice";
+import { validateSession } from "@/features/auth/authThunks";
 import { DEFAULT_PRICING_CATALOG } from "@/features/admin/pricingCatalog";
+import { openSocialCheckoutSession } from "@/lib/razorpayCheckout";
+import { hasSocialPermission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
-import { useAppSelector } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import type { PlanTier } from "@/types/auth";
+import type { BillingPlanPrice, CouponPreview } from "@/types/billing";
 import type { SocialDashboardStats } from "@/types/social-media.types";
 
-const CONTACT_EMAIL = "admin@opsbrainai.com";
+const PLAN_RANK: Record<PlanTier, number> = {
+  starter: 0,
+  growth: 1,
+  enterprise: 2,
+};
 
 function UsageBar({
   label,
@@ -59,23 +70,45 @@ function UsageBar({
   );
 }
 
+function inrFromCatalog(planId: PlanTier, live?: BillingPlanPrice[]): number | null {
+  const liveRow = live?.find((p) => p.planKey === planId);
+  if (liveRow) return liveRow.monthlyPriceInr;
+  const cat = DEFAULT_PRICING_CATALOG.find((p) => p.id === planId);
+  return cat?.priceMonthlyInr ?? null;
+}
+
 export default function BillingOverview() {
+  const dispatch = useAppDispatch();
   const user = useAppSelector(selectUser);
   const workspaceId = user?.workspaceId ?? "";
+  const canCheckout = hasSocialPermission(user, "admin");
+
   const [stats, setStats] = useState<SocialDashboardStats | null>(null);
+  const [livePrices, setLivePrices] = useState<BillingPlanPrice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [cycle, setCycle] = useState<"monthly" | "yearly">("monthly");
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
+
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutPlan, setCheckoutPlan] = useState<PlanTier | null>(null);
+  const [couponCode, setCouponCode] = useState("");
+  const [couponPreview, setCouponPreview] = useState<CouponPreview | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [paySuccess, setPaySuccess] = useState(false);
 
   useEffect(() => {
     if (!workspaceId) return;
     let active = true;
     setLoading(true);
-    socialMediaApi
-      .getDashboardStats(workspaceId)
-      .then((data) => {
-        if (active) setStats(data);
+    Promise.all([
+      socialMediaApi.getDashboardStats(workspaceId),
+      billingApi.listPlans(workspaceId).catch(() => [] as BillingPlanPrice[]),
+    ])
+      .then(([data, prices]) => {
+        if (!active) return;
+        setStats(data);
+        setLivePrices(prices);
       })
       .catch(() => {
         if (active) setError("Failed to load your current usage.");
@@ -115,11 +148,74 @@ export default function BillingOverview() {
     (b) => b.limit != null && b.limit > 0 && b.used / b.limit >= 0.8,
   );
 
-  const upgradeHref = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(
-    `Upgrade request — ${user?.workspaceName ?? "workspace"} (${currentPlan.name} → Pro/Growth)`,
-  )}&body=${encodeURIComponent(
-    `Hi OpsBrain admin,\n\nI'd like to request a plan upgrade for workspace "${user?.workspaceName ?? ""}" (${workspaceId}).\n\nCurrent plan: ${currentPlan.name}\nRequested plan: Pro / Growth\n\nThanks.`,
-  )}`;
+  const openCheckout = (target: PlanTier) => {
+    setCheckoutPlan(target);
+    setCouponCode("");
+    setCouponPreview(null);
+    setCouponError(null);
+    setPaySuccess(false);
+    setCheckoutOpen(true);
+  };
+
+  const applyCoupon = useCallback(async () => {
+    if (!workspaceId || !checkoutPlan || !couponCode.trim()) return;
+    setCouponLoading(true);
+    setCouponError(null);
+    try {
+      const preview = await billingApi.validateCoupon(
+        workspaceId,
+        checkoutPlan,
+        couponCode.trim(),
+      );
+      setCouponPreview(preview);
+    } catch (e: unknown) {
+      setCouponPreview(null);
+      const msg =
+        e && typeof e === "object" && "response" in e
+          ? String((e as { response?: { data?: { detail?: string } } }).response?.data?.detail)
+          : "Invalid coupon";
+      setCouponError(msg || "Invalid coupon");
+    } finally {
+      setCouponLoading(false);
+    }
+  }, [workspaceId, checkoutPlan, couponCode]);
+
+  const startPayment = async () => {
+    if (!workspaceId || !checkoutPlan) return;
+    setPaying(true);
+    setError(null);
+    try {
+      const session = await billingApi.createCheckout(
+        workspaceId,
+        checkoutPlan,
+        couponPreview?.code || couponCode.trim() || undefined,
+      );
+      const planName =
+        DEFAULT_PRICING_CATALOG.find((p) => p.id === checkoutPlan)?.name ?? checkoutPlan;
+      await openSocialCheckoutSession(session, {
+        workspaceId,
+        planLabel: planName,
+        onSuccess: async () => {
+          setPaySuccess(true);
+          await dispatch(validateSession());
+        },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Payment failed";
+      setError(msg);
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const checkoutPlanMeta = checkoutPlan
+    ? DEFAULT_PRICING_CATALOG.find((p) => p.id === checkoutPlan)
+    : null;
+  const listInr = checkoutPlan ? inrFromCatalog(checkoutPlan, livePrices) : null;
+  const payableInr =
+    couponPreview != null
+      ? couponPreview.amountPaise / 100
+      : listInr;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -127,23 +223,19 @@ export default function BillingOverview() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Billing & plans</h1>
           <p className="text-sm text-muted-foreground">
-            Free by default. Pro and Growth are assigned by an OpsBrain admin — there
-            is no self-serve checkout.
+            Free by default. Upgrade to Pro (₹499/mo) or Growth (₹999/mo) with Razorpay — coupons
+            supported at checkout.
           </p>
         </div>
-        <Button onClick={() => setUpgradeOpen(true)} className="gap-1.5">
-          <Crown className="h-4 w-4" /> Request upgrade
-        </Button>
+        {canCheckout && planId !== "enterprise" && (
+          <Button
+            className="gap-1.5"
+            onClick={() => openCheckout(planId === "starter" ? "growth" : "enterprise")}
+          >
+            <Crown className="h-4 w-4" /> Upgrade now
+          </Button>
+        )}
       </header>
-
-      <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
-        New workspaces start on <span className="font-medium">Free</span>. To move to Growth
-        or Growth, email{" "}
-        <a className="font-medium text-primary hover:underline" href={upgradeHref}>
-          {CONTACT_EMAIL}
-        </a>
-        . Only platform admins can change workspace plans.
-      </div>
 
       {error && (
         <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
@@ -166,11 +258,9 @@ export default function BillingOverview() {
                 <div>
                   <p className="text-sm font-semibold">{currentPlan.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {currentPlan.isCustom
-                      ? "Custom pricing · Assigned by admin"
-                      : currentPlan.priceMonthlyUsd === 0
-                        ? "Free forever · Admin-assigned upgrades"
-                        : `$${currentPlan.priceMonthlyUsd?.toLocaleString()}/mo · Assigned by admin`}
+                    {planId === "starter"
+                      ? "Free forever"
+                      : `₹${inrFromCatalog(planId, livePrices)?.toLocaleString("en-IN") ?? "—"}/mo`}
                   </p>
                 </div>
               </div>
@@ -192,7 +282,7 @@ export default function BillingOverview() {
                   ))}
             </div>
 
-            {atLimit && (
+            {atLimit && canCheckout && (
               <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
                 <span className="font-medium text-foreground">
                   You&apos;re close to your plan limit.
@@ -200,9 +290,9 @@ export default function BillingOverview() {
                 <button
                   type="button"
                   className="text-primary hover:underline"
-                  onClick={() => setUpgradeOpen(true)}
+                  onClick={() => openCheckout(planId === "starter" ? "growth" : "enterprise")}
                 >
-                  Request an upgrade to keep publishing.
+                  Upgrade to keep publishing.
                 </button>
               </div>
             )}
@@ -211,29 +301,29 @@ export default function BillingOverview() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">How upgrades work</CardTitle>
-            <CardDescription>No card on file required.</CardDescription>
+            <CardTitle className="text-base">Payments</CardTitle>
+            <CardDescription>Secure checkout via Razorpay (UPI, cards, netbanking).</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li className="flex items-start gap-2">
                 <Check className="mt-0.5 h-3.5 w-3.5 text-success" />
-                Free plan is the default for every workspace
+                Pro — ₹499 / month
               </li>
               <li className="flex items-start gap-2">
                 <Check className="mt-0.5 h-3.5 w-3.5 text-success" />
-                Pro / Growth are assigned by OpsBrain admins
+                Growth — ₹999 / month
               </li>
               <li className="flex items-start gap-2">
                 <Check className="mt-0.5 h-3.5 w-3.5 text-success" />
-                No Stripe checkout in this product
+                Apply a coupon code at checkout
               </li>
             </ul>
-            <Button variant="outline" size="sm" className="w-full" asChild>
-              <a href={upgradeHref}>
-                <Mail className="mr-2 h-4 w-4" /> Email admin
-              </a>
-            </Button>
+            {!canCheckout && (
+              <p className="text-xs text-muted-foreground">
+                Only workspace admins can purchase or upgrade plans.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -241,42 +331,17 @@ export default function BillingOverview() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Plans</CardTitle>
-          <CardDescription>Compare tiers — upgrades are admin-assigned only.</CardDescription>
-          <div className="mt-3 inline-flex items-center rounded-lg border border-border bg-muted p-1">
-            {(["monthly", "yearly"] as const).map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setCycle(c)}
-                className={cn(
-                  "rounded-md px-3 py-1.5 text-xs font-medium capitalize transition-colors",
-                  cycle === c
-                    ? "bg-background text-foreground shadow-soft"
-                    : "text-muted-foreground",
-                )}
-              >
-                {c}{" "}
-                {c === "yearly" && (
-                  <Badge variant="secondary" className="ml-1 text-[9px]">
-                    save
-                  </Badge>
-                )}
-              </button>
-            ))}
-          </div>
+          <CardDescription>Self-serve upgrades in INR. Admins can still assign plans manually.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-3">
             {DEFAULT_PRICING_CATALOG.map((p) => {
               const isCurrent = p.id === planId;
-              const monthly =
-                p.isCustom || p.priceMonthlyUsd == null
-                  ? null
-                  : cycle === "monthly"
-                    ? p.priceMonthlyUsd
-                    : p.priceAnnualUsd != null
-                      ? Math.round(p.priceAnnualUsd / 12)
-                      : p.priceMonthlyUsd;
+              const inr = inrFromCatalog(p.id, livePrices);
+              const canBuy =
+                canCheckout &&
+                p.id !== "starter" &&
+                PLAN_RANK[p.id] > PLAN_RANK[planId];
               return (
                 <div
                   key={p.id}
@@ -292,17 +357,15 @@ export default function BillingOverview() {
                     {p.recommended && <Badge>Popular</Badge>}
                   </div>
                   <div className="mt-3">
-                    {monthly == null ? (
-                      <span className="text-3xl font-semibold">Custom</span>
-                    ) : monthly === 0 ? (
+                    {p.id === "starter" || inr == null ? (
                       <>
-                        <span className="text-3xl font-semibold">$0</span>
+                        <span className="text-3xl font-semibold">₹0</span>
                         <span className="text-sm text-muted-foreground">/mo</span>
                       </>
                     ) : (
                       <>
                         <span className="text-3xl font-semibold">
-                          ${monthly.toLocaleString()}
+                          ₹{inr.toLocaleString("en-IN")}
                         </span>
                         <span className="text-sm text-muted-foreground">/mo</span>
                       </>
@@ -317,17 +380,6 @@ export default function BillingOverview() {
                       p.limits.accounts == null
                         ? "Unlimited connected accounts"
                         : `${p.limits.accounts} connected accounts`,
-                      p.limits.aiTextGenerations == null
-                        ? "Unlimited AI text"
-                        : `${p.limits.aiTextGenerations} AI text generations`,
-                      p.limits.aiImageGenerations == null
-                        ? "Unlimited AI images"
-                        : `${p.limits.aiImageGenerations} AI images`,
-                      p.limits.aiVideoGenerations
-                        ? `${p.limits.aiVideoGenerations} AI videos`
-                        : p.limits.aiVideoGenerations === null
-                          ? "Unlimited AI video"
-                          : "No AI video",
                       p.limits.brandVoice ? "Brand voice" : "No brand voice",
                       p.limits.approvalWorkflow
                         ? "Approval workflow"
@@ -342,14 +394,10 @@ export default function BillingOverview() {
                   <Button
                     className="mt-5 w-full"
                     variant={isCurrent ? "outline" : p.recommended ? "default" : "outline"}
-                    disabled={isCurrent}
-                    asChild={!isCurrent}
+                    disabled={isCurrent || !canBuy}
+                    onClick={() => canBuy && openCheckout(p.id)}
                   >
-                    {isCurrent ? (
-                      <span>Current plan</span>
-                    ) : (
-                      <a href={upgradeHref}>Request {p.name}</a>
-                    )}
+                    {isCurrent ? "Current plan" : canBuy ? `Upgrade to ${p.name}` : "—"}
                   </Button>
                 </div>
               );
@@ -358,40 +406,84 @@ export default function BillingOverview() {
         </CardContent>
       </Card>
 
-      <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
+      <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
         <DialogContent>
           <DialogHeader>
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Zap className="h-6 w-6" />
-            </div>
-            <DialogTitle className="text-center">Request a plan upgrade</DialogTitle>
-            <DialogDescription className="text-center">
-              OpsBrain does not process payments in-app. Email an admin and they will assign
-              Growth or Growth to your workspace.
+            <DialogTitle>
+              {paySuccess ? "You're upgraded!" : `Upgrade to ${checkoutPlanMeta?.name ?? ""}`}
+            </DialogTitle>
+            <DialogDescription>
+              {paySuccess
+                ? "Your workspace plan is active. Limits update immediately."
+                : listInr != null
+                  ? `₹${listInr.toLocaleString("en-IN")}/month — billed once for 30 days of access.`
+                  : "Complete checkout to activate your plan."}
             </DialogDescription>
           </DialogHeader>
-          <ul className="my-2 space-y-2 text-sm">
-            {[
-              "Higher post and AI limits",
-              "More connected accounts",
-              "Brand voice & approval workflow",
-              "Assigned by platform admin only",
-            ].map((f) => (
-              <li key={f} className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-success" /> {f}
-              </li>
-            ))}
-          </ul>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setUpgradeOpen(false)}>
-              Maybe later
-            </Button>
-            <Button asChild>
-              <a href={upgradeHref} onClick={() => setUpgradeOpen(false)}>
-                <Mail className="mr-2 h-4 w-4" /> Email {CONTACT_EMAIL}
-              </a>
-            </Button>
-          </DialogFooter>
+
+          {paySuccess ? (
+            <DialogFooter>
+              <Button onClick={() => setCheckoutOpen(false)}>Done</Button>
+            </DialogFooter>
+          ) : (
+            <>
+              <div className="space-y-3 py-2">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5">
+                    <Tag className="h-3.5 w-3.5" /> Coupon code
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={couponCode}
+                      onChange={(e) => {
+                        setCouponCode(e.target.value.toUpperCase());
+                        setCouponPreview(null);
+                        setCouponError(null);
+                      }}
+                      placeholder="Optional"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={!couponCode.trim() || couponLoading}
+                      onClick={applyCoupon}
+                    >
+                      {couponLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+                    </Button>
+                  </div>
+                  {couponError && (
+                    <p className="text-xs text-destructive">{couponError}</p>
+                  )}
+                  {couponPreview && (
+                    <p className="text-xs text-success">
+                      {couponPreview.code} applied — you pay ₹
+                      {(couponPreview.amountPaise / 100).toLocaleString("en-IN")}
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm flex justify-between">
+                  <span>Total due today</span>
+                  <span className="font-semibold">
+                    {payableInr != null
+                      ? `₹${payableInr.toLocaleString("en-IN")}`
+                      : "—"}
+                  </span>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setCheckoutOpen(false)}>Cancel</Button>
+                <Button onClick={startPayment} disabled={paying || listInr == null}>
+                  {paying ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing…
+                    </>
+                  ) : (
+                    "Pay with Razorpay"
+                  )}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

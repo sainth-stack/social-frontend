@@ -2,7 +2,12 @@
 
 import { useEffect } from "react";
 
-import { hydrateAuth, selectAccessToken, selectIsAuthHydrated } from "@/features/auth/authSlice";
+import {
+  hydrateAuth,
+  selectAccessToken,
+  selectIsAuthHydrated,
+  selectUser,
+} from "@/features/auth/authSlice";
 import { validateSession } from "@/features/auth/authThunks";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
@@ -12,6 +17,7 @@ export default function AuthInitializer() {
   const dispatch = useAppDispatch();
   const isHydrated = useAppSelector(selectIsAuthHydrated);
   const accessToken = useAppSelector(selectAccessToken);
+  const user = useAppSelector(selectUser);
 
   useEffect(() => {
     dispatch(hydrateAuth());
@@ -27,8 +33,10 @@ export default function AuthInitializer() {
     }
 
     validatedAccessToken = accessToken;
-    dispatch(validateSession());
-  }, [accessToken, dispatch, isHydrated]);
+    if (!user) {
+      dispatch(validateSession());
+    }
+  }, [accessToken, dispatch, isHydrated, user]);
 
   return null;
 }

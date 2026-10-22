@@ -265,19 +265,6 @@ describe("PortalLayout", () => {
 });
 
 describe("Actual Topbar", () => {
-  const scrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
-
-  beforeEach(() => {
-    vi.stubGlobal("ResizeObserver", class { observe = vi.fn(); unobserve = vi.fn(); disconnect = vi.fn(); });
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    if (scrollIntoView) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", scrollIntoView);
-    else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
-  });
-
   function topbar(overrides: Partial<User> = {}, props: Parameters<typeof ActualTopbar>[0] = {}) {
     const store = configureStore({
       reducer: { auth: authReducer, ui: uiReducer },
@@ -285,11 +272,6 @@ describe("Actual Topbar", () => {
     });
     const wrapper = ({ children }: { children: ReactNode }) => <Provider store={store}>{children}</Provider>;
     return { store, ...render(<ActualTopbar {...props} />, { wrapper }) };
-  }
-
-  async function picker() {
-    await userEvent.click(screen.getByRole("button", { name: "Search navigation" }));
-    return screen.findByRole("dialog", { name: "Quick navigation" });
   }
 
   it("uses friendly dynamic post breadcrumbs with linked ancestors", () => {
@@ -369,111 +351,40 @@ describe("Actual Topbar", () => {
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it.each(["Control", "Meta"])("opens with %s+K, focuses the input, filters, resets and restores focus on Escape", async (modifier) => {
-    topbar();
-    const trigger = screen.getByRole("button", { name: "Search navigation" });
-    expect(trigger.getAttribute("aria-keyshortcuts")).toBe("Control+k Meta+k");
+  it.each([false, true])("has no search or quick-navigation controls when isAdmin is %s", (isAdmin) => {
+    mocks.pathname = isAdmin ? "/admin/users" : "/dashboard/posts";
+    const { container } = topbar({ isPlatformAdmin: isAdmin }, { isAdmin });
+    expect(screen.queryByRole("button", { name: /search|quick navigation/i, hidden: true })).toBeNull();
+    expect(screen.queryByText(/quick navigation|Ctrl \/ ⌘ K/i)).toBeNull();
+    expect(screen.queryByRole("combobox", { hidden: true })).toBeNull();
+    expect(screen.queryByRole("searchbox", { hidden: true })).toBeNull();
+    expect(container.querySelector("[aria-keyshortcuts]")).toBeNull();
+    expect(screen.queryByRole("dialog", { hidden: true })).toBeNull();
+  });
+
+  it.each([[false, "Control"], [false, "Meta"], [true, "Control"], [true, "Meta"]] as const)("does not open an app dialog for isAdmin=%s and %s+K", async (isAdmin, modifier) => {
+    mocks.pathname = isAdmin ? "/admin/users" : "/dashboard/posts";
+    topbar({ isPlatformAdmin: isAdmin }, { isAdmin });
+    const trigger = screen.getByRole("button", { name: "Open account menu" });
     trigger.focus();
+    const shortcut = new KeyboardEvent("keydown", { key: "k", ctrlKey: modifier === "Control", metaKey: modifier === "Meta", bubbles: true, cancelable: true });
+    fireEvent(window, shortcut);
+    expect(shortcut.defaultPrevented).toBe(false);
     await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
-    const dialog = await screen.findByRole("dialog", { name: "Quick navigation" });
-    const input = within(dialog).getByRole("combobox");
-    await waitFor(() => expect(document.activeElement).toBe(input));
-    await userEvent.type(input, "calendar");
-    expect(within(dialog).getAllByRole("option").map((option) => option.textContent)).toEqual(["Calendar"]);
-    await userEvent.clear(input);
-    await userEvent.type(input, "no-such-screen-xyz");
-    expect(within(dialog).queryAllByRole("option")).toHaveLength(0);
-    expect(within(dialog).getByText("No screens found. Try another name.")).toBeTruthy();
-    await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-    const reopened = await picker();
-    expect((within(reopened).getByRole("combobox") as HTMLInputElement).value).toBe("");
-    expect(within(reopened).getAllByRole("option")).toHaveLength(8);
+    expect(screen.queryByRole("dialog", { hidden: true })).toBeNull();
+    expect(screen.queryByRole("combobox", { hidden: true })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it("toggles the picker with the shortcut and ignores Alt-modified shortcuts", async () => {
-    topbar();
-    await userEvent.keyboard("{Control>}{Alt>}k{/Alt}{/Control}");
-    expect(screen.queryByRole("dialog")).toBeNull();
-    await userEvent.keyboard("{Control>}k{/Control}");
-    expect(await screen.findByRole("dialog")).toBeTruthy();
-    await userEvent.keyboard("{Control>}k{/Control}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  });
-
-  it("filters picker destinations by workspace permission", async () => {
-    topbar({ socialPermissionLevel: "viewer" });
-    const dialog = await picker();
-    expect(within(dialog).getAllByRole("option").map((option) => option.textContent)).toEqual(["Dashboard", "Calendar", "Posts", "Analytics", "Plan"]);
-    await userEvent.type(within(dialog).getByRole("combobox"), "settings");
-    expect(within(dialog).queryAllByRole("option")).toHaveLength(0);
-  });
-
-  it("uses platform destinations in the admin picker", async () => {
-    mocks.pathname = "/admin/users";
-    topbar({ isPlatformAdmin: true }, { isAdmin: true });
-    const dialog = await picker();
-    expect(within(dialog).getAllByRole("option").map((option) => [option.textContent, option.getAttribute("href")])).toEqual([
-      ["Overview", "/admin"], ["Users", "/admin/users"], ["Plans", "/admin/pricing"], ["Coupons", "/admin/coupons"], ["Analytics", "/admin/analytics"],
-    ]);
-  });
-
-  it("follows the selected Next Link on pointer activation and closes the picker", async () => {
-    topbar();
-    const dialog = await picker();
-    await userEvent.click(within(dialog).getByRole("option", { name: "Calendar" }));
-    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/dashboard/calendar");
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  });
-
-  it("follows the keyboard-selected Next Link on Enter and closes the picker", async () => {
-    topbar();
-    const dialog = await picker();
-    await userEvent.type(within(dialog).getByRole("combobox"), "calendar");
-    await userEvent.keyboard("{ArrowDown}");
-    expect(within(dialog).getByRole("option", { name: "Calendar" }).getAttribute("aria-selected")).toBe("true");
-    await userEvent.keyboard("{Enter}");
-    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/dashboard/calendar");
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  });
-
-  it("closes and clears the picker when the route changes", async () => {
-    const { rerender } = topbar();
-    const dialog = await picker();
-    await userEvent.type(within(dialog).getByRole("combobox"), "calendar");
-    mocks.pathname = "/dashboard/calendar";
-    rerender(<ActualTopbar />);
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect((within(await picker()).getByRole("combobox") as HTMLInputElement).value).toBe("");
-  });
-
-  it("searches local navigation without usage, fetch or XHR API queries", async () => {
-    const fetch = vi.fn().mockRejectedValue(new Error("Unexpected fetch"));
-    vi.stubGlobal("fetch", fetch);
-    const xhr = vi.spyOn(XMLHttpRequest.prototype, "open");
-    topbar();
-    const dialog = await picker();
-    await userEvent.type(within(dialog).getByRole("combobox"), "calendar");
-    await userEvent.clear(within(dialog).getByRole("combobox"));
-    await userEvent.type(within(dialog).getByRole("combobox"), "missing-post-content");
-    await userEvent.keyboard("{Escape}");
-    expect(fetch).not.toHaveBeenCalled();
-    expect(xhr).not.toHaveBeenCalled();
-    expect(mocks.fetch).not.toHaveBeenCalled();
-    expect(mocks.cached).not.toHaveBeenCalled();
-  });
-
-  it("has accessible header, account-menu and picker structure", async () => {
+  it("has accessible header and account-menu structure", async () => {
     const { container } = topbar();
     const options = { rules: { "color-contrast": { enabled: false } } };
     expect((await axe(container, options)).violations).toEqual([]);
     await userEvent.click(screen.getByRole("button", { name: "Open account menu" }));
     expect((await axe(screen.getByRole("menu"), options)).violations).toEqual([]);
     await userEvent.keyboard("{Escape}");
-    const dialog = await picker();
-    expect(dialog.getAttribute("aria-describedby")).toBeTruthy();
-    expect((await axe(dialog, options)).violations).toEqual([]);
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });
 

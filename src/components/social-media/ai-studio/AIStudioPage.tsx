@@ -50,7 +50,8 @@ import {
   BrandLogoPickerDialog,
   useBrandLogos,
 } from "@/components/social-media/ai-studio/BrandLogoLibrary";
-import PhoneFrame from "@/components/social-media/content-studio/PhoneFrame";
+import ResponsivePhonePreview from "@/components/social-media/ai-studio/ResponsivePhonePreview";
+import { AIModelSelectionProvider, AIModelSelector, useAIModelSelection } from "@/components/social-media/ai-studio/AIModelSelector";
 import PlatformPreview from "@/components/social-media/content-studio/PlatformPreview";
 import ScheduleModal from "@/components/social-media/posts/ScheduleModal";
 import {
@@ -506,6 +507,7 @@ function GenerateTab({
 }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const modelSelection = useAIModelSelection();
   const studioParams = useSearchParams();
   const user = useAppSelector(selectUser);
   const accounts = useAppSelector(selectSocialAccounts);
@@ -822,7 +824,7 @@ function GenerateTab({
         includeLogo: includeLogo && Boolean(selectedLogo),
         logoId: selectedLogo?.id ?? null,
         logoPosition,
-      });
+      }, ...(modelSelection.textModel || modelSelection.imageModel ? [modelSelection] as const : []));
       setGeneratedImageUrl(img.imageUrl);
       setImageMeta(img);
       setMediaSource("ai_generated");
@@ -867,7 +869,7 @@ function GenerateTab({
             logoPosition,
             slideIndex: i + 1,
             slideCount: count,
-          });
+          }, ...(modelSelection.textModel || modelSelection.imageModel ? [modelSelection] as const : []));
           results[i] = img.imageUrl;
           setSlideImages([...results]);
           if (i === 0) {
@@ -949,7 +951,7 @@ function GenerateTab({
             includeComment: false,
             format: formatKey,
             ...generationMeta(),
-          }),
+          }, ...(modelSelection.textModel || modelSelection.imageModel ? [modelSelection] as const : [])),
         ),
       );
 
@@ -1457,6 +1459,7 @@ function GenerateTab({
               disabled={!!prefillMedia}
               onChange={setAlsoGenerateImage}
             />
+            {selectedPlatforms.length > 1 && <p className="text-xs leading-relaxed text-muted-foreground">One image is shared across selected channels. Image size follows the preview channel; platforms may crop it differently. Use a separate post for a different layout.</p>}
             {alsoGenerateImage && !prefillMedia ? (
               <>
                 {type !== "Carousel" && (
@@ -1748,8 +1751,7 @@ function GenerateTab({
             </TabsList>
             <TabsContent value="preview" className="min-w-0 rounded-xl border border-border bg-muted/30 p-3">
               <p className="mb-5 text-center text-xs text-muted-foreground">Approximate {PLATFORM_LABELS[previewPlatform]} preview · final appearance may vary.</p>
-              <div className="flex justify-center overflow-x-auto py-4">
-                <PhoneFrame width={240}>
+                <ResponsivePhonePreview>
                   <PlatformPreview
                     platform={previewPlatform}
                     caption={previewCaption}
@@ -1759,8 +1761,7 @@ function GenerateTab({
                     brandName={brandKit?.brandName || "Your Brand"}
                     account={previewAccount}
                   />
-                </PhoneFrame>
-              </div>
+                </ResponsivePhonePreview>
             </TabsContent>
             <TabsContent value="edit">
             {loading ? (
@@ -2035,7 +2036,7 @@ function BrandColorField({
   );
 }
 
-function BrandTab({
+export function BrandTab({
   orgId,
   onSaved,
   brandVersion,
@@ -2044,32 +2045,77 @@ function BrandTab({
   onSaved?: () => void;
   brandVersion: number;
 }) {
-  const { logos, setLogos, loading: logosLoading } = useBrandLogos(orgId, brandVersion);
+  const modelSelection = useAIModelSelection();
+  const { logos, setLogos, loading: logosLoading, error: logosError, reload: reloadLogos } = useBrandLogos(orgId, brandVersion);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [form, setForm] = useState<BrandVoicePayload>(emptyBrand);
   const [description, setDescription] = useState("");
   const [products, setProducts] = useState("");
   const [website, setWebsite] = useState("");
+  const [avoid, setAvoid] = useState("");
+  const [cta, setCta] = useState("");
+  const [snapshot, setSnapshot] = useState<{
+    form: BrandVoicePayload; description: string; products: string; website: string; avoid: string; cta: string;
+  } | null>(null);
+  const [loadedOrg, setLoadedOrg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [preview, setPreview] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewDraft, setPreviewDraft] = useState("");
+  const scopeRef = useRef({ orgId, active: true });
+  const operationRef = useRef<symbol | null>(null);
+  const loadRef = useRef(0);
+  if (scopeRef.current.orgId !== orgId) {
+    scopeRef.current.active = false;
+    scopeRef.current = { orgId, active: true };
+    operationRef.current = null;
+  }
+  const draft = { form, description, products, website, avoid, cta };
+  const draftKey = JSON.stringify(draft);
+  const dirty = snapshot !== null && draftKey !== JSON.stringify(snapshot);
+  const invalidColors = Boolean(form.primaryColor && !HEX_COLOR.test(form.primaryColor)) || Boolean(form.accentColor && !HEX_COLOR.test(form.accentColor));
+
+  const applyDraft = (next: NonNullable<typeof snapshot>) => {
+    setForm(next.form);
+    setDescription(next.description);
+    setProducts(next.products);
+    setWebsite(next.website);
+    setAvoid(next.avoid);
+    setCta(next.cta);
+  };
 
   const patch = <K extends keyof BrandVoicePayload>(key: K, value: BrandVoicePayload[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const load = useCallback(async () => {
-    if (!orgId) return;
+    const scope = scopeRef.current;
+    const request = ++loadRef.current;
+    const current = () => scope.active && scopeRef.current === scope && request === loadRef.current;
     setLoading(true);
     setError(null);
+    setSaving(false);
+    setRefreshing(false);
+    setSaveError(null);
+    setPreviewError(null);
+    setPreview("");
+    setSnapshot(null);
+    if (!orgId) {
+      setError("Choose a workspace to edit its brand profile.");
+      setLoading(false);
+      return;
+    }
     try {
       const bv = await socialMediaApi.getBrandVoice(orgId);
+      if (!current()) return;
       const override = bv.systemPromptOverride ?? "";
       const websiteMatch = override.match(/^Website: ([^\n]*)\n?/);
       const restOverride = websiteMatch ? override.slice(websiteMatch[0].length) : override;
-      setForm({
+      const nextForm: BrandVoicePayload = {
         brandName: bv.brandName,
         industry: bv.industry,
         tagline: bv.tagline,
@@ -2085,23 +2131,34 @@ function BrandTab({
         logoUrl: bv.logoUrl ?? null,
         primaryColor: bv.primaryColor ?? "",
         accentColor: bv.accentColor ?? "",
-      });
-      setWebsite(websiteMatch?.[1]?.trim() ?? "");
-      setProducts(bv.wordsToUse.join(", "));
-      setDescription(bv.tagline || "");
-      setPreview(
-        bv.tagline ||
-          `At ${bv.brandName || "your brand"}, we speak to ${bv.targetAudience || "your audience"} with a ${(bv.tones[0] || "friendly").toLowerCase()} voice.`,
-      );
+      };
+      const next = {
+        form: nextForm,
+        description: bv.tagline || "",
+        products: bv.wordsToUse.join(", "),
+        website: websiteMatch?.[1]?.trim() ?? "",
+        avoid: bv.wordsToAvoid.join(", "),
+        cta: bv.ctaPhrases[0] ?? "",
+      };
+      applyDraft(next);
+      setSnapshot(next);
+      setLoadedOrg(orgId);
     } catch (err) {
-      setError(extractErrorMessage(err, "Failed to load brand profile"));
+      if (current()) setError(extractErrorMessage(err, "Failed to load brand profile"));
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [orgId]);
 
   useEffect(() => {
+    const scope = scopeRef.current;
+    scope.active = true;
     void load();
+    return () => {
+      scope.active = false;
+      ++loadRef.current;
+      operationRef.current = null;
+    };
   }, [load]);
 
   const buildBrandPayload = (): BrandVoicePayload => {
@@ -2115,6 +2172,8 @@ function BrandTab({
       logoUrl: undefined,
       tagline: description,
       wordsToUse: keywords,
+      wordsToAvoid: avoid.split(",").map((word) => word.trim()).filter(Boolean),
+      ctaPhrases: [cta.trim(), ...form.ctaPhrases.slice(1)].filter(Boolean),
       primaryColor: HEX_COLOR.test(form.primaryColor ?? "") ? form.primaryColor : "",
       accentColor: HEX_COLOR.test(form.accentColor ?? "") ? form.accentColor : "",
       systemPromptOverride:
@@ -2123,37 +2182,55 @@ function BrandTab({
   };
 
   const refreshPreview = async () => {
-    if (!orgId) return;
+    if (!orgId || operationRef.current || loading || loadedOrg !== orgId || invalidColors) return;
+    const scope = scopeRef.current;
+    const operation = Symbol();
+    operationRef.current = operation;
+    const current = () => scope.active && scopeRef.current === scope && operationRef.current === operation;
     setRefreshing(true);
+    setPreviewError(null);
     try {
-      const result = await socialMediaApi.testBrandVoice(orgId, buildBrandPayload());
+      const result = await socialMediaApi.testBrandVoice(orgId, buildBrandPayload(), ...(modelSelection.textModel || modelSelection.imageModel ? [modelSelection] as const : []));
+      if (!current()) return;
       setPreview(result.caption);
-      toast.success("Preview refreshed");
+      setPreviewDraft(draftKey);
     } catch (err) {
-      toast.error(extractPlanError(err, "Could not refresh preview"));
+      if (current()) setPreviewError(extractPlanError(err, "Could not refresh preview"));
     } finally {
-      setRefreshing(false);
+      if (current()) {
+        operationRef.current = null;
+        setRefreshing(false);
+      }
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!orgId) return;
+    if (!orgId || operationRef.current || loading || loadedOrg !== orgId || !dirty || invalidColors) return;
+    const scope = scopeRef.current;
+    const operation = Symbol();
+    operationRef.current = operation;
+    const current = () => scope.active && scopeRef.current === scope && operationRef.current === operation;
     setSaving(true);
+    setSaveError(null);
     try {
       const payload = buildBrandPayload();
       await socialMediaApi.saveBrandVoice(orgId, payload);
-      setForm((prev) => ({ ...prev, tagline: payload.tagline, wordsToUse: payload.wordsToUse }));
+      if (!current()) return;
+      setSnapshot(draft);
       toast.success("Brand profile saved");
       onSaved?.();
     } catch (err) {
-      toast.error(extractErrorMessage(err, "Failed to save brand profile"));
+      if (current()) setSaveError(extractErrorMessage(err, "Failed to save brand profile"));
     } finally {
-      setSaving(false);
+      if (current()) {
+        operationRef.current = null;
+        setSaving(false);
+      }
     }
   };
 
-  if (loading) {
+  if (loading || (!error && loadedOrg !== orgId)) {
     return (
       <Card role="status" aria-label="Loading brand profile" className="shadow-soft">
         <CardContent className="space-y-3 py-8">
@@ -2165,11 +2242,11 @@ function BrandTab({
     );
   }
 
-  if (error && !form.brandName) {
+  if (error) {
     return (
       <Card className="shadow-soft">
         <CardContent className="py-10 text-center">
-          <p className="text-sm text-destructive">{error}</p>
+          <p role="alert" className="text-sm text-destructive">{error}</p>
           <Button className="mt-4" variant="outline" onClick={() => void load()}>
             Retry
           </Button>
@@ -2185,13 +2262,14 @@ function BrandTab({
 
   return (
     <form
-      className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px]"
+      className="min-w-0 space-y-6"
       onSubmit={(e) => void handleSave(e)}
     >
+      <fieldset disabled={saving || refreshing} className="min-w-0 space-y-6">
       <Card className="shadow-soft">
         <CardHeader>
-          <CardTitle className="text-base"><h2>Your brand, consistently</h2></CardTitle>
-          <p className="text-xs text-muted-foreground">
+          <CardTitle className="text-base"><h2>Brand essentials</h2></CardTitle>
+          <p className="text-sm text-muted-foreground">
             Tell us about your business once. Every post and image follows it.
           </p>
         </CardHeader>
@@ -2250,13 +2328,22 @@ function BrandTab({
               <Label htmlFor="brand-cta">Default call to action</Label>
               <Input
                 id="brand-cta"
-                value={form.ctaPhrases[0] ?? ""}
-                onChange={(e) =>
-                  patch("ctaPhrases", e.target.value.trim() ? [e.target.value.trim()] : [])
-                }
+                value={cta}
+                onChange={(e) => setCta(e.target.value)}
                 placeholder="Book a free consultation"
               />
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-soft">
+        <CardHeader>
+          <CardTitle className="text-base"><h2>Voice preferences</h2></CardTitle>
+          <p className="text-sm text-muted-foreground">Choose how your brand sounds. Fine-tune only what you need.</p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div>
             <div className="space-y-2 md:col-span-2">
               <Label>Brand tone</Label>
               <SegmentedControl
@@ -2273,6 +2360,7 @@ function BrandTab({
               type="button"
               onClick={() => setShowAdvanced((v) => !v)}
               aria-expanded={showAdvanced}
+              aria-controls="brand-advanced"
               className="flex w-full items-center justify-between gap-2 px-4 py-3 text-sm font-medium"
             >
               <span className="flex items-center gap-2">
@@ -2283,7 +2371,7 @@ function BrandTab({
               <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition", showAdvanced && "rotate-180")} />
             </button>
             {showAdvanced && (
-              <div className="grid grid-cols-1 gap-4 border-t border-border p-4 md:grid-cols-2">
+              <div id="brand-advanced" className="grid grid-cols-1 gap-4 border-t border-border p-4 md:grid-cols-2">
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="brand-products">Products and keywords</Label>
                   <Input
@@ -2294,12 +2382,12 @@ function BrandTab({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Sentence length</Label>
+                  <Label htmlFor="brand-sentence-length">Sentence length</Label>
                   <Select
                     value={form.sentenceLength}
                     onValueChange={(v) => patch("sentenceLength", v as SentenceLength)}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="brand-sentence-length">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -2310,12 +2398,12 @@ function BrandTab({
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Emoji usage</Label>
+                  <Label htmlFor="brand-emoji-usage">Emoji usage</Label>
                   <Select
                     value={form.emojiUsage}
                     onValueChange={(v) => patch("emojiUsage", v as EmojiUsage)}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="brand-emoji-usage">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -2329,17 +2417,9 @@ function BrandTab({
                   <Label htmlFor="brand-avoid">Words or topics to avoid</Label>
                   <Input
                     id="brand-avoid"
-                    value={form.wordsToAvoid.join(", ")}
+                    value={avoid}
                     placeholder="Comma-separated"
-                    onChange={(e) =>
-                      patch(
-                        "wordsToAvoid",
-                        e.target.value
-                          .split(",")
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                      )
-                    }
+                    onChange={(e) => setAvoid(e.target.value)}
                   />
                 </div>
               </div>
@@ -2348,19 +2428,25 @@ function BrandTab({
         </CardContent>
       </Card>
 
-      <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+      <div className="space-y-6">
         <Card className="shadow-soft">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
               <Palette className="h-4 w-4 text-primary" />
-              <CardTitle className="text-sm">Logos and colors</CardTitle>
+              <CardTitle className="text-base"><h2>Visual identity</h2></CardTitle>
             </div>
             <p className="text-xs text-muted-foreground">
-              Used on your images. The starred logo is the default.
+              Logos and colors used on your images. Logo changes save immediately; colors save with your profile.
             </p>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="grid min-w-0 gap-8 lg:grid-cols-2">
+            <div className="min-w-0 space-y-3">
+            <h3 className="text-sm font-medium">Logo library</h3>
             <BrandLogoLibrary
+              key={orgId}
+              disabled={saving || refreshing}
+              error={logosError}
+              onRetry={() => void reloadLogos()}
               orgId={orgId}
               logos={logos}
               loading={logosLoading}
@@ -2369,7 +2455,10 @@ function BrandTab({
                 onSaved?.();
               }}
             />
-            <div className="grid grid-cols-2 gap-3">
+            </div>
+            <div className="min-w-0 space-y-4">
+            <h3 className="text-sm font-medium">Brand colors</h3>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <BrandColorField
                 id="brand-primary"
                 label="Primary"
@@ -2397,8 +2486,9 @@ function BrandTab({
                 </span>
               </div>
               <p className="bg-card px-3 py-1.5 text-[10px] text-muted-foreground">
-                {primary || accent ? "Image preview" : "No colors set. A palette is picked for each image."}
+                {primary || accent ? "Color swatch · not a generated image" : "No colors set. A palette is picked for each image."}
               </p>
+            </div>
             </div>
           </CardContent>
         </Card>
@@ -2409,26 +2499,38 @@ function BrandTab({
               <span className="flex h-6 w-6 items-center justify-center rounded-md bg-success text-white">
                 <Mic2 className="h-3.5 w-3.5" />
               </span>
-              <p className="text-sm font-semibold">Voice preview</p>
+              <h2 className="text-sm font-semibold">Voice preview</h2>
             </div>
             <Button
               type="button"
               size="sm"
               variant="ghost"
               onClick={() => void refreshPreview()}
-              disabled={refreshing}
+              disabled={saving || refreshing || invalidColors}
             >
               <RefreshCcw className={cn("mr-1.5 h-3.5 w-3.5", refreshing && "animate-spin")} />
-              Refresh
+              {refreshing ? "Generating preview…" : previewError ? "Retry preview" : preview ? "Regenerate preview" : "Generate preview"}
             </Button>
           </div>
           <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-foreground">
-            {preview || "Refresh to see a sample caption in your voice."}
+            {preview || "Generate a sample caption using your current profile. This does not save your changes."}
           </p>
+          {preview && <p className="mt-2 text-xs text-muted-foreground">{previewDraft === draftKey ? "AI-generated from the profile above." : "Profile changed since this preview. Regenerate to use your latest edits."}</p>}
+          {previewError && <p role="alert" className="mt-3 text-sm text-destructive">{previewError}</p>}
         </div>
+      </div>
+      </fieldset>
 
-        <div className="space-y-1.5">
-          <Button type="submit" className="w-full" disabled={saving || !orgId || Boolean(form.primaryColor && !HEX_COLOR.test(form.primaryColor)) || Boolean(form.accentColor && !HEX_COLOR.test(form.accentColor))}>
+        <div className="space-y-3 rounded-xl border border-border bg-card p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <p role="status" className="text-sm text-muted-foreground">{saving ? "Saving your profile…" : dirty ? "You have unsaved changes." : "All profile changes saved."}</p>
+          <div className="flex flex-wrap gap-3">
+          <Button type="button" variant="outline" disabled={!dirty || saving || refreshing} onClick={() => {
+            if (operationRef.current || !snapshot) return;
+            applyDraft(snapshot);
+            setSaveError(null);
+          }}>Reset to saved</Button>
+          <Button type="submit" disabled={!dirty || saving || refreshing || !orgId || invalidColors}>
             {saving ? (
               <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" />
             ) : (
@@ -2436,11 +2538,13 @@ function BrandTab({
             )}
             Save brand profile
           </Button>
-          <p className="text-center text-[11px] text-muted-foreground">
+          </div>
+          </div>
+          {saveError && <p role="alert" className="text-sm text-destructive">{saveError} Your changes are still here. Try saving again.</p>}
+          <p className="text-xs text-muted-foreground">
             Every post and image you create uses this profile.
           </p>
         </div>
-      </div>
     </form>
   );
 }
@@ -2942,6 +3046,7 @@ export default function AIStudioPage({
   }, [requestedTab, changeTab]);
 
   return (
+    <AIModelSelectionProvider orgId={orgId}>
     <TooltipProvider key={orgId} delayDuration={200}>
       <div className="mx-auto max-w-7xl space-y-6">
         <PageHeader
@@ -2949,6 +3054,7 @@ export default function AIStudioPage({
           title="AI Studio"
           description="From your first idea to a ready-to-publish post. Your voice, every time."
         />
+        <AIModelSelector />
 
         {!orgId && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
@@ -3008,5 +3114,6 @@ export default function AIStudioPage({
         </Tabs>
       </div>
     </TooltipProvider>
+    </AIModelSelectionProvider>
   );
 }

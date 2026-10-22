@@ -78,19 +78,32 @@ afterEach(() => {
 });
 
 describe("authentication shell", () => {
-  it("provides original static artwork with one main heading and real brand links", () => {
-    render(<RealAuthCardShell title="Welcome back" subtitle="Your creative workspace" footer={<a href="/register">Create an account</a>}><p>Account form</p></RealAuthCardShell>);
+  it.each([
+    ["Welcome back", "Sign in to your account", "Create an account", "/register"],
+    ["Create your account", "Get started with your workspace", "Sign in", "/login"],
+    ["Forgot your password?", "Enter your email for a reset link", "Back to sign in", "/login"],
+  ])("provides a simple centered card for %s with unchanged content and footer", (title, subtitle, footerLabel, footerHref) => {
+    const { container } = render(<RealAuthCardShell title={title} subtitle={subtitle} footer={<a href={footerHref}>{footerLabel}</a>}><p>Account form</p></RealAuthCardShell>);
     expect(screen.getAllByRole("main")).toHaveLength(1);
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: title })).toBeTruthy();
+    expect(screen.getByText(subtitle)).toBeTruthy();
+    expect(screen.getByRole("main").className).toContain("items-center");
+    expect(screen.getByRole("main").className).toContain("justify-center");
+    expect(screen.getByRole("region", { name: "Account access" }).className).toContain("max-w-md");
     expect(screen.getByRole("link", { name: "OpsBrain AI home" }).getAttribute("href")).toBe(platformBrand.marketingUrl);
-    expect(screen.getByRole("img", { name: /Illustration of an OpsBrain workspace/ })).toBeTruthy();
+    expect(screen.getAllByRole("img")).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "OpsBrain AI" })).toBeTruthy();
+    expect(screen.queryByRole("img", { name: /Illustration of an OpsBrain workspace/ })).toBeNull();
+    expect(screen.queryByText(/Your next great idea starts here|One workspace\. Every channel\.|Visit website/)).toBeNull();
+    expect(container.querySelector("svg")).toBeNull();
     expect(screen.queryByRole("tablist")).toBeNull();
     expect(screen.getByText("Account form")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Create an account" }).getAttribute("href")).toBe("/register");
+    expect(screen.getByRole("link", { name: footerLabel }).getAttribute("href")).toBe(footerHref);
   });
 
-  it("passes structural accessibility checks with the artwork", async () => {
-    const { container } = render(<RealAuthCardShell title="Create your workspace" subtitle="Bring your team together" footer={<a href="/login">Sign in</a>}><label htmlFor="test-email">Email</label><input id="test-email" type="email" /></RealAuthCardShell>);
+  it.each(["Welcome back", "Create your account", "Forgot your password?"])("passes structural accessibility checks for the simple %s shell", async (title) => {
+    const { container } = render(<RealAuthCardShell title={title} subtitle="Enter your details below" footer={<a href="/login">Sign in</a>}><label htmlFor="test-email">Email</label><input id="test-email" type="email" /></RealAuthCardShell>);
     expect((await axe(container, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import apiClient from "@/api/client";
 import socialMediaApi from "@/api/endpoints/social-media.api";
+import { getStoredAccessToken } from "@/lib/auth/session";
 import type {
   SocialActivityItem,
   SocialDashboardStats,
@@ -27,6 +28,21 @@ const homeCache = new Map<string, CacheEntry<DashboardHomePayload>>();
 const usageCache = new Map<string, CacheEntry<DashboardUsage>>();
 const homeInflight = new Map<string, Promise<DashboardHomePayload>>();
 const usageInflight = new Map<string, Promise<DashboardUsage>>();
+let sessionToken: string | null | undefined;
+let sessionScope = 0;
+
+function checkSession(): number {
+  const token = getStoredAccessToken();
+  if (token !== sessionToken) {
+    sessionToken = token;
+    sessionScope += 1;
+    homeCache.clear();
+    usageCache.clear();
+    homeInflight.clear();
+    usageInflight.clear();
+  }
+  return sessionScope;
+}
 
 const WORKSPACE_URL = /\/api\/v1\/workspaces\/([^/?#]+)/;
 
@@ -52,18 +68,22 @@ function fresh<T>(entry: CacheEntry<T> | undefined): T | null {
 }
 
 export function getCachedDashboardHome(workspaceId: string): DashboardHomePayload | null {
+  checkSession();
   return usable(homeCache.get(workspaceId));
 }
 
 export function isDashboardHomeFresh(workspaceId: string): boolean {
+  checkSession();
   return fresh(homeCache.get(workspaceId)) !== null;
 }
 
 export function getCachedDashboardUsage(workspaceId: string): DashboardUsage | null {
+  checkSession();
   return usable(usageCache.get(workspaceId));
 }
 
 export function invalidateDashboardCache(workspaceId: string): void {
+  checkSession();
   homeCache.delete(workspaceId);
   usageCache.delete(workspaceId);
   homeInflight.delete(workspaceId);
@@ -71,6 +91,7 @@ export function invalidateDashboardCache(workspaceId: string): void {
 }
 
 export function clearDashboardCache(): void {
+  checkSession();
   homeCache.clear();
   usageCache.clear();
   homeInflight.clear();
@@ -81,6 +102,7 @@ export function fetchDashboardHomeCached(
   workspaceId: string,
   options: { force?: boolean } = {},
 ): Promise<DashboardHomePayload> {
+  const scope = checkSession();
   if (!options.force) {
     const cached = fresh(homeCache.get(workspaceId));
     if (cached) return Promise.resolve(cached);
@@ -92,7 +114,7 @@ export function fetchDashboardHomeCached(
   const request: Promise<DashboardHomePayload> = socialMediaApi
     .getDashboardHome(workspaceId)
     .then((home) => {
-      if (homeInflight.get(workspaceId) === request) {
+      if (scope === checkSession() && homeInflight.get(workspaceId) === request) {
         const at = Date.now();
         homeCache.set(workspaceId, { data: home, at });
         usageCache.set(workspaceId, { data: home.stats.usage, at });
@@ -100,7 +122,7 @@ export function fetchDashboardHomeCached(
       return home;
     })
     .finally(() => {
-      if (homeInflight.get(workspaceId) === request) homeInflight.delete(workspaceId);
+      if (scope === checkSession() && homeInflight.get(workspaceId) === request) homeInflight.delete(workspaceId);
     });
 
   homeInflight.set(workspaceId, request);
@@ -112,25 +134,33 @@ export function prefetchDashboardHome(workspaceId: string): void {
 }
 
 export function fetchDashboardUsageCached(workspaceId: string): Promise<DashboardUsage> {
+  const scope = checkSession();
   const cached = fresh(usageCache.get(workspaceId));
   if (cached) return Promise.resolve(cached);
-
-  const inflightHome = homeInflight.get(workspaceId);
-  if (inflightHome) return inflightHome.then((home) => home.stats.usage);
 
   const inflight = usageInflight.get(workspaceId);
   if (inflight) return inflight;
 
-  const request: Promise<DashboardUsage> = socialMediaApi
-    .getUsage(workspaceId)
+  const inflightHome = homeInflight.get(workspaceId);
+  const source = inflightHome
+    ? inflightHome.then(
+        (home) => home.stats.usage,
+        (error: unknown) => {
+          if (scope !== checkSession() || usageInflight.get(workspaceId) !== request) throw error;
+          return socialMediaApi.getUsage(workspaceId);
+        },
+      )
+    : socialMediaApi.getUsage(workspaceId);
+
+  const request: Promise<DashboardUsage> = source
     .then((usage) => {
-      if (usageInflight.get(workspaceId) === request) {
+      if (scope === checkSession() && usageInflight.get(workspaceId) === request) {
         usageCache.set(workspaceId, { data: usage, at: Date.now() });
       }
       return usage;
     })
     .finally(() => {
-      if (usageInflight.get(workspaceId) === request) usageInflight.delete(workspaceId);
+      if (scope === checkSession() && usageInflight.get(workspaceId) === request) usageInflight.delete(workspaceId);
     });
 
   usageInflight.set(workspaceId, request);

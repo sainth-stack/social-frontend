@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  CheckCircle2,
   Link2,
   Link2Off,
   RefreshCcw,
@@ -14,10 +13,11 @@ import {
 import { toast } from "sonner";
 
 import socialMediaApi from "@/api/endpoints/social-media.api";
+import { PageHeader } from "@/components/layouts/PageHeader";
 import { PlatformIcon } from "@/components/platform-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -41,7 +41,6 @@ const ACCOUNTS_CONNECT_PLATFORMS: { platform: SocialPlatform; name: string }[] =
   { platform: "facebook", name: "Facebook" },
 ];
 
-/** X connect is disabled in Accounts; existing links stay visible so users can disconnect. */
 const X_ACCOUNTS_DISABLED = true;
 
 function accountSections(
@@ -57,6 +56,7 @@ function accountSections(
 function relativeTime(iso: string | null): string {
   if (!iso) return "—";
   const diff = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(diff)) return "—";
   if (diff < 60_000) return "just now";
   const mins = Math.floor(diff / 60_000);
   if (mins < 60) return `${mins}m ago`;
@@ -81,16 +81,6 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return typeof detail === "string" ? detail : fallback;
 }
 
-function runOAuthPopup(
-  url: string,
-  onDone: (success: boolean, message?: string) => void,
-): void {
-  openSocialOAuthPopup(url, (success, message, silent) => {
-    if (silent) return;
-    onDone(success, message);
-  });
-}
-
 function Stat({
   label,
   value,
@@ -102,10 +92,10 @@ function Stat({
 }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-sm font-semibold">{value}</p>
       {hint ? (
-        <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{hint}</p>
+        <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{hint}</p>
       ) : null}
     </div>
   );
@@ -114,37 +104,87 @@ function Stat({
 export default function AccountsPage() {
   const user = useAppSelector(selectUser);
   const workspaceId = user?.workspaceId ?? "";
+
+  return <WorkspaceAccounts key={workspaceId} workspaceId={workspaceId} />;
+}
+
+function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
-  const [accountsLimit, setAccountsLimit] = useState<number | null>(2);
-  const [loading, setLoading] = useState(true);
-  const [connecting, setConnecting] = useState<SocialPlatform | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [accountsLimit, setAccountsLimit] = useState<number | null | undefined>();
+  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [listError, setListError] = useState(false);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<SocialAccount | null>(null);
+  const alive = useRef(false);
+  const listRequest = useRef<symbol | null>(null);
+  const usageRequest = useRef<symbol | null>(null);
+  const action = useRef<symbol | null>(null);
 
   const load = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!workspaceId || !alive.current || listRequest.current) return;
+    const request = Symbol();
+    listRequest.current = request;
     setLoading(true);
     try {
-      const [items, stats] = await Promise.all([
-        socialMediaApi.listAccounts(workspaceId),
-        socialMediaApi.getDashboardStats(workspaceId).catch(() => null),
-      ]);
+      const items = await socialMediaApi.listAccounts(workspaceId);
+      if (!alive.current || listRequest.current !== request) return;
       setAccounts(items.filter((a) => a.isActive));
-      setAccountsLimit(stats?.usage.accounts.limit ?? null);
+      setLoaded(true);
+      setListError(false);
     } catch {
-      toast.error("Failed to load accounts");
+      if (alive.current && listRequest.current === request) setListError(true);
     } finally {
-      setLoading(false);
+      if (alive.current && listRequest.current === request) {
+        listRequest.current = null;
+        setLoading(false);
+      }
+    }
+  }, [workspaceId]);
+
+  const loadUsage = useCallback(async (replacePending = false) => {
+    if (!workspaceId || !alive.current || (usageRequest.current && !replacePending)) return;
+    const request = Symbol();
+    usageRequest.current = request;
+    setUsageLoading(true);
+    try {
+      const usage = await socialMediaApi.getUsage(workspaceId);
+      if (!alive.current || usageRequest.current !== request) return;
+      setAccountsLimit(usage.accounts.limit);
+      setUsageError(false);
+    } catch {
+      if (alive.current && usageRequest.current === request) {
+        setAccountsLimit(undefined);
+        setUsageError(true);
+      }
+    } finally {
+      if (alive.current && usageRequest.current === request) {
+        usageRequest.current = null;
+        setUsageLoading(false);
+      }
     }
   }, [workspaceId]);
 
   useEffect(() => {
+    alive.current = true;
     void load();
-  }, [load]);
+    void loadUsage();
+    return () => {
+      alive.current = false;
+      listRequest.current = null;
+      usageRequest.current = null;
+      action.current = null;
+    };
+  }, [load, loadUsage]);
 
   const connectedCount = accounts.length;
   const limitReached =
     accountsLimit != null && connectedCount >= accountsLimit;
+  const usagePercent = accountsLimit == null
+    ? undefined
+    : accountsLimit === 0 ? 100 : Math.min(100, (connectedCount / accountsLimit) * 100);
 
   const byPlatform = useMemo(() => {
     const map = new Map<SocialPlatform, SocialAccount[]>();
@@ -156,174 +196,148 @@ export default function AccountsPage() {
     return map;
   }, [accounts]);
 
-  const startConnect = async (platform: SocialPlatform) => {
-    if (!workspaceId) return;
-    if (X_ACCOUNTS_DISABLED && platform === "x") {
-      toast.message("X (Twitter) connections are disabled.");
-      return;
-    }
-    if (limitReached) {
+  const begin = (key: string) => {
+    if (!workspaceId || !alive.current || action.current || listRequest.current) return null;
+    const token = Symbol();
+    action.current = token;
+    setBusy(key);
+    return token;
+  };
+
+  const current = (token: symbol) => alive.current && action.current === token;
+
+  const refresh = (resource: "all" | "accounts" | "usage" = "all") => {
+    if (action.current) return;
+    if (resource !== "usage") void load();
+    if (resource !== "accounts") void loadUsage();
+  };
+
+  const finish = (token: symbol) => {
+    if (!current(token)) return;
+    action.current = null;
+    setBusy(null);
+  };
+
+  const authorize = async (platform: SocialPlatform, account?: SocialAccount) => {
+    if (X_ACCOUNTS_DISABLED && platform === "x") return;
+    if (!account && limitReached) {
       toast.error("You've reached your account limit. Request an upgrade from admin.");
       return;
     }
-    setConnecting(platform);
+    const token = begin(account ? `reconnect:${account.id}` : `connect:${platform}`);
+    if (!token) return;
     try {
-      const { url } = await socialMediaApi.getOAuthUrl(workspaceId, platform);
-      runOAuthPopup(url, (success, message) => {
-        setConnecting(null);
-        if (success) {
-          toast.success(message || `${PLATFORM_LABELS[platform] ?? platform} connected`);
-          void load();
-        } else if (message) {
-          toast.error(message);
+      let result;
+      if (account) {
+        try {
+          result = await socialMediaApi.reconnectAccount(workspaceId, account.id);
+        } catch {
+          if (!current(token)) return;
+          toast.message("Reconnect could not start. Trying a new authorization for this platform.");
+          result = await socialMediaApi.getOAuthUrl(workspaceId, platform);
         }
-      });
-    } catch (err) {
-      setConnecting(null);
-      toast.error(extractErrorMessage(err, `Failed to start ${platform} connection`));
-    }
-  };
-
-  const sync = async (account: SocialAccount) => {
-    if (!workspaceId) return;
-    setBusyId(account.id);
-    try {
-      await socialMediaApi.syncAccount(workspaceId, account.id);
-      toast.success(
-        `${PLATFORM_LABELS[account.platform] ?? account.platform} synced`,
-      );
-      await load();
-    } catch (err) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data
-        ?.detail;
-      toast.error(typeof detail === "string" ? detail : "Sync failed");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const reconnect = async (account: SocialAccount) => {
-    if (!workspaceId) return;
-    if (X_ACCOUNTS_DISABLED && account.platform === "x") {
-      toast.message("X (Twitter) reconnect is disabled. Disconnect this account if you no longer need it.");
-      return;
-    }
-    setBusyId(account.id);
-    try {
-      const { url } = await socialMediaApi.reconnectAccount(workspaceId, account.id);
-      runOAuthPopup(url, (success, message) => {
-        setBusyId(null);
-        if (success) {
-          toast.success(message || "Account reconnected");
-          void load();
-        } else if (message) {
-          toast.error(message);
-        }
-      });
-    } catch {
-      try {
-        const { url } = await socialMediaApi.getOAuthUrl(workspaceId, account.platform);
-        runOAuthPopup(url, (success, message) => {
-          setBusyId(null);
-          if (success) {
-            toast.success(message || "Account reconnected");
-            void load();
-          } else if (message) {
-            toast.error(message);
-          }
-        });
-      } catch (err) {
-        setBusyId(null);
-        toast.error(extractErrorMessage(err, "Failed to reconnect"));
+      } else {
+        result = await socialMediaApi.getOAuthUrl(workspaceId, platform);
       }
+      if (!current(token)) return;
+      openSocialOAuthPopup(result.url, (success, message, silent) => {
+        if (!current(token)) return;
+        finish(token);
+        if (silent) return;
+        if (success) {
+          toast.success(message || (account ? "Account reconnected" : `${PLATFORM_LABELS[platform]} connected`));
+          void load();
+          void loadUsage(true);
+        } else if (message) {
+          toast.error(message);
+        }
+      });
+    } catch (err) {
+      if (!current(token)) return;
+      toast.error(extractErrorMessage(err, account ? "Failed to reconnect" : `Failed to start ${platform} connection`));
+      finish(token);
     }
   };
 
-  const disconnect = async (account: SocialAccount) => {
-    if (!workspaceId) return;
-    setBusyId(account.id);
+  const accountAction = async (account: SocialAccount, kind: "sync" | "disconnect") => {
+    const token = begin(`${kind}:${account.id}`);
+    if (!token) return;
     try {
-      await socialMediaApi.deleteAccount(workspaceId, account.id);
-      toast("Account disconnected");
-      setDisconnectTarget(null);
-      await load();
-    } catch {
-      toast.error("Failed to disconnect");
+      if (kind === "sync") await socialMediaApi.syncAccount(workspaceId, account.id);
+      else await socialMediaApi.deleteAccount(workspaceId, account.id);
+      if (!current(token)) return;
+      if (kind === "sync") toast.success(`${PLATFORM_LABELS[account.platform]} synced`);
+      else {
+        toast("Account disconnected");
+        setDisconnectTarget(null);
+      }
+      await Promise.all([load(), loadUsage(true)]);
+    } catch (err) {
+      if (current(token)) toast.error(extractErrorMessage(err, kind === "sync" ? "Sync failed" : "Failed to disconnect"));
     } finally {
-      setBusyId(null);
+      finish(token);
     }
   };
 
   const platformSections = useMemo(() => accountSections(accounts), [accounts]);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Connect the platforms you post to. We&apos;ll handle scheduling and analytics.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => void load()}>
-          <RefreshCcw className="mr-1.5 h-3.5 w-3.5" /> Refresh
+    <div className="mx-auto min-w-0 max-w-7xl space-y-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <PageHeader icon={Users} title="Accounts" description="Your connected channels, all in one place. Keep every account ready to publish." />
+        <Button variant="outline" className="shrink-0" disabled={!workspaceId || loading || usageLoading || !!busy} onClick={() => refresh()}>
+          <RefreshCcw aria-hidden className={cn("mr-2 h-4 w-4", loading && "motion-safe:animate-spin")} />
+          {loading && loaded ? "Refreshing…" : "Refresh"}
         </Button>
       </div>
 
+      {!workspaceId ? <p role="status" className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">Select a workspace to manage its accounts.</p> : <>
       <Card className={cn("shadow-soft", limitReached && "border-warning/40")}>
         <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-              <Users className="h-5 w-5" />
+              <Users aria-hidden className="h-5 w-5" />
             </span>
             <div>
               <p className="text-sm font-medium">Connected accounts</p>
-              <p className="text-xs text-muted-foreground">
-                {loading ? (
-                  <Skeleton className="mt-1 h-3 w-40" />
-                ) : (
-                  <>
-                    {connectedCount}
-                    {accountsLimit != null ? ` of ${accountsLimit}` : ""} on your plan
-                  </>
-                )}
+              <p className="text-sm text-muted-foreground" aria-live="polite">
+                {loaded ? connectedCount : "—"} / {accountsLimit === undefined ? "Limit unknown" : accountsLimit === null ? "Unlimited" : accountsLimit}
               </p>
+              {usageLoading && <p role="status" className="mt-1 text-xs text-muted-foreground">Checking account limit…</p>}
             </div>
           </div>
-          <div className="flex flex-1 items-center gap-4 md:max-w-md">
-            {loading ? (
-              <Skeleton className="h-2 w-full" />
-            ) : (
-              <>
-                <Progress
-                  value={
-                    accountsLimit
-                      ? Math.min(100, (connectedCount / accountsLimit) * 100)
-                      : connectedCount > 0
-                        ? 40
-                        : 0
-                  }
-                  className="h-2 flex-1"
-                />
-                <span className="whitespace-nowrap text-sm font-semibold">
-                  {connectedCount}
-                  {accountsLimit != null ? ` / ${accountsLimit}` : ""}
-                </span>
-              </>
-            )}
-          </div>
+          {loaded && usagePercent !== undefined && (
+            <Progress
+              aria-label="Account usage"
+              aria-valuenow={usagePercent}
+              aria-valuetext={`${connectedCount} of ${accountsLimit} accounts`}
+              value={usagePercent}
+              className="h-2 md:max-w-xs"
+            />
+          )}
           {limitReached && (
             <Button asChild>
               <Link href="/dashboard/billing">
-                <Zap className="mr-1.5 h-4 w-4" /> Upgrade
+                <Zap aria-hidden className="mr-2 h-4 w-4" /> Upgrade
               </Link>
             </Button>
           )}
         </CardContent>
       </Card>
 
-      {loading ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {usageError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 p-4 text-sm">
+        <p>Account limit unavailable. You can still manage your accounts; connection limits are checked when you connect.</p>
+        <Button variant="outline" size="sm" disabled={usageLoading || !!busy} onClick={() => refresh("usage")}>Retry usage</Button>
+      </div>}
+      {limitReached && <p className="text-sm text-muted-foreground">You&apos;ve reached your account limit. Request an upgrade from admin to connect more accounts.</p>}
+      {listError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-card p-4 text-sm">
+        <p>{loaded ? "Couldn't refresh accounts. Showing the last loaded accounts." : "Couldn't load accounts. Try again to see your connected channels."}</p>
+        <Button variant="outline" size="sm" disabled={loading || !!busy} onClick={() => refresh("accounts")}>Retry accounts</Button>
+      </div>}
+
+      {!loaded && !listError ? (
+        <div role="status" aria-label="Loading accounts" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <span className="sr-only">Loading accounts…</span>
           {platformSections.map((p) => (
             <Card key={p.platform} className="shadow-soft">
               <CardHeader className="flex-row items-center gap-3 space-y-0">
@@ -339,36 +353,22 @@ export default function AccountsPage() {
             </Card>
           ))}
         </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      ) : loaded ? (
+        <div aria-label="Platform accounts" aria-busy={loading} className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
           {platformSections.map(({ platform, name }) => {
             const platformAccounts = byPlatform.get(platform) ?? [];
-            const primary =
-              platformAccounts.find((a) => a.isDefault) ?? platformAccounts[0] ?? null;
             const xDisabled = X_ACCOUNTS_DISABLED && platform === "x";
 
             return (
-              <Card key={platform} className="shadow-soft">
+              <Card key={platform} className="min-w-0 overflow-hidden shadow-soft">
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                   <div className="flex items-center gap-3">
                     <PlatformIcon platform={platform} size="lg" />
                     <div>
-                      <CardTitle className="text-base">{name}</CardTitle>
-                      {primary ? (
-                        <p className="text-xs text-muted-foreground">{primary.accountName}</p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">Not connected</p>
-                      )}
+                      <h2 className="text-base font-semibold">{name}</h2>
+                      <p className="text-xs text-muted-foreground">{platformAccounts.length ? `${platformAccounts.length} connected` : "Not connected"}</p>
                     </div>
                   </div>
-                  {primary ? (
-                    <Badge className="gap-1 bg-[color:var(--color-success)] text-[color:var(--color-success-foreground)] hover:bg-[color:var(--color-success)]">
-                      <CheckCircle2 className="h-3 w-3" /> Connected
-                      {platformAccounts.length > 1 ? ` · ${platformAccounts.length}` : ""}
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">Disconnected</Badge>
-                  )}
                   {xDisabled ? (
                     <Badge variant="secondary" className="ml-2">
                       Unavailable
@@ -381,28 +381,33 @@ export default function AccountsPage() {
                       New X connections are turned off. You can disconnect existing accounts below.
                     </p>
                   ) : null}
-                  {primary ? (
-                    <>
-                      <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-muted/30 p-4">
-                        <Stat label="Last sync" value={relativeTime(primary.lastSyncedAt)} />
+                  <div className="space-y-4">
+                  {platformAccounts.map((account) => (
+                    <section key={account.id} aria-label={`${name} account ${account.accountName}`} className="rounded-xl border border-border bg-muted/20 p-4">
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="min-w-0 break-words text-sm font-semibold">{account.accountName}</h3>
+                        {account.isDefault && <Badge variant="secondary">Default</Badge>}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Stat label="Last sync" value={relativeTime(account.lastSyncedAt)} />
                         <Stat
                           label="Health"
                           value={(() => {
-                            const h = healthLabel(primary.tokenStatus);
+                            const h = healthLabel(account.tokenStatus);
                             return (
                               <span
                                 className={cn(
                                   "inline-flex items-center gap-1",
                                   h.ok
-                                    ? "text-[color:var(--color-success)]"
-                                    : "text-warning",
+                                    ? "text-foreground"
+                                    : "text-warning-foreground",
                                 )}
                               >
                                 <span
                                   className={cn(
                                     "h-1.5 w-1.5 rounded-full",
                                     h.ok
-                                      ? "bg-[color:var(--color-success)]"
+                                      ? "bg-success"
                                       : "bg-warning",
                                   )}
                                 />
@@ -416,44 +421,43 @@ export default function AccountsPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={busyId === primary.id}
-                          onClick={() => void sync(primary)}
+                          disabled={!!busy || loading}
+                          onClick={() => void accountAction(account, "sync")}
                         >
                           <RefreshCcw
                             className={cn(
                               "mr-1.5 h-3.5 w-3.5",
-                              busyId === primary.id && "animate-spin",
+                              busy === `sync:${account.id}` && "motion-safe:animate-spin",
                             )}
+                            aria-hidden
                           />{" "}
                           Sync now
                         </Button>
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={busyId === primary.id || xDisabled}
-                          onClick={() => void reconnect(primary)}
+                          disabled={!!busy || loading || xDisabled}
+                          onClick={() => void authorize(platform, account)}
                         >
-                          <Link2 className="mr-1.5 h-3.5 w-3.5" /> Reconnect
+                          <Link2 aria-hidden className="mr-1.5 h-3.5 w-3.5" /> Reconnect
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           className="text-destructive hover:text-destructive"
-                          onClick={() => setDisconnectTarget(primary)}
+                          disabled={!!busy || loading}
+                          onClick={() => setDisconnectTarget(account)}
                         >
-                          <Link2Off className="mr-1.5 h-3.5 w-3.5" /> Disconnect
+                          <Link2Off aria-hidden className="mr-1.5 h-3.5 w-3.5" /> Disconnect
                         </Button>
-                        {!limitReached && !xDisabled && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => void startConnect(platform)}
-                          >
-                            <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Add another
-                          </Button>
-                        )}
                       </div>
-                    </>
+                    </section>
+                  ))}
+                  </div>
+                  {!xDisabled && (platformAccounts.length ? (
+                    <Button variant="outline" size="sm" className="mt-4" disabled={!!busy || loading || limitReached} onClick={() => void authorize(platform)}>
+                      <Sparkles aria-hidden className="mr-2 h-4 w-4" /> {busy === `connect:${platform}` ? "Connecting…" : `Add another ${name} account`}
+                    </Button>
                   ) : (
                     <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border p-5">
                       <p className="text-sm text-muted-foreground">
@@ -461,32 +465,32 @@ export default function AccountsPage() {
                       </p>
                       <Button
                         size="sm"
-                        onClick={() => void startConnect(platform)}
-                        disabled={connecting === platform || limitReached}
+                        onClick={() => void authorize(platform)}
+                        disabled={!!busy || loading || limitReached}
                       >
-                        {connecting === platform ? (
+                        {busy === `connect:${platform}` ? (
                           <>
-                            <RefreshCcw className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Connecting…
+                            <RefreshCcw aria-hidden className="mr-1.5 h-3.5 w-3.5 motion-safe:animate-spin" /> Connecting…
                           </>
                         ) : (
                           <>
-                            <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Connect {name}
+                            <Sparkles aria-hidden className="mr-1.5 h-3.5 w-3.5" /> Connect {name}
                           </>
                         )}
                       </Button>
                     </div>
-                  )}
+                  ))}
                 </CardContent>
               </Card>
             );
           })}
         </div>
-      )}
+      ) : null}
 
-      {!loading && connectedCount === 0 && (
+      {loaded && !listError && connectedCount === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-            <Users className="h-8 w-8 text-muted-foreground" />
+            <Users aria-hidden className="h-8 w-8 text-muted-foreground" />
             <p className="text-sm font-medium">No accounts connected yet</p>
             <p className="text-xs text-muted-foreground">
               Pick a platform above to get started.
@@ -494,27 +498,30 @@ export default function AccountsPage() {
           </CardContent>
         </Card>
       )}
+      {busy && <p role="status" className="text-sm text-muted-foreground">{busy.startsWith("connect:") || busy.startsWith("reconnect:") ? "Complete authorization in the popup window." : "Updating account…"}</p>}
+      </>}
 
       <Dialog
         open={!!disconnectTarget}
-        onOpenChange={(o) => !o && setDisconnectTarget(null)}
+        onOpenChange={(o) => !o && !busy && setDisconnectTarget(null)}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Disconnect account?</DialogTitle>
             <DialogDescription>
+              {disconnectTarget?.accountName ? `${disconnectTarget.accountName}: ` : ""}
               This will pause scheduled posts and remove analytics for this account. You can
               reconnect anytime.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDisconnectTarget(null)}>
+            <Button variant="outline" disabled={!!busy} onClick={() => setDisconnectTarget(null)}>
               Cancel
             </Button>
             <Button
               variant="destructive"
-              disabled={!!busyId}
-              onClick={() => disconnectTarget && void disconnect(disconnectTarget)}
+              disabled={!!busy}
+              onClick={() => disconnectTarget && void accountAction(disconnectTarget, "disconnect")}
             >
               Disconnect
             </Button>

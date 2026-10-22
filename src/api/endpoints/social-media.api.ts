@@ -1,5 +1,6 @@
 import apiClient from "@/api/client";
 import { getStoredAccessToken } from "@/lib/auth/session";
+import type { AIModelCatalog, AIModelSelection } from "@/types/ai-models";
 import type {
   AnalyticsOverview,
   ApplyTemplateResult,
@@ -41,6 +42,13 @@ import type {
 } from "@/types/social-media.types";
 
 const base = (workspaceId: string) => `/api/v1/workspaces/${workspaceId}/social`;
+
+function modelConfig(timeout: number, selection?: AIModelSelection) {
+  const headers: Record<string, string> = {};
+  if (selection?.textModel && selection.textModel !== "default") headers["X-AI-Text-Model"] = selection.textModel;
+  if (selection?.imageModel && selection.imageModel !== "default") headers["X-AI-Image-Model"] = selection.imageModel;
+  return Object.keys(headers).length ? { timeout, headers } : { timeout };
+}
 
 const studioReads = new Map<string, { promise: Promise<unknown>; expiresAt: number }>();
 let studioSession: string | null = null;
@@ -394,26 +402,31 @@ export const socialMediaApi = {
   async testBrandVoice(
     orgId: string,
     payload?: BrandVoicePayload,
+    modelSelection?: AIModelSelection,
   ): Promise<BrandVoiceTestResult> {
     const { data } = await apiClient.post<BrandVoiceTestResult>(
       `${base(orgId)}/brand-voice/test`,
       payload,
-      { timeout: 120_000 },
+      modelConfig(120_000, modelSelection),
     );
     return data;
   },
 
-  async generatePost(orgId: string, payload: GeneratePostPayload): Promise<GeneratedContent> {
+  async getAIModels(orgId: string): Promise<AIModelCatalog> {
+    const { data } = await apiClient.get<AIModelCatalog>(`${base(orgId)}/ai-models`);
+    return data;
+  },
+
+  async generatePost(orgId: string, payload: GeneratePostPayload, modelSelection?: AIModelSelection): Promise<GeneratedContent> {
     // Multi-platform AI can take >30s with reasoning models; keep UI waiting.
-    const { data } = await apiClient.post<GeneratedContent>(`${base(orgId)}/generate`, payload, {
-      timeout: 120_000,
-    });
+    const { data } = await apiClient.post<GeneratedContent>(`${base(orgId)}/generate`, payload, modelConfig(120_000, modelSelection));
     return data;
   },
 
   async regenerateSlide(
     orgId: string,
     payload: { topic: string; tone: string; slideIndex: number; totalSlides: number; existingHeadlines: string[] },
+    modelSelection?: AIModelSelection,
   ): Promise<GeneratedSlide> {
     const { data } = await apiClient.post<GeneratedSlide>(
       `${base(orgId)}/generate`,
@@ -424,7 +437,7 @@ export const socialMediaApi = {
         format: "carousel_slide",
         includeHashtags: false,
       },
-      { timeout: 60_000 },
+      modelConfig(60_000, modelSelection),
     );
     return data;
   },
@@ -432,6 +445,7 @@ export const socialMediaApi = {
   async regenerateTweet(
     orgId: string,
     payload: { topic: string; tone: string; tweetIndex: number; threadContext: string[] },
+    modelSelection?: AIModelSelection,
   ): Promise<GeneratedTweet> {
     const { data } = await apiClient.post<GeneratedTweet>(
       `${base(orgId)}/generate`,
@@ -442,16 +456,16 @@ export const socialMediaApi = {
         format: "thread_tweet",
         includeHashtags: false,
       },
-      { timeout: 60_000 },
+      modelConfig(60_000, modelSelection),
     );
     return data;
   },
 
-  async generateImage(orgId: string, payload: GenerateImagePayload): Promise<GenerateImageResult> {
+  async generateImage(orgId: string, payload: GenerateImagePayload, modelSelection?: AIModelSelection): Promise<GenerateImageResult> {
     const { data } = await apiClient.post<GenerateImageResult>(
       `${base(orgId)}/generate-image`,
       payload.format ? { mode: "create", ...payload } : { size: "1024x1024", mode: "create", ...payload },
-      { timeout: 150_000 },
+      modelConfig(150_000, modelSelection),
     );
     return data;
   },

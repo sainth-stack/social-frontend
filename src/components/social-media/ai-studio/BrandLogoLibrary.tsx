@@ -29,24 +29,42 @@ function errorMessage(err: unknown, fallback: string): string {
 export function useBrandLogos(orgId: string, version = 0) {
   const [logos, setLogos] = useState<BrandLogo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const scopeRef = useRef({ orgId, active: true, request: 0 });
+  if (scopeRef.current.orgId !== orgId) {
+    scopeRef.current.active = false;
+    scopeRef.current = { orgId, active: true, request: 0 };
+  }
 
   const reload = useCallback(async () => {
-    if (!orgId) return;
+    const scope = scopeRef.current;
+    const request = ++scope.request;
+    const current = () => scope.active && scope === scopeRef.current && request === scope.request;
     setLoading(true);
-    try {
-      setLogos(await socialMediaApi.listBrandLogos(orgId));
-    } catch {
-      setLogos([]);
-    } finally {
+    setError(null);
+    if (!orgId) {
       setLoading(false);
+      return;
+    }
+    try {
+      const next = await socialMediaApi.listBrandLogos(orgId);
+      if (current()) setLogos(next);
+    } catch (err) {
+      if (current()) setError(errorMessage(err, "Could not load logos"));
+    } finally {
+      if (current()) setLoading(false);
     }
   }, [orgId]);
 
   useEffect(() => {
+    const scope = scopeRef.current;
+    scope.active = true;
+    setLogos([]);
     void reload();
+    return () => { scope.active = false; ++scope.request; };
   }, [reload, version]);
 
-  return { logos, setLogos, loading, reload };
+  return { logos, setLogos, loading, reload, error };
 }
 
 export function BrandLogoLibrary({
@@ -56,6 +74,9 @@ export function BrandLogoLibrary({
   onLogosChange,
   selectedId,
   onSelect,
+  disabled = false,
+  error: loadError,
+  onRetry,
 }: {
   orgId: string;
   logos: BrandLogo[];
@@ -63,57 +84,95 @@ export function BrandLogoLibrary({
   onLogosChange: (logos: BrandLogo[]) => void;
   selectedId?: string | null;
   onSelect?: (logo: BrandLogo) => void;
+  disabled?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const scopeRef = useRef({ orgId, active: true, busy: false });
+  if (scopeRef.current.orgId !== orgId) {
+    scopeRef.current.active = false;
+    scopeRef.current = { orgId, active: true, busy: false };
+  }
+  useEffect(() => {
+    const scope = scopeRef.current;
+    scope.active = true;
+    setUploading(false);
+    setBusyId(null);
+    setError(null);
+    return () => { scope.active = false; };
+  }, [orgId]);
+  const busy = disabled || loading || uploading || busyId !== null;
 
   const upload = async (file: File | null) => {
-    if (!file || !orgId) return;
+    const scope = scopeRef.current;
+    const current = () => scope.active && scopeRef.current === scope;
+    if (!file || !orgId || busy || scope.busy) return;
     if (!ACCEPT.split(",").includes(file.type)) {
-      toast.error("Use a PNG, JPG or WebP logo");
+      setError("Use a PNG, JPG or WebP logo");
       return;
     }
     if (file.size > MAX_BYTES) {
-      toast.error("Logo must be under 5 MB");
+      setError("Logo must be under 5 MB");
       return;
     }
+    scope.busy = true;
     setUploading(true);
+    setError(null);
     try {
       const res = await socialMediaApi.uploadLogo(orgId, file, logos.length === 0);
+      if (!current()) return;
       const next = await socialMediaApi.listBrandLogos(orgId);
+      if (!current()) return;
       onLogosChange(next);
       const added = next.find((l) => l.id === res.id);
       if (added && onSelect) onSelect(added);
       toast.success("Logo added");
     } catch (err) {
-      toast.error(errorMessage(err, "Logo upload failed"));
+      if (current()) setError(errorMessage(err, "Logo upload failed"));
     } finally {
-      setUploading(false);
+      if (current()) { scope.busy = false; setUploading(false); }
     }
   };
 
   const makeDefault = async (logo: BrandLogo) => {
+    const scope = scopeRef.current;
+    const current = () => scope.active && scopeRef.current === scope;
+    if (busy || scope.busy || !orgId) return;
+    scope.busy = true;
     setBusyId(logo.id);
+    setError(null);
     try {
-      onLogosChange(await socialMediaApi.setDefaultBrandLogo(orgId, logo.id));
+      const next = await socialMediaApi.setDefaultBrandLogo(orgId, logo.id);
+      if (!current()) return;
+      onLogosChange(next);
       toast.success("Default logo updated");
     } catch (err) {
-      toast.error(errorMessage(err, "Could not update default logo"));
+      if (current()) setError(errorMessage(err, "Could not update default logo"));
     } finally {
-      setBusyId(null);
+      if (current()) { scope.busy = false; setBusyId(null); }
     }
   };
 
   const remove = async (logo: BrandLogo) => {
+    const scope = scopeRef.current;
+    const current = () => scope.active && scopeRef.current === scope;
+    if (busy || scope.busy || !orgId) return;
+    scope.busy = true;
     setBusyId(logo.id);
+    setError(null);
     try {
-      onLogosChange(await socialMediaApi.deleteBrandLogo(orgId, logo.id));
+      const next = await socialMediaApi.deleteBrandLogo(orgId, logo.id);
+      if (!current()) return;
+      onLogosChange(next);
       toast.success("Logo removed");
     } catch (err) {
-      toast.error(errorMessage(err, "Could not remove logo"));
+      if (current()) setError(errorMessage(err, "Could not remove logo"));
     } finally {
-      setBusyId(null);
+      if (current()) { scope.busy = false; setBusyId(null); }
     }
   };
 
@@ -137,7 +196,7 @@ export function BrandLogoLibrary({
                   <button
                     type="button"
                     onClick={() => onSelect?.(logo)}
-                    disabled={!onSelect}
+                    disabled={!onSelect || busy}
                     aria-label={`Use ${logo.name}`}
                     className="flex h-full w-full items-center justify-center p-3 disabled:cursor-default"
                   >
@@ -161,7 +220,7 @@ export function BrandLogoLibrary({
                         size="icon"
                         variant="secondary"
                         className="h-6 w-6"
-                        disabled={busyId === logo.id}
+                        disabled={busy}
                         onClick={() => void makeDefault(logo)}
                         aria-label="Set as default logo"
                       >
@@ -173,7 +232,7 @@ export function BrandLogoLibrary({
                       size="icon"
                       variant="secondary"
                       className="h-6 w-6 hover:text-destructive"
-                      disabled={busyId === logo.id}
+                      disabled={busy}
                       onClick={() => void remove(logo)}
                       aria-label="Remove logo"
                     >
@@ -186,19 +245,23 @@ export function BrandLogoLibrary({
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          disabled={uploading || !orgId}
+          disabled={busy || !orgId || Boolean(loadError)}
           className="flex aspect-square flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-border text-muted-foreground transition hover:border-primary/50 hover:text-foreground disabled:opacity-60"
         >
           {uploading ? <RefreshCcw className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
           <span className="text-[11px] font-medium">{uploading ? "Uploading…" : "Upload"}</span>
         </button>
       </div>
+      {(error || loadError) && <p role="alert" className="text-sm text-destructive">{error || loadError}</p>}
+      {loadError && onRetry && <Button type="button" variant="outline" disabled={busy} onClick={onRetry}>Retry logos</Button>}
       <p className="text-[11px] text-muted-foreground">
         PNG with a transparent background works best · PNG, JPG or WebP up to 5 MB
       </p>
       <input
         ref={inputRef}
         type="file"
+        aria-label="Upload brand logo"
+        disabled={busy || Boolean(loadError)}
         accept={ACCEPT}
         className="hidden"
         onChange={(e) => {

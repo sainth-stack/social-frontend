@@ -1,4 +1,5 @@
 import apiClient from "@/api/client";
+import { getStoredAccessToken } from "@/lib/auth/session";
 import type {
   AnalyticsOverview,
   ApplyTemplateResult,
@@ -16,6 +17,7 @@ import type {
   GeneratedSlide,
   GeneratedTweet,
   GenerateImagePayload,
+  BrandLogo,
   GenerateImageResult,
   GeneratePostPayload,
   MediaAsset,
@@ -39,6 +41,32 @@ import type {
 } from "@/types/social-media.types";
 
 const base = (workspaceId: string) => `/api/v1/workspaces/${workspaceId}/social`;
+
+const studioReads = new Map<string, { promise: Promise<unknown>; expiresAt: number }>();
+let studioSession: string | null = null;
+
+function readStudioResource<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const session = getStoredAccessToken();
+  if (session !== studioSession) {
+    studioReads.clear();
+    studioSession = session;
+  }
+  const cached = studioReads.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise as Promise<T>;
+  const entry = { promise: Promise.resolve().then(fetcher), expiresAt: Infinity };
+  studioReads.set(key, entry);
+  if (studioReads.size > 32) studioReads.delete(studioReads.keys().next().value!);
+  void entry.promise.then(
+    () => { if (studioReads.get(key) === entry) entry.expiresAt = Date.now() + 30_000; },
+    () => { if (studioReads.get(key) === entry) studioReads.delete(key); },
+  );
+  return entry.promise;
+}
+
+function invalidateStudioResources(orgId: string) {
+  studioReads.delete(`${orgId}/brand`);
+  studioReads.delete(`${orgId}/logos`);
+}
 
 /** Backend serializes workspaceId; frontend types use orgId. */
 function normalizePost(post: SocialPost & { workspaceId?: string }): SocialPost {
@@ -346,12 +374,20 @@ export const socialMediaApi = {
   // ── Brand voice & AI ───────────────────────────────────────────────────────
 
   async getBrandVoice(orgId: string): Promise<BrandVoice> {
-    const { data } = await apiClient.get<BrandVoice>(`${base(orgId)}/brand-voice`);
-    return data;
+    return readStudioResource(`${orgId}/brand`, async () => {
+      const { data } = await apiClient.get<BrandVoice>(`${base(orgId)}/brand-voice`);
+      return data;
+    });
   },
 
   async saveBrandVoice(orgId: string, payload: BrandVoicePayload): Promise<BrandVoice> {
+    const session = getStoredAccessToken();
     const { data } = await apiClient.put<BrandVoice>(`${base(orgId)}/brand-voice`, payload);
+    if (session === getStoredAccessToken() && session === studioSession) {
+      studioReads.delete(`${orgId}/brand`);
+      if (payload.logoUrl != null) studioReads.delete(`${orgId}/logos`);
+      studioReads.set(`${orgId}/brand`, { promise: Promise.resolve(data), expiresAt: Date.now() + 30_000 });
+    }
     return data;
   },
 
@@ -420,18 +456,55 @@ export const socialMediaApi = {
     return data;
   },
 
-  async uploadLogo(orgId: string, file: File): Promise<{ logoUrl: string }> {
+  async uploadLogo(
+    orgId: string,
+    file: File,
+    setDefault = true,
+  ): Promise<{ logoUrl: string; id?: string | null }> {
     const form = new FormData();
     form.append("file", file);
-    const { data } = await apiClient.post<{ logoUrl: string }>(
+    const { data } = await apiClient.post<{ logoUrl: string; id?: string | null }>(
       `${base(orgId)}/upload-logo`,
       form,
       {
+        params: { setDefault },
         headers: { "Content-Type": "multipart/form-data" },
         timeout: 60_000,
       },
     );
+    invalidateStudioResources(orgId);
     return data;
+  },
+
+  async listBrandLogos(orgId: string): Promise<BrandLogo[]> {
+    return readStudioResource(`${orgId}/logos`, async () => {
+      const { data } = await apiClient.get<{ items: BrandLogo[] }>(`${base(orgId)}/brand-logos`);
+      return data.items;
+    });
+  },
+
+  async setDefaultBrandLogo(orgId: string, logoId: string): Promise<BrandLogo[]> {
+    const session = getStoredAccessToken();
+    const { data } = await apiClient.post<{ items: BrandLogo[] }>(
+      `${base(orgId)}/brand-logos/${encodeURIComponent(logoId)}/default`,
+    );
+    if (session === getStoredAccessToken() && session === studioSession) {
+      invalidateStudioResources(orgId);
+      studioReads.set(`${orgId}/logos`, { promise: Promise.resolve(data.items), expiresAt: Date.now() + 30_000 });
+    }
+    return data.items;
+  },
+
+  async deleteBrandLogo(orgId: string, logoId: string): Promise<BrandLogo[]> {
+    const session = getStoredAccessToken();
+    const { data } = await apiClient.delete<{ items: BrandLogo[] }>(
+      `${base(orgId)}/brand-logos/${encodeURIComponent(logoId)}`,
+    );
+    if (session === getStoredAccessToken() && session === studioSession) {
+      invalidateStudioResources(orgId);
+      studioReads.set(`${orgId}/logos`, { promise: Promise.resolve(data.items), expiresAt: Date.now() + 30_000 });
+    }
+    return data.items;
   },
 
   async uploadImage(
@@ -530,13 +603,22 @@ export const socialMediaApi = {
     await apiClient.delete(`${base(orgId)}/media-assets/${assetId}`);
   },
 
-  async getSettings(orgId: string): Promise<SocialSettings> {
-    const { data } = await apiClient.get<SocialSettings>(`${base(orgId)}/settings`);
-    return data;
+  async getSettings(orgId: string, options?: { force?: boolean }): Promise<SocialSettings> {
+    const key = `${orgId}/settings`;
+    if (options?.force) studioReads.delete(key);
+    return readStudioResource(key, async () => {
+      const { data } = await apiClient.get<SocialSettings>(`${base(orgId)}/settings`);
+      return data;
+    });
   },
 
   async saveSettings(orgId: string, payload: Partial<SocialSettings>): Promise<SocialSettings> {
+    const session = getStoredAccessToken();
+    studioReads.delete(`${orgId}/settings`);
     const { data } = await apiClient.put<SocialSettings>(`${base(orgId)}/settings`, payload);
+    if (session === getStoredAccessToken() && session === studioSession) {
+      studioReads.set(`${orgId}/settings`, { promise: Promise.resolve(data), expiresAt: Date.now() + 30_000 });
+    }
     return data;
   },
 

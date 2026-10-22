@@ -3,10 +3,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Calendar, History, Pencil, RefreshCcw, RotateCcw, Save, Square, Trash2, Wand2 } from "lucide-react";
+import {
+  CalendarClock,
+  CalendarPlus,
+  CheckCircle2,
+  FileText,
+  History,
+  Link2,
+  Pencil,
+  Plus,
+  RefreshCcw,
+  RotateCcw,
+  Save,
+  Square,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import socialMediaApi from "@/api/endpoints/social-media.api";
+import { ProductGenerateIcon } from "@/components/icons/product-icons";
 import { PlatformIcon } from "@/components/platform-icon";
 import {
   AlertDialog,
@@ -18,7 +33,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,6 +55,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { selectUser } from "@/features/auth/authSlice";
 import { selectSocialAccounts } from "@/features/social-media/socialAccountsSelectors";
@@ -60,6 +75,36 @@ import type { CalendarPost, SocialPlatform, SocialPost } from "@/types/social-me
 import { PLATFORM_LABELS } from "@/types/social-media.types";
 
 const PLAN_PUBLISHABLE: SocialPlatform[] = ["facebook", "instagram", "linkedin"];
+
+const PLAN_GOALS = [
+  "Brand awareness",
+  "Lead generation",
+  "Product launch",
+  "Engagement",
+  "Education",
+  "Seasonal offer",
+];
+
+const PLAN_TONES = ["Professional", "Friendly", "Bold", "Playful", "Inspiring"];
+
+const PLAN_EXAMPLES = [
+  "Weekly tips for our customers plus one offer post",
+  "Launch of our new service with behind-the-scenes and testimonials",
+  "Festive season sale: 15% off, ends Sunday",
+];
+
+const STATUS_STYLES: Record<string, string> = {
+  scheduled: "bg-primary/10 text-primary",
+  published: "bg-success/10 text-success",
+  failed: "bg-destructive/10 text-destructive",
+  draft: "bg-muted text-muted-foreground",
+  pending_approval: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+};
+
+function statusLabel(status: string): string {
+  const s = status.replace(/_/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
 async function deletePlannerPostFromApi(orgId: string, postId: string): Promise<void> {
   await socialMediaApi.deletePost(orgId, postId);
@@ -132,6 +177,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   const [planTargetDate, setPlanTargetDate] = useState<string | null>(null);
   const [planFormDays, setPlanFormDays] = useState<7 | 15 | 30>(() => planCap);
   const [planPrompt, setPlanPrompt] = useState("");
+  const [planGoal, setPlanGoal] = useState<string | null>(null);
   const [planTone, setPlanTone] = useState("");
   const [planCta, setPlanCta] = useState("");
   const [generateImages, setGenerateImages] = useState(true);
@@ -314,6 +360,14 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   }, [items, viewDays]);
 
   const scheduledInWindow = dayBuckets.reduce((n, b) => n + b.posts.length, 0);
+  const windowPosts = dayBuckets.flatMap((b) => b.posts);
+  const stats = {
+    scheduled: windowPosts.filter((p) => p.status === "scheduled").length,
+    published: windowPosts.filter((p) => p.status === "published").length,
+    needsAttention: windowPosts.filter((p) => p.status === "draft" || p.status === "failed" || p.status === "pending_approval").length,
+    openDays: dayBuckets.filter((b) => b.posts.length === 0).length,
+  };
+  const todayKey = dayBuckets[0]?.key;
   const planDayOptions = ([7, 15, 30] as const).filter((d) => d <= planCap);
 
   const openGenerateDialog = (targetDate: string | null = null) => {
@@ -407,7 +461,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     setPlanning(true);
     setPlanProgress({ current: 0, total: workTotal, message: "Starting…" });
     setError(null);
-    const promptSnapshot = planPrompt.trim();
+    const promptSnapshot = (planGoal ? `Goal: ${planGoal}.\n` : "") + planPrompt.trim();
     const platformsSnapshot = [...planPlatforms];
     try {
       const { jobId } = await socialMediaApi.startContentPlanJob(orgId, {
@@ -631,61 +685,99 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
 
   return (
     <>
-      <Card className="shadow-soft">
-        <CardHeader className="flex-col gap-4 space-y-0">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <CardTitle className="text-base">Content planner</CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Generate a multi-day plan or fill one day at a time. Click any post to edit, reschedule, or
-                regenerate.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex rounded-lg border border-border p-0.5">
-                {planDayOptions.map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setViewDays(d)}
-                    className={cn(
-                      "rounded-md px-3 py-1 text-xs font-medium transition",
-                      viewDays === d
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-muted",
-                    )}
-                  >
-                    {d}d view
-                  </button>
-                ))}
-              </div>
-              <Button variant="outline" size="sm" onClick={openHistory}>
-                <History className="mr-1.5 h-4 w-4" />
-                History
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || planning}>
-                <RefreshCcw className={cn("mr-1.5 h-4 w-4", loading && "animate-spin")} />
-                Refresh
-              </Button>
-              <Button size="sm" onClick={() => openGenerateDialog(null)} disabled={!hasPlanAccount || planning}>
-                <Wand2 className="mr-1.5 h-4 w-4" />
-                Generate plan
-              </Button>
-            </div>
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Content calendar</h2>
+            <p className="text-sm text-muted-foreground">
+              Plan weeks of posts in one go, then review, edit and schedule each one.
+            </p>
           </div>
-          {!hasPlanAccount && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
-              Connect Facebook, Instagram, or LinkedIn to generate and schedule posts.
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-lg border border-border bg-card p-0.5" role="radiogroup" aria-label="Calendar range">
+              {planDayOptions.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  role="radio"
+                  aria-checked={viewDays === d}
+                  onClick={() => setViewDays(d)}
+                  className={cn(
+                    "rounded-md px-3 py-1 text-xs font-medium transition",
+                    viewDays === d
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {d} days
+                </button>
+              ))}
             </div>
-          )}
-          <p className="text-[11px] text-muted-foreground">
-            {scheduledInWindow} scheduled in next {viewDays} days
-            {planCap < 30 ? ` · ${planDisplayName(user?.plan)} up to ${planCap} days per run` : ""}
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={openHistory} aria-label="Plan history">
+              <History className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => void load()}
+              disabled={loading || planning}
+              aria-label="Refresh calendar"
+            >
+              <RefreshCcw className={cn("h-4 w-4", loading && "animate-spin")} />
+            </Button>
+            <Button size="sm" onClick={() => openGenerateDialog(null)} disabled={!hasPlanAccount || planning}>
+              <ProductGenerateIcon className="mr-1.5 h-4 w-4" />
+              Plan content
+            </Button>
+          </div>
+        </div>
+
+        {!hasPlanAccount && (
+          <div className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-amber-900 dark:text-amber-100">
+              Connect Facebook, Instagram or LinkedIn to plan and schedule posts.
+            </p>
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/dashboard/accounts">
+                <Link2 className="mr-1.5 h-4 w-4" /> Connect account
+              </Link>
+            </Button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[
+            { label: "Scheduled", value: stats.scheduled, icon: CalendarClock, tone: "text-primary bg-primary/10" },
+            { label: "Published", value: stats.published, icon: CheckCircle2, tone: "text-success bg-success/10" },
+            { label: "Needs review", value: stats.needsAttention, icon: FileText, tone: "text-amber-600 bg-amber-500/10" },
+            { label: "Open days", value: stats.openDays, icon: CalendarPlus, tone: "text-muted-foreground bg-muted" },
+          ].map((kpi) => (
+            <Card key={kpi.label} className="shadow-soft">
+              <CardContent className="flex items-center gap-3 p-4">
+                <span className={cn("flex h-9 w-9 items-center justify-center rounded-lg", kpi.tone)}>
+                  <kpi.icon className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-xl font-semibold leading-none">{loading ? "–" : kpi.value}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{kpi.label}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+      <Card className="shadow-soft">
+        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle className="text-sm">Next {viewDays} days</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            {scheduledInWindow} post{scheduledInWindow === 1 ? "" : "s"}
+            {planCap < 30 ? ` · ${planDisplayName(user?.plan)} plans up to ${planCap} days at a time` : ""}
           </p>
         </CardHeader>
         <CardContent>
           {planning && planProgress && (
-            <div className="mb-4 space-y-2 rounded-xl border border-border bg-muted/40 px-4 py-3">
+            <div className="mb-4 space-y-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span className="font-medium">{planProgress.message}</span>
                 <div className="flex items-center gap-2">
@@ -711,16 +803,15 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                     : 0
                 }
               />
-              <p className="text-[10px] text-muted-foreground">
-                Running in background — close this dialog anytime; progress stays below. Celery worker
-                required for auto-publish.
+              <p className="text-[11px] text-muted-foreground">
+                You can keep working. Posts appear on your calendar as they are ready.
               </p>
             </div>
           )}
           {loading && !planning ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {Array.from({ length: Math.min(viewDays, 8) }).map((_, i) => (
-                <div key={i} className="h-40 animate-pulse rounded-xl border border-border bg-muted/30" />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
+              {Array.from({ length: Math.min(viewDays, 7) }).map((_, i) => (
+                <div key={i} className="h-44 animate-pulse rounded-xl border border-border bg-muted/30" />
               ))}
             </div>
           ) : error ? (
@@ -733,12 +824,12 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
               </div>
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {dayBuckets.map((bucket, index) => (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
+              {dayBuckets.map((bucket) => (
                 <DayCard
                   key={bucket.key}
                   bucket={bucket}
-                  index={index}
+                  isToday={bucket.key === todayKey}
                   onPostClick={setSelectedPost}
                   onDeletePost={(post) => setPostToDelete(post)}
                   onGenerateDay={() => openGenerateDialog(bucket.key)}
@@ -750,6 +841,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
           )}
         </CardContent>
       </Card>
+      </div>
 
       <Dialog
         open={planDialogOpen}
@@ -760,59 +852,170 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         <DialogContent className="gap-0 p-0 w-[calc(100vw-2rem)] max-w-[42rem] sm:max-w-2xl">
           <DialogHeader className="border-b border-border px-6 py-4 text-left">
             <DialogTitle className="text-lg">
-              {planTargetDate ? "Generate for one day" : "Generate content plan"}
+              {planTargetDate ? "Plan a post for this day" : "Plan your content"}
             </DialogTitle>
             <DialogDescription>
               {planTargetDate
-                ? `Create and schedule one post for ${planTargetDate}.`
-                : "One flagship-quality post per day from your brief. Fill Brand Profile for best voice and CTAs."}
+                ? `One post for ${new Date(`${planTargetDate}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}, scheduled automatically.`
+                : "One post per day, written in your brand voice and scheduled automatically."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 px-6 py-4">
-            {!planTargetDate && (
-              <div className="space-y-1.5">
-                <Label>How many days</Label>
-                <div className="flex flex-wrap gap-2">
-                  {planDayOptions.map((d) => (
-                    <Button
-                      key={d}
+          <div className="max-h-[70vh] space-y-5 overflow-y-auto px-6 py-5">
+            <div className="space-y-2">
+              <Label>Goal</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {PLAN_GOALS.map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    aria-pressed={planGoal === g}
+                    disabled={planning}
+                    onClick={() => setPlanGoal((cur) => (cur === g ? null : g))}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                      planGoal === g
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+                    )}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="plan-brief">What should the posts be about?</Label>
+                <span className="text-[11px] text-muted-foreground">
+                  {planPrompt.trim().length < 10 ? `${10 - planPrompt.trim().length} more characters` : ""}
+                </span>
+              </div>
+              <Textarea
+                id="plan-brief"
+                rows={5}
+                value={planPrompt}
+                onChange={(e) => setPlanPrompt(e.target.value)}
+                placeholder="Products, offers, events, topics and anything customers should know"
+                disabled={planning}
+                maxLength={16000}
+                className="resize-y text-sm"
+              />
+              {!planPrompt.trim() && (
+                <div className="flex flex-wrap gap-1.5">
+                  {PLAN_EXAMPLES.map((ex) => (
+                    <button
+                      key={ex}
                       type="button"
-                      size="sm"
-                      variant={planFormDays === d ? "default" : "outline"}
-                      onClick={() => setPlanFormDays(d)}
-                      disabled={planning}
+                      onClick={() => setPlanPrompt(ex)}
+                      className="rounded-full border border-dashed border-border px-2.5 py-1 text-[11px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
                     >
-                      {d} days
-                    </Button>
+                      {ex}
+                    </button>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {!planTargetDate && (
+              <div className="space-y-2">
+                <Label>Duration</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([7, 15, 30] as const).map((d) => {
+                    const locked = d > planCap;
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        disabled={planning || locked}
+                        onClick={() => setPlanFormDays(d)}
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-left transition",
+                          planFormDays === d
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "border-border hover:bg-muted/50",
+                          locked && "cursor-not-allowed opacity-50 hover:bg-transparent",
+                        )}
+                      >
+                        <p className="text-sm font-semibold">{d} days</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {locked ? "Upgrade to unlock" : d === 7 ? "One week" : d === 15 ? "Two weeks" : "Full month"}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
-            <div className="space-y-1.5">
-              <Label htmlFor="plan-brief">What should we post about?</Label>
-            <Textarea
-              id="plan-brief"
-              rows={8}
-              value={planPrompt}
-              onChange={(e) => setPlanPrompt(e.target.value)}
-              placeholder="Campaign goal, product, audience, angles you want…"
-              disabled={planning}
-              className="resize-y text-sm min-h-[120px]"
-            />
-              <p className="text-[10px] text-muted-foreground">{planPrompt.trim().length}/16000 · min 10</p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="plan-tone">Tone</Label>
-                <Input
-                  id="plan-tone"
-                  value={planTone}
-                  onChange={(e) => setPlanTone(e.target.value)}
-                  placeholder="Professional, playful…"
-                  disabled={planning}
-                />
+
+            <div className="space-y-2">
+              <Label>Post to</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {PLAN_PUBLISHABLE.map((platform) => {
+                  const connected = connectedPlanPlatformSet.has(platform);
+                  const active = connected && planPlatforms.includes(platform);
+                  return connected ? (
+                    <button
+                      key={platform}
+                      type="button"
+                      aria-pressed={active}
+                      disabled={planning}
+                      onClick={() => togglePlanPlatform(platform)}
+                      className={cn(
+                        "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                        active
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      <PlatformIcon platform={platform} size="sm" />
+                      {PLATFORM_LABELS[platform]}
+                    </button>
+                  ) : (
+                    <Link
+                      key={platform}
+                      href="/dashboard/accounts"
+                      onClick={() => setPlanDialogOpen(false)}
+                      className="flex items-center gap-2 rounded-full border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                    >
+                      <PlatformIcon platform={platform} size="sm" />
+                      Connect {PLATFORM_LABELS[platform]}
+                    </Link>
+                  );
+                })}
               </div>
-              <div className="space-y-1.5">
+              {planPlatforms.length > 1 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Each channel gets its own version, posted at staggered times.
+                </p>
+              )}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Tone</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PLAN_TONES.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      aria-pressed={planTone === t}
+                      disabled={planning}
+                      onClick={() => setPlanTone((cur) => (cur === t ? "" : t))}
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 text-[11px] font-medium transition",
+                        planTone === t
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">Leave empty to use your brand tone.</p>
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="plan-cta">Call to action</Label>
                 <Input
                   id="plan-cta"
@@ -823,73 +1026,33 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                 />
               </div>
             </div>
-            <div className="rounded-lg border border-border bg-muted/20 px-3 py-3 space-y-2">
-              <p className="text-xs font-medium text-foreground">Platforms</p>
-              <p className="text-[10px] text-muted-foreground">
-                Each selected platform gets its own post on the same day (times staggered by your queue
-                gap in Settings).
-              </p>
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-4">
-                {PLAN_PUBLISHABLE.map((platform) => {
-                  const connected = connectedPlanPlatformSet.has(platform);
-                  return (
-                    <div key={platform} className="flex flex-col gap-0.5">
-                      <label
-                        className={cn(
-                          "flex items-center gap-2 text-xs",
-                          !connected && "text-muted-foreground",
-                        )}
-                      >
-                        <Checkbox
-                          checked={connected && planPlatforms.includes(platform)}
-                          onCheckedChange={() => togglePlanPlatform(platform)}
-                          disabled={planning || !connected}
-                        />
-                        <PlatformIcon platform={platform} size="sm" />
-                        {PLATFORM_LABELS[platform]}
-                        {!connected ? (
-                          <span className="text-[10px] text-muted-foreground">(not connected)</span>
-                        ) : null}
-                      </label>
-                      {!connected ? (
-                        <Link
-                          href="/dashboard/accounts"
-                          className="pl-6 text-[10px] font-medium text-primary hover:underline"
-                          onClick={() => setPlanDialogOpen(false)}
-                        >
-                          Connect {PLATFORM_LABELS[platform]}
-                        </Link>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-              {connectedPlanPlatforms.length === 1 ? (
-                <p className="text-[10px] text-amber-800 dark:text-amber-200">
-                  Only one account is connected — all planned posts will use{" "}
-                  {PLATFORM_LABELS[connectedPlanPlatforms[0]!]} until you connect another platform.
-                </p>
-              ) : null}
-            </div>
-            <div className="rounded-lg border border-border bg-muted/20 px-3 py-3 space-y-2">
-              <p className="text-xs font-medium text-foreground">Options</p>
-              <label className="flex items-center gap-2 text-xs">
-                <Checkbox
+
+            <div className="space-y-3 rounded-xl border border-border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label htmlFor="plan-images" className="text-sm font-medium">Branded images</Label>
+                  <p className="text-[11px] text-muted-foreground">Uses your logo and brand colors</p>
+                </div>
+                <Switch
+                  id="plan-images"
                   checked={generateImages}
-                  onCheckedChange={(v) => setGenerateImages(!!v)}
+                  onCheckedChange={setGenerateImages}
                   disabled={planning}
                 />
-                Generate images (Bedrock)
-              </label>
+              </div>
               {!planTargetDate && (
-                <label className="flex items-center gap-2 text-xs">
-                  <Checkbox
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label htmlFor="plan-skip" className="text-sm font-medium">Keep existing posts</Label>
+                    <p className="text-[11px] text-muted-foreground">Only fill days that are still empty</p>
+                  </div>
+                  <Switch
+                    id="plan-skip"
                     checked={skipFilledDays}
-                    onCheckedChange={(v) => setSkipFilledDays(!!v)}
+                    onCheckedChange={setSkipFilledDays}
                     disabled={planning}
                   />
-                  Skip days that already have a post
-                </label>
+                </div>
               )}
             </div>
           </div>
@@ -904,8 +1067,10 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                 </>
               ) : (
                 <>
-                  <Wand2 className="mr-1.5 h-4 w-4" />
-                  {planTargetDate ? "Generate this day" : `Generate ${planFormDays} days`}
+                  <ProductGenerateIcon className="mr-1.5 h-4 w-4" />
+                  {planTargetDate
+                    ? "Create post"
+                    : `Create ${planFormDays * Math.max(1, planPlatforms.length)} posts`}
                 </>
               )}
             </Button>
@@ -1008,8 +1173,18 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                       })
                     : "Draft post"}
                 </SheetTitle>
-                <SheetDescription className="text-left">
-                  Edit caption and time, or regenerate with a custom brief.
+                <SheetDescription className="flex items-center gap-2 text-left">
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                      STATUS_STYLES[selectedPost.status] ?? "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {statusLabel(selectedPost.status)}
+                  </span>
+                  {selectedPost.scheduledAt
+                    ? new Date(selectedPost.scheduledAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+                    : null}
                 </SheetDescription>
               </SheetHeader>
 
@@ -1049,12 +1224,12 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                 </div>
 
                 <div className="rounded-lg border border-border p-3 space-y-3">
-                  <p className="text-xs font-semibold">Regenerate with AI</p>
+                  <p className="text-xs font-semibold">Rewrite this post</p>
                   <Textarea
                     rows={3}
                     value={regenPrompt}
                     onChange={(e) => setRegenPrompt(e.target.value)}
-                    placeholder="Optional: angle for this day (defaults to saved brief)"
+                    placeholder="Optional: a new angle for this post"
                     className="text-sm"
                     disabled={!!regeneratingPostId}
                   />
@@ -1098,19 +1273,15 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                   >
                     {regeneratingPostId === selectedPost.id ? (
                       <>
-                        <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Regenerating…
+                        <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Rewriting…
                       </>
                     ) : (
                       <>
-                        <RotateCcw className="mr-1.5 h-4 w-4" /> Regenerate
+                        <RotateCcw className="mr-1.5 h-4 w-4" /> Rewrite
                       </>
                     )}
                   </Button>
                 </div>
-
-                <Badge variant="secondary" className="capitalize">
-                  {selectedPost.status.replace("_", " ")}
-                </Badge>
               </div>
 
               <SheetFooter className="flex-col gap-2 sm:flex-col">
@@ -1133,7 +1304,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                     setSelectedPost(null);
                   }}
                 >
-                  <Pencil className="mr-1.5 h-4 w-4" /> Open in AI Studio
+                  <Pencil className="mr-1.5 h-4 w-4" /> Open in editor
                 </Button>
                 <Button variant="ghost" className="w-full" asChild>
                   <Link href={`/dashboard/posts/${selectedPost.id}`}>Full post details</Link>
@@ -1241,7 +1412,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
 
 function DayCard({
   bucket,
-  index,
+  isToday,
   onPostClick,
   onDeletePost,
   onGenerateDay,
@@ -1249,7 +1420,7 @@ function DayCard({
   deletingPostId,
 }: {
   bucket: DayBucket;
-  index: number;
+  isToday: boolean;
   onPostClick: (post: CalendarPost) => void;
   onDeletePost: (post: CalendarPost) => void;
   onGenerateDay: () => void;
@@ -1261,69 +1432,83 @@ function DayCard({
   return (
     <div
       className={cn(
-        "flex min-h-[168px] flex-col rounded-xl border p-3",
-        empty ? "border-dashed border-border bg-muted/15" : "border-border bg-card",
+        "group/day flex min-h-[176px] flex-col rounded-xl border p-2.5",
+        isToday ? "border-primary/50 bg-primary/[0.03]" : empty ? "border-dashed border-border" : "border-border bg-card",
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Day {index + 1}
-          </p>
-          <p className="text-sm font-semibold">
-            {bucket.weekday}, {bucket.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-          </p>
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[11px] font-medium uppercase text-muted-foreground">{bucket.weekday}</span>
+          <span className={cn("text-sm font-semibold", isToday && "text-primary")}>{bucket.dayNum}</span>
+          {isToday && <span className="text-[10px] font-medium text-primary">Today</span>}
         </div>
         {!empty && (
-          <Badge variant="secondary" className="text-[10px]">
-            {bucket.posts.length}
-          </Badge>
+          <button
+            type="button"
+            onClick={onGenerateDay}
+            disabled={!canGenerate}
+            aria-label="Add another post"
+            className="rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground group-hover/day:opacity-100 disabled:hidden"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
         )}
       </div>
 
       {empty ? (
-        <div className="mt-auto pt-4">
-          <p className="text-xs text-muted-foreground">No post scheduled</p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-2 w-full text-xs"
-            disabled={!canGenerate}
-            onClick={onGenerateDay}
-          >
-            <Calendar className="mr-1 h-3.5 w-3.5" />
-            Generate this day
-          </Button>
-        </div>
+        <button
+          type="button"
+          disabled={!canGenerate}
+          onClick={onGenerateDay}
+          className="mt-2 flex flex-1 flex-col items-center justify-center gap-1 rounded-lg text-xs text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:hover:bg-transparent"
+        >
+          <Plus className="h-4 w-4" />
+          Add post
+        </button>
       ) : (
         <div className="mt-2 space-y-2">
           {bucket.posts.map((post) => {
             const platform = post.platforms[0] ?? "instagram";
+            const at = post.scheduledAt ?? post.publishedAt;
             return (
               <div
                 key={post.id}
-                className="relative rounded-lg border border-border/80 bg-background transition hover:border-primary/50 hover:bg-muted/30"
+                className="group/post relative overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-primary/50 hover:shadow-soft"
               >
-                <button
-                  type="button"
-                  onClick={() => onPostClick(post)}
-                  className="w-full p-2.5 text-left"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <PlatformIcon platform={platform} size="sm" />
-                    <span className="text-[11px] font-medium">{PLATFORM_LABELS[platform]}</span>
+                <button type="button" onClick={() => onPostClick(post)} className="w-full text-left">
+                  {post.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={post.imageUrl} alt="" loading="lazy" className="aspect-[4/3] w-full bg-muted object-cover" />
+                  ) : null}
+                  <div className="space-y-1 p-2">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="flex items-center gap-1">
+                        <PlatformIcon platform={platform} size="sm" />
+                        {at ? (
+                          <span className="text-[10px] text-muted-foreground">
+                            {new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                          STATUS_STYLES[post.status] ?? "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {statusLabel(post.status)}
+                      </span>
+                    </div>
+                    <p className="line-clamp-2 text-[11px] leading-snug text-foreground/80">
+                      {post.captionPreview || post.title}
+                    </p>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    {post.captionPreview || post.title}
-                  </p>
-                  <p className="mt-1.5 text-[10px] font-medium text-primary">Edit · Regenerate</p>
                 </button>
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
-                  className="absolute right-1 top-1 h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                  className="absolute right-1 top-1 h-6 w-6 p-0 opacity-0 transition group-hover/post:opacity-100 focus-visible:opacity-100"
                   disabled={deletingPostId === post.id}
                   aria-label="Delete post"
                   onClick={(e) => {
@@ -1332,9 +1517,9 @@ function DayCard({
                   }}
                 >
                   {deletingPostId === post.id ? (
-                    <RefreshCcw className="h-3.5 w-3.5 animate-spin" />
+                    <RefreshCcw className="h-3 w-3 animate-spin" />
                   ) : (
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-3 w-3" />
                   )}
                 </Button>
               </div>

@@ -1,25 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useId, useRef, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  Alert,
-  Box,
-  Button,
-  Checkbox,
-  CircularProgress,
-  FormControlLabel,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
 import AuthCardShell from "@/components/auth/AuthCardShell";
-import PasswordInput from "@/components/auth/PasswordInput";
-import AppInput from "@/components/ui/AppInput";
+import { AuthFormField } from "@/components/auth/AuthFormFields";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   clearAuthError,
   selectAuthError,
@@ -29,7 +22,6 @@ import {
   selectUser,
 } from "@/features/auth/authSlice";
 import { login } from "@/features/auth/authThunks";
-import { authFooterLinkSx, authInlineLinkSx, authInputSx, authLayout, authPrimaryButtonSx } from "@/lib/authStyles";
 import { getHomeRoute } from "@/lib/auth/users";
 import { prefetchDashboardHome } from "@/lib/dashboard-cache";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -39,7 +31,7 @@ const REMEMBER_EMAIL_KEY = "opsbrain_remember_email";
 const loginSchema = z.object({
   email: z.string().min(1, "Email is required").email("Enter a valid email"),
   password: z.string().min(1, "Password is required"),
-  remember: z.boolean(),
+  remember: z.boolean().default(true),
 });
 
 type LoginValues = z.infer<typeof loginSchema>;
@@ -53,14 +45,16 @@ export default function LoginForm() {
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
   const isHydrated = useAppSelector(selectIsAuthHydrated);
   const user = useAppSelector(selectUser);
+  const submitting = useRef(false);
+  const rememberId = useId();
 
   const {
     register,
     control,
     handleSubmit,
     setValue,
-    formState: { errors },
-  } = useForm<LoginValues>({
+    formState: { errors, isSubmitting },
+  } = useForm<z.input<typeof loginSchema>, unknown, LoginValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
       email: "",
@@ -71,10 +65,13 @@ export default function LoginForm() {
   });
 
   useEffect(() => {
-    const savedEmail = window.localStorage.getItem(REMEMBER_EMAIL_KEY);
-    if (savedEmail) setValue("email", savedEmail);
+    dispatch(clearAuthError());
+    try {
+      const savedEmail = window.localStorage.getItem(REMEMBER_EMAIL_KEY);
+      if (savedEmail) setValue("email", savedEmail);
+    } catch {}
     router.prefetch("/dashboard");
-  }, [router, setValue]);
+  }, [dispatch, router, setValue]);
 
   useEffect(() => {
     if (!isHydrated || !isAuthenticated || !user) return;
@@ -83,21 +80,26 @@ export default function LoginForm() {
     router.replace(redirect ?? getHomeRoute(user));
   }, [isAuthenticated, isHydrated, router, searchParams, user]);
 
-  const onSubmit = handleSubmit(async (values) => {
-    dispatch(clearAuthError());
-
-    if (values.remember) {
-      window.localStorage.setItem(REMEMBER_EMAIL_KEY, values.email);
-    } else {
-      window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
-    }
-
+  const busy = isSubmitting || authLoading;
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting.current || busy) return;
+    submitting.current = true;
     try {
-      await dispatch(login({ email: values.email, password: values.password })).unwrap();
-    } catch {
-      // Error stored in auth slice; redirect runs in useEffect when auth state updates
+      await handleSubmit(async (values) => {
+        dispatch(clearAuthError());
+        try {
+          if (values.remember) window.localStorage.setItem(REMEMBER_EMAIL_KEY, values.email);
+          else window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
+        } catch {}
+        try {
+          await dispatch(login({ email: values.email, password: values.password })).unwrap();
+        } catch {}
+      })(event);
+    } finally {
+      submitting.current = false;
     }
-  });
+  };
 
   return (
     <AuthCardShell
@@ -106,99 +108,84 @@ export default function LoginForm() {
       footer={
         <>
           New to OpsBrain?{" "}
-          <Link href="/register" style={{ textDecoration: "none" }}>
-            <Typography component="span" sx={authFooterLinkSx}>
-              Create an account
-            </Typography>
+          <Link href="/register" className="rounded-sm font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Create an account
           </Link>
         </>
       }
     >
-      <Box component="form" onSubmit={onSubmit} noValidate>
-        <Stack sx={{ gap: authLayout.fieldGap }}>
+      <form onSubmit={onSubmit} noValidate aria-busy={busy} className="space-y-5">
           {authError ? (
-            <Alert severity="error" variant="outlined" sx={{ borderRadius: "10px" }}>
+            <div role="alert" className="rounded-xl border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm text-destructive">
               {authError}
-            </Alert>
+            </div>
           ) : null}
-
-          <AppInput
+          <AuthFormField
             label="Work email"
             type="email"
             autoComplete="email"
             autoFocus
             placeholder="you@company.com"
-            error={!!errors.email}
-            helperText={errors.email?.message}
-            sx={authInputSx}
+            error={errors.email?.message}
+            disabled={busy}
             {...register("email")}
           />
 
-          <Box>
-            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", mb: 0.5 }}>
-              <Link href="/forgot-password" style={{ textDecoration: "none" }}>
-                <Typography variant="body2" sx={{ ...authInlineLinkSx, fontSize: "0.8125rem" }}>
-                  Forgot password?
-                </Typography>
-              </Link>
-            </Box>
-            <PasswordInput
+          <div className="space-y-2">
+            <AuthFormField
               label="Password"
+              password
               autoComplete="current-password"
               placeholder="Enter your password"
-              error={!!errors.password}
-              helperText={errors.password?.message}
-              sx={authInputSx}
+              error={errors.password?.message}
+              disabled={busy}
               {...register("password")}
             />
-          </Box>
+            <div className="text-right">
+              <Link href="/forgot-password" className="rounded-sm text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Forgot password?</Link>
+            </div>
+          </div>
 
           <Controller
             name="remember"
             control={control}
             render={({ field }) => (
-              <FormControlLabel
-                control={
+              <div className="flex items-start gap-3">
                   <Checkbox
-                    {...field}
+                    id={rememberId}
+                    name={field.name}
+                    ref={field.ref}
+                    onBlur={field.onBlur}
                     checked={field.value}
-                    onChange={(e) => field.onChange(e.target.checked)}
-                    size="small"
-                    sx={{ py: 0 }}
+                    onCheckedChange={(checked) => field.onChange(checked === true)}
+                    disabled={busy}
+                    aria-describedby={`${rememberId}-hint`}
+                    className="mt-0.5 h-5 w-5 rounded-md focus-visible:ring-2"
                   />
-                }
-                label={
-                  <Typography variant="body2" color="text.secondary">
-                    Remember me on this device
-                  </Typography>
-                }
-              />
+                <div className="space-y-1">
+                  <Label htmlFor={rememberId} className="text-sm">Remember my email</Label>
+                  <p id={`${rememberId}-hint`} className="text-xs text-muted-foreground">Saves your email on this device.</p>
+                </div>
+              </div>
             )}
           />
 
           <Button
             type="submit"
-            variant="contained"
-            color="primary"
-            fullWidth
-            disabled={authLoading}
-            sx={authPrimaryButtonSx}
+            disabled={busy}
+            className="h-12 w-full rounded-xl text-sm font-semibold focus-visible:ring-2"
           >
-            {authLoading ? (
+            {busy ? (
               <>
-                <CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />
+                <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />
                 Signing in…
               </>
             ) : (
-              "Sign in"
+              <>Sign in <ArrowRight aria-hidden="true" /></>
             )}
           </Button>
 
-          <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.5, textAlign: "center" }}>
-            Protected with encrypted credentials. We never post without your approval.
-          </Typography>
-        </Stack>
-      </Box>
+      </form>
     </AuthCardShell>
   );
 }

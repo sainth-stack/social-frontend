@@ -1,172 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Box, Stack, Typography } from "@mui/material";
+import { ArrowUpRight, CalendarDays, Check, CheckCheck, ImageIcon, Layers3, MousePointer2, Plus, Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-import AuthHeroIllustration from "@/components/auth/AuthHeroIllustration";
-import { authSlides } from "@/components/auth/authSlides";
-import { authLayout } from "@/lib/authStyles";
-import { colors, displayFont } from "@/lib/theme";
-
-const SLIDE_INTERVAL_MS = 5500;
+function ProductArtwork() {
+  return <div role="img" aria-label="Illustration of an OpsBrain workspace: an idea becomes a draft, a scheduled post, and a published update." className="relative mx-auto w-full max-w-xl py-8">
+    <div className="relative rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-elevated xl:p-6">
+      <div className="mb-6 flex items-center justify-between border-b border-border pb-4"><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary"><Layers3 aria-hidden="true" className="h-4 w-4" /></span><span className="text-sm font-semibold">The creative workspace</span></div><span className="flex gap-1.5" aria-hidden="true"><span className="h-2 w-2 rounded-full bg-border" /><span className="h-2 w-2 rounded-full bg-border" /><span className="h-2 w-2 rounded-full bg-primary/40" /></span></div>
+      <div className="flex items-center justify-between gap-3"><div><p className="text-xs text-muted-foreground">A little inspiration. A clear plan.</p><p className="mt-1 font-display text-lg font-semibold">Make room for your next idea.</p></div><span className="rounded-lg bg-primary p-2 text-primary-foreground"><Plus aria-hidden="true" className="h-4 w-4" /></span></div>
+      <div className="mt-5 grid grid-cols-3 gap-3">{["Draft", "Scheduled", "Published"].map((stage, index) => <div key={stage} className="min-w-0 space-y-3"><p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><span className={cn("h-1.5 w-1.5 rounded-full", index === 2 ? "bg-success" : index === 1 ? "bg-primary" : "bg-muted-foreground")} />{stage}</p><div className={cn("overflow-hidden rounded-xl border border-border bg-background", index === 1 && "border-primary/40 shadow-soft")}><div className={cn("relative flex h-28 items-center justify-center overflow-hidden", index === 0 ? "bg-primary/10" : index === 1 ? "bg-accent" : "bg-success/10")}>
+        <div className="absolute inset-3 rounded-full border border-current text-primary/15" /><div className="absolute inset-6 rotate-45 rounded-xl border border-current text-primary/20" /><span className={cn("relative flex h-12 w-12 items-center justify-center rounded-2xl shadow-soft", index === 2 ? "bg-success text-success-foreground" : "bg-primary text-primary-foreground")}>{index === 0 ? <Sparkles aria-hidden="true" className="h-6 w-6" /> : index === 1 ? <ImageIcon aria-hidden="true" className="h-6 w-6" /> : <CheckCheck aria-hidden="true" className="h-6 w-6" />}</span>
+        </div><div className="space-y-2.5 p-3"><div className="h-1.5 w-4/5 rounded-full bg-foreground/15" /><div className="h-1.5 w-full rounded-full bg-muted" /><div className="h-1.5 w-2/3 rounded-full bg-muted" /><div className="flex gap-1.5 pt-2"><span className="h-4 w-4 rounded-full bg-primary/15" /><span className="h-4 w-4 rounded-full bg-success/15" /></div></div></div></div>)}</div>
+      <div className="mt-5 flex items-center justify-between rounded-xl border border-border bg-muted/30 p-3"><div className="flex items-center gap-2"><CalendarDays aria-hidden="true" className="h-4 w-4 text-primary" /><span className="text-xs font-medium">Your week, in a better rhythm.</span></div><div className="flex gap-1.5" aria-hidden="true">{[0, 1, 2, 3, 4].map((day) => <span key={day} className={cn("h-5 w-3 rounded", day % 2 ? "bg-primary/50" : "bg-primary/15")} />)}</div></div>
+    </div>
+    <div className="relative -mt-3 ml-auto mr-4 flex w-fit items-center gap-2 rounded-xl border border-border bg-background px-4 py-3 text-xs font-medium text-foreground shadow-elevated"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-success/10 text-success"><Check aria-hidden="true" className="h-3.5 w-3.5" /></span>One idea. Ready for every channel.<MousePointer2 aria-hidden="true" className="ml-1 h-4 w-4 text-primary" /></div>
+  </div>;
+}
 
 export default function AuthShowcasePanel() {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const slide = authSlides[activeIndex];
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setActiveIndex((current) => (current + 1) % authSlides.length);
-    }, SLIDE_INTERVAL_MS);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
-  return (
-    <Box
-      sx={{
-        ...authLayout.showcaseColumn,
-        display: { xs: "none", md: "flex" },
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "space-between",
-        px: 5,
-        py: 5,
-        color: "#fff",
-        background: `linear-gradient(165deg, ${colors.primary} 0%, #4338ca 52%, #3730a3 100%)`,
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      <Box
-        sx={{
-          position: "absolute",
-          inset: 0,
-          background:
-            "radial-gradient(circle at 28% 18%, rgb(255 255 255 / 0.14) 0%, transparent 42%), radial-gradient(circle at 82% 78%, rgb(16 185 129 / 0.16) 0%, transparent 38%)",
-          pointerEvents: "none",
-        }}
-      />
-
-      <Box
-        sx={{
-          position: "absolute",
-          top: "12%",
-          left: "50%",
-          transform: "translateX(-50%)",
-          width: 320,
-          height: 320,
-          borderRadius: "50%",
-          border: "1px solid rgb(255 255 255 / 0.08)",
-          pointerEvents: "none",
-        }}
-      />
-      <Box
-        sx={{
-          position: "absolute",
-          top: "18%",
-          left: "50%",
-          transform: "translateX(-50%)",
-          width: 240,
-          height: 240,
-          borderRadius: "50%",
-          border: "1px solid rgb(255 255 255 / 0.06)",
-          pointerEvents: "none",
-        }}
-      />
-
-      <Box
-        sx={{
-          position: "relative",
-          zIndex: 1,
-          flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: "100%",
-          maxWidth: 360,
-          py: 2,
-        }}
-      >
-        <Box
-          key={slide.id}
-          sx={{
-            width: "100%",
-            transition: "opacity 0.4s ease, transform 0.4s ease",
-            animation: "authSlideIn 0.45s ease",
-            "@keyframes authSlideIn": {
-              from: { opacity: 0, transform: "translateY(8px)" },
-              to: { opacity: 1, transform: "translateY(0)" },
-            },
-          }}
-        >
-          <AuthHeroIllustration variant={slide.illustration} />
-        </Box>
-      </Box>
-
-      <Stack
-        sx={{
-          position: "relative",
-          zIndex: 1,
-          textAlign: "center",
-          gap: 1.25,
-          maxWidth: 340,
-          minHeight: 96,
-          px: 1,
-        }}
-      >
-        <Typography
-          sx={{
-            fontFamily: displayFont,
-            fontWeight: 700,
-            fontSize: "1.375rem",
-            lineHeight: 1.25,
-            letterSpacing: "-0.02em",
-          }}
-        >
-          {slide.title}
-        </Typography>
-        <Typography sx={{ fontSize: "0.875rem", lineHeight: 1.65, color: "rgb(255 255 255 / 0.78)" }}>
-          {slide.subtitle}
-        </Typography>
-      </Stack>
-
-      <Stack
-        direction="row"
-        role="tablist"
-        aria-label="Feature highlights"
-        sx={{
-          position: "relative",
-          zIndex: 1,
-          gap: 0.75,
-          pt: 2,
-        }}
-      >
-        {authSlides.map((item, index) => (
-          <Box
-            key={item.id}
-            component="button"
-            type="button"
-            role="tab"
-            aria-selected={index === activeIndex}
-            aria-label={`Show slide ${index + 1}: ${item.title}`}
-            onClick={() => setActiveIndex(index)}
-            sx={{
-              width: index === activeIndex ? 24 : 8,
-              height: 8,
-              border: 0,
-              borderRadius: 999,
-              p: 0,
-              cursor: "pointer",
-              bgcolor: index === activeIndex ? "#fff" : "rgb(255 255 255 / 0.32)",
-              transition: "width 0.25s ease, background-color 0.25s ease",
-              "&:hover": {
-                bgcolor: index === activeIndex ? "#fff" : "rgb(255 255 255 / 0.5)",
-              },
-            }}
-          />
-        ))}
-      </Stack>
-    </Box>
-  );
+  return <aside aria-label="The OpsBrain workspace" className="relative m-4 ml-0 hidden overflow-hidden rounded-3xl border border-primary/10 bg-primary/5 lg:flex lg:flex-col lg:justify-center lg:p-8 xl:p-12">
+    <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full border border-primary/10" /><div aria-hidden="true" className="pointer-events-none absolute -bottom-40 -left-40 h-96 w-96 rounded-full border border-primary/10" />
+    <div className="relative mx-auto w-full max-w-xl"><div className="mb-5 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-primary"><Sparkles aria-hidden="true" className="h-4 w-4" />Built for your creative rhythm</div><h2 className="max-w-lg font-display text-4xl font-semibold leading-tight tracking-tight xl:text-5xl">Less busywork.<br /><span className="text-primary">More worth sharing.</span></h2><p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">Bring your ideas, brand voice, and publishing plan together. Create with intention. Keep every channel moving.</p>
+      <ProductArtwork />
+      <div className="grid gap-4 border-t border-primary/10 pt-6 sm:grid-cols-3">{[["01", "Create", "Find the words. Make them yours."], ["02", "Plan", "Give every idea its moment."], ["03", "Learn", "See what connects with people."]].map(([step, title, description]) => <div key={step}><p className="flex items-center justify-between text-sm font-semibold"><span><span className="mr-2 text-xs text-primary">{step}</span>{title}</span><ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5 text-primary" /></p><p className="mt-2 text-xs leading-relaxed text-muted-foreground">{description}</p></div>)}</div>
+    </div>
+  </aside>;
 }

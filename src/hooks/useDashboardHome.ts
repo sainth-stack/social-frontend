@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   fetchDashboardHomeCached,
@@ -12,21 +12,39 @@ import {
 const LOAD_ERROR = "We couldn't load your dashboard. Please try again.";
 
 export function useDashboardHome(workspaceId: string | undefined) {
-  const [data, setData] = useState<DashboardHomePayload | null>(() =>
-    workspaceId ? getCachedDashboardHome(workspaceId) : null,
-  );
-  const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
+  const [state, setState] = useState<{
+    workspaceId: string | undefined;
+    data: DashboardHomePayload | null;
+    error: string | null;
+    refreshing: boolean;
+  }>(() => ({
+    workspaceId,
+    data: workspaceId ? getCachedDashboardHome(workspaceId) : null,
+    error: null,
+    refreshing: false,
+  }));
 
   const load = useCallback(
-    (force: boolean, isActive: () => boolean = () => true) => {
+    (force: boolean) => {
       if (!workspaceId) return;
-      setError(null);
-      fetchDashboardHomeCached(workspaceId, { force })
+      const id = ++requestId.current;
+      setState((previous) => ({
+        workspaceId,
+        data: previous.workspaceId === workspaceId ? previous.data : getCachedDashboardHome(workspaceId),
+        error: null,
+        refreshing: true,
+      }));
+      return fetchDashboardHomeCached(workspaceId, { force })
         .then((payload) => {
-          if (isActive()) setData(payload);
+          if (id === requestId.current) {
+            setState({ workspaceId, data: payload, error: null, refreshing: false });
+          }
         })
         .catch(() => {
-          if (isActive()) setError(LOAD_ERROR);
+          if (id === requestId.current) {
+            setState((previous) => ({ ...previous, error: LOAD_ERROR, refreshing: false }));
+          }
         });
     },
     [workspaceId],
@@ -36,21 +54,22 @@ export function useDashboardHome(workspaceId: string | undefined) {
 
   useEffect(() => {
     if (!workspaceId) {
-      setData(null);
-      return;
+      requestId.current += 1;
+      setState({ workspaceId, data: null, error: null, refreshing: false });
+    } else {
+      const cached = getCachedDashboardHome(workspaceId);
+      setState({ workspaceId, data: cached, error: null, refreshing: false });
+      if (!isDashboardHomeFresh(workspaceId)) void load(false);
     }
-
-    setData(getCachedDashboardHome(workspaceId));
-    if (isDashboardHomeFresh(workspaceId)) return;
-
-    let active = true;
-    load(false, () => active);
     return () => {
-      active = false;
+      requestId.current += 1;
     };
   }, [workspaceId, load]);
 
+  const data = state.workspaceId === workspaceId ? state.data : null;
+  const error = state.workspaceId === workspaceId ? state.error : null;
+  const refreshing = state.workspaceId === workspaceId && state.refreshing;
   const loading = !data && Boolean(workspaceId) && !error;
 
-  return { data, loading, error, reload };
+  return { data, loading, refreshing, error, reload };
 }

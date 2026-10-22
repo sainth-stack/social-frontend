@@ -184,11 +184,21 @@ export type BrandVoice = {
   updatedAt: string | null;
 };
 
-export type BrandVoicePayload = Omit<BrandVoice, "id" | "orgId" | "updatedAt">;
+export type BrandVoicePayload = Omit<BrandVoice, "id" | "orgId" | "updatedAt" | "logoUrl"> & {
+  logoUrl?: string | null;
+};
 
 export type CreativeFormat = "post" | "banner" | "story" | "carousel" | "quote" | "product";
 
 export type LogoPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+export type BrandLogo = {
+  id: string;
+  url: string;
+  name: string;
+  isDefault: boolean;
+  createdAt?: string | null;
+};
 
 export type GenerateImagePayload = {
   topic: string;
@@ -205,6 +215,7 @@ export type GenerateImagePayload = {
   textOverlay?: boolean;
   autoCopy?: boolean;
   includeLogo?: boolean;
+  logoId?: string | null;
   logoPosition?: LogoPosition;
   useBrand?: boolean;
   slideIndex?: number;

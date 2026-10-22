@@ -1,767 +1,174 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Copy,
-  Eye,
-  FileText,
-  Image as ImageIcon,
-  Layers,
-  MoreHorizontal,
-  Plus,
-  RefreshCw,
-  Search,
-  Filter,
-  Send,
-  Trash2,
-  Video,
-  Archive,
-} from "lucide-react";
+import { AlertCircle, Archive, ArrowRight, CalendarDays, Clock, Copy, Eye, FileText, Filter, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Send, Trash2, Video, X } from "lucide-react";
 import { toast } from "sonner";
-
 import socialMediaApi from "@/api/endpoints/social-media.api";
-import { PlatformIcon } from "@/components/platform-icon";
+import { PageHeader } from "@/components/layouts/PageHeader";
+import { isVideoMediaUrl } from "@/components/social-media/content-studio/shared/studioMediaHelpers";
+import { formatPostDate, postActionError, PostChannels, PostStatusBadge } from "@/components/social-media/posts/post-presentation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { selectUser } from "@/features/auth/authSlice";
 import { cn } from "@/lib/utils";
 import { useAppSelector } from "@/store/hooks";
-import type {
-  SocialPlatform,
-  SocialPost,
-  SocialPostStatus,
-} from "@/types/social-media.types";
+import { PLATFORM_LABELS, type SocialPlatform, type SocialPost, type SocialPostListResponse, type SocialPostStatus } from "@/types/social-media.types";
 
-type TabValue = "all" | SocialPostStatus;
+type Status = "all" | SocialPostStatus;
+const PAGE_SIZE = 20;
+const STATUS_TABS: { value: Status; label: string }[] = [{ value: "all", label: "All posts" }, { value: "draft", label: "Drafts" }, { value: "scheduled", label: "Scheduled" }, { value: "published", label: "Published" }, { value: "failed", label: "Failed" }, { value: "publishing", label: "Publishing" }, { value: "archived", label: "Archived" }];
+const caption = (post: SocialPost) => post.platforms[0]?.caption ?? "";
+const platforms = (post: SocialPost) => post.platforms.map((item) => item.platform);
+const metrics = (post: SocialPost) => post.platforms.reduce((sum, item) => ({ reach: sum.reach + (item.reach ?? 0), likes: sum.likes + (item.likes ?? 0), comments: sum.comments + (item.comments ?? 0), shares: sum.shares + (item.shares ?? 0) }), { reach: 0, likes: 0, comments: 0, shares: 0 });
+const postDate = (post: SocialPost) => post.publishedAt || post.scheduledAt || post.updatedAt;
 
-const TAB_META: { value: TabValue; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "published", label: "Published" },
-  { value: "scheduled", label: "Scheduled" },
-  { value: "draft", label: "Drafts" },
-  { value: "failed", label: "Failed" },
-  { value: "publishing", label: "Publishing" },
-  { value: "archived", label: "Archived" },
-];
-
-const statusMeta: Partial<
-  Record<
-    SocialPostStatus,
-    { label: string; className: string; Icon: typeof CheckCircle2 }
-  >
-> = {
-  published: {
-    label: "Published",
-    className:
-      "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
-    Icon: CheckCircle2,
-  },
-  scheduled: {
-    label: "Scheduled",
-    className: "bg-primary/10 text-primary border-primary/20",
-    Icon: Clock,
-  },
-  draft: {
-    label: "Draft",
-    className: "bg-muted text-muted-foreground border-border",
-    Icon: FileText,
-  },
-  failed: {
-    label: "Failed",
-    className: "bg-destructive/10 text-destructive border-destructive/20",
-    Icon: AlertTriangle,
-  },
-  publishing: {
-    label: "Publishing",
-    className: "bg-info/10 text-info border-info/20",
-    Icon: Send,
-  },
-  archived: {
-    label: "Archived",
-    className: "bg-muted text-muted-foreground border-border",
-    Icon: Archive,
-  },
-  pending_approval: {
-    label: "Pending approval",
-    className: "bg-warning/10 text-warning border-warning/20",
-    Icon: Clock,
-  },
-};
-
-function mediaKind(post: SocialPost): "image" | "video" | "carousel" | "text" {
-  if (post.imageUrl) return "image";
-  const caption = post.platforms[0]?.caption ?? "";
-  if (caption.length > 400) return "text";
-  return "text";
-}
-
-const mediaIcon = {
-  image: ImageIcon,
-  video: Video,
-  carousel: Layers,
-  text: FileText,
-};
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function postCaption(post: SocialPost): string {
-  return post.platforms[0]?.caption ?? "";
-}
-
-function postPlatform(post: SocialPost): SocialPlatform | null {
-  return post.platforms[0]?.platform ?? null;
-}
-
-function postMetrics(post: SocialPost) {
-  const reach = post.platforms.reduce((s, p) => s + (p.reach || 0), 0);
-  const likes = post.platforms.reduce((s, p) => s + (p.likes || 0), 0);
-  const comments = post.platforms.reduce((s, p) => s + (p.comments || 0), 0);
-  const shares = post.platforms.reduce((s, p) => s + (p.shares || 0), 0);
-  if (!reach && !likes && !comments) return null;
-  return { reach, likes, comments, shares };
-}
-
-function postError(post: SocialPost): string | null {
-  return post.platforms.find((p) => p.errorMessage)?.errorMessage ?? null;
-}
-
-type PostsPageProps = {
-  initialStatus?: SocialPostStatus | "all";
-};
-
-export default function PostsPage({ initialStatus = "all" }: PostsPageProps) {
+export default function PostsPage({ initialStatus = "all" }: { initialStatus?: Status }) {
   const user = useAppSelector(selectUser);
-  const workspaceId = user?.workspaceId ?? "";
-  const router = useRouter();
+  return <PostsWorkspace key={user?.workspaceId ?? "none"} workspaceId={user?.workspaceId ?? ""} initialStatus={initialStatus} />;
+}
 
-  const [tab, setTab] = useState<TabValue>(initialStatus);
+function PostsWorkspace({ workspaceId, initialStatus }: { workspaceId: string; initialStatus: Status }) {
+  const router = useRouter();
+  const [status, setStatus] = useState<Status>(initialStatus);
   const [query, setQuery] = useState("");
-  const [platform, setPlatform] = useState<string>("all");
-  const [posts, setPosts] = useState<SocialPost[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [platform, setPlatform] = useState<SocialPlatform | "all">("all");
+  const [page, setPage] = useState(1);
+  const [payload, setPayload] = useState<{ key: string; result: SocialPostListResponse } | null>(null);
+  const [loading, setLoading] = useState(Boolean(workspaceId));
+  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirmDelete, setConfirmDelete] = useState<SocialPost | null>(null);
+  const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [deleteFromPlatforms, setDeleteFromPlatforms] = useState(true);
   const [preview, setPreview] = useState<SocialPost | null>(null);
   const [busy, setBusy] = useState(false);
+  const requestId = useRef(0);
+  const actionLock = useRef(false);
+  const mounted = useRef(true);
+  const key = `${status}|${query.trim()}|${page}`;
+  const result = payload?.key === key ? payload.result : null;
+  const posts = result?.items ?? [];
+  const visible = useMemo(() => posts.filter((post) => platform === "all" || post.platforms.some((item) => item.platform === platform)), [posts, platform]);
+  const allSelected = visible.length > 0 && visible.every((post) => selected.has(post.id));
 
-  useEffect(() => {
-    setTab(initialStatus);
-  }, [initialStatus]);
+  useEffect(() => { setStatus(initialStatus); setPage(1); setSelected(new Set()); }, [initialStatus]);
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
+    const id = ++requestId.current;
     setLoading(true);
+    setError(null);
     try {
-      const res = await socialMediaApi.listPosts(workspaceId, {
-        search: query.trim() || undefined,
-        pageSize: 100,
-      });
-      setPosts(res.items);
-    } catch {
-      toast.error("Failed to load posts");
+      const data = await socialMediaApi.listPosts(workspaceId, { status: status === "all" ? undefined : status, search: query.trim() || undefined, page, pageSize: PAGE_SIZE });
+      if (id !== requestId.current) return;
+      setPayload({ key, result: data });
+      if (page > Math.max(1, data.totalPages)) setPage(Math.max(1, data.totalPages));
+    } catch (err) {
+      if (id === requestId.current) setError(postActionError(err, "We couldn’t load your posts. Please try again."));
     } finally {
-      setLoading(false);
+      if (id === requestId.current) setLoading(false);
     }
-  }, [workspaceId, query]);
-
+  }, [workspaceId, status, query, page, key]);
+  const latestLoad = useRef(load);
+  useEffect(() => { latestLoad.current = load; }, [load]);
   useEffect(() => {
-    const handle = window.setTimeout(() => void load(), 200);
-    return () => window.clearTimeout(handle);
-  }, [load]);
+    mounted.current = true;
+    const timer = window.setTimeout(() => void load(), query.trim() ? 250 : 0);
+    return () => { window.clearTimeout(timer); requestId.current += 1; mounted.current = false; };
+  }, [load, query]);
 
-  const filtered = useMemo(() => {
-    return posts.filter((p) => {
-      if (tab !== "all" && p.status !== tab) return false;
-      if (platform !== "all" && !p.platforms.some((x) => x.platform === platform)) {
-        return false;
-      }
-      return true;
-    });
-  }, [posts, tab, platform]);
-
-  const counts = useMemo(() => {
-    const base: Record<TabValue, number> = {
-      all: posts.length,
-      published: 0,
-      scheduled: 0,
-      draft: 0,
-      failed: 0,
-      publishing: 0,
-      archived: 0,
-      pending_approval: 0,
-    };
-    for (const p of posts) {
-      if (p.status in base) base[p.status] += 1;
-    }
-    return base;
-  }, [posts]);
-
-  const toggleAll = () => {
-    if (selected.size === filtered.length) setSelected(new Set());
-    else setSelected(new Set(filtered.map((p) => p.id)));
+  const changeStatus = (value: string) => {
+    const next = value as Status;
+    setStatus(next); setPage(1); setSelected(new Set()); setActionError(null);
+    router.replace(next === "all" ? "/dashboard/posts" : `/dashboard/posts/${next === "draft" ? "drafts" : next}`);
   };
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(visible.map((post) => post.id)));
+  const toggleOne = (id: string) => setSelected((previous) => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const changePage = (next: number) => { setPage(next); setSelected(new Set()); };
 
-  const toggleOne = (id: string) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelected(next);
-  };
-
-  const runAction = async (fn: () => Promise<unknown>, success: string) => {
-    setBusy(true);
+  const runAction = async (action: () => Promise<unknown>, message: string) => {
+    if (actionLock.current) return false;
+    actionLock.current = true;
+    setBusy(true); setActionError(null);
+    let succeeded = false;
     try {
-      await fn();
-      toast.success(success);
-      setSelected(new Set());
-      await load();
-    } catch {
-      toast.error("Action failed");
+      await action();
+      succeeded = true;
+      if (mounted.current) toast.success(message);
+    } catch (err) {
+      if (mounted.current) setActionError(postActionError(err, "This action couldn’t be completed. Please try again."));
     } finally {
-      setBusy(false);
+      if (mounted.current) { setSelected(new Set()); await latestLoad.current(); setBusy(false); }
+      actionLock.current = false;
     }
+    return succeeded;
   };
 
-  const bulkDelete = async () => {
-    if (!workspaceId || selected.size === 0) return;
-    await runAction(async () => {
-      await Promise.all(
-        [...selected].map((id) =>
-          socialMediaApi.deletePost(workspaceId, id, { deleteFromPlatforms }),
-        ),
-      );
-    }, `Deleted ${selected.size} post${selected.size === 1 ? "" : "s"}`);
+  const bulkAction = async (ids: string[], action: (id: string) => Promise<unknown>) => {
+    const queue = [...ids];
+    let failed = 0;
+    const worker = async () => { for (let id = queue.shift(); id; id = queue.shift()) { try { await action(id); } catch { failed += 1; } } };
+    await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker));
+    if (failed) throw new Error(`${ids.length - failed} of ${ids.length} posts updated. ${failed} could not be completed. Review the refreshed list before trying again.`);
   };
+  const duplicate = (id: string) => socialMediaApi.duplicatePost(workspaceId, id);
+  const archive = (id: string) => socialMediaApi.archivePost(workspaceId, id);
+  const publish = (id: string) => socialMediaApi.publishNow(workspaceId, id);
 
-  const bulkDuplicate = async () => {
-    if (!workspaceId || selected.size === 0) return;
-    await runAction(async () => {
-      await Promise.all(
-        [...selected].map((id) => socialMediaApi.duplicatePost(workspaceId, id)),
-      );
-    }, `Duplicated ${selected.size} post${selected.size === 1 ? "" : "s"}`);
-  };
-
-  const bulkArchive = async () => {
-    if (!workspaceId || selected.size === 0) return;
-    await runAction(async () => {
-      await Promise.all(
-        [...selected].map((id) => socialMediaApi.archivePost(workspaceId, id)),
-      );
-    }, `Archived ${selected.size} post${selected.size === 1 ? "" : "s"}`);
-  };
-
-  const onTabChange = (v: string) => {
-    const next = v as TabValue;
-    setTab(next);
-    setSelected(new Set());
-    if (next === "all") router.replace("/dashboard/posts");
-    else router.replace(`/dashboard/posts/${next === "draft" ? "drafts" : next}`);
-  };
+  const rowMenu = (post: SocialPost) => <PostMenu post={post} busy={busy} onPreview={() => setPreview(post)} onEdit={() => router.push(`/dashboard/posts/${post.id}`)} onDuplicate={() => void runAction(() => duplicate(post.id), "Post duplicated")} onRetry={() => void runAction(() => socialMediaApi.retryPost(workspaceId, post.id), "Retry queued")} onPublish={() => void runAction(() => publish(post.id), "Publishing started")} onArchive={() => void runAction(() => archive(post.id), "Post archived")} onDelete={() => setDeleteIds([post.id])} />;
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Posts</h1>
-          <p className="text-sm text-muted-foreground">
-            Every post across your connected accounts, in one place.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" asChild>
-            <Link href="/dashboard/content-studio/generate">
-              <Plus className="mr-2 h-4 w-4" />
-              New post
-            </Link>
-          </Button>
-        </div>
-      </header>
+    <div className="mx-auto max-w-7xl space-y-5">
+      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><PageHeader icon={FileText} title="Your posts" description="From first draft to published. Keep every channel moving in one place." /><div className="flex gap-2"><Button variant="outline" asChild><Link href="/dashboard/calendar"><CalendarDays className="mr-2 h-4 w-4" />Calendar</Link></Button><Button asChild><Link href="/dashboard/content-studio/generate"><Plus className="mr-2 h-4 w-4" />Create a post</Link></Button></div></header>
 
-      <Tabs value={tab} onValueChange={onTabChange}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList className="flex h-auto flex-wrap">
-            {TAB_META.map((t) => (
-              <TabsTrigger key={t.value} value={t.value}>
-                {t.label}{" "}
-                <Badge variant="secondary" className="ml-2">
-                  {counts[t.value] ?? 0}
-                </Badge>
-              </TabsTrigger>
-            ))}
-          </TabsList>
+      <section aria-label="Post overview" className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[{ label: "Total results", value: result?.total, detail: "Current status and search", icon: FileText }, { label: "Drafts on this page", value: result ? visible.filter((post) => post.status === "draft").length : undefined, detail: "Ready for your next edit", icon: Pencil }, { label: "Scheduled on this page", value: result ? visible.filter((post) => post.status === "scheduled").length : undefined, detail: "Waiting to go live", icon: Clock }, { label: "Failed on this page", value: result ? visible.filter((post) => post.status === "failed").length : undefined, detail: "Review before retrying", icon: AlertCircle }].map(({ label, value, detail, icon: Icon }) => <Card key={label} className="shadow-soft"><CardContent className="p-4"><div className="flex items-start justify-between gap-2"><h2 className="text-xs text-muted-foreground">{label}</h2><Icon className="h-4 w-4 shrink-0 text-primary" /></div><p className="mt-3 text-2xl font-semibold tabular-nums">{value?.toLocaleString() ?? "—"}</p><p className="mt-1 text-xs text-muted-foreground">{detail}</p></CardContent></Card>)}</section>
 
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search posts…"
-                className="h-9 w-56 pl-8"
-              />
-            </div>
-            <Select value={platform} onValueChange={setPlatform}>
-              <SelectTrigger className="h-9 w-40">
-                <Filter className="mr-1 h-3.5 w-3.5" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All platforms</SelectItem>
-                <SelectItem value="instagram">Instagram</SelectItem>
-                <SelectItem value="linkedin">LinkedIn</SelectItem>
-                <SelectItem value="x">X</SelectItem>
-                <SelectItem value="facebook">Facebook</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+      <Tabs value={status} onValueChange={changeStatus} className="min-w-0 space-y-4">
+        <Card className="min-w-0 shadow-soft"><div className="overflow-x-auto border-b border-border p-2"><TabsList aria-label="Post status" className="h-auto w-max min-w-full justify-start bg-transparent">{STATUS_TABS.map((tab) => <TabsTrigger key={tab.value} value={tab.value} disabled={busy} className="px-3 py-2 data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none">{tab.label}{tab.value === status && result && <Badge variant="secondary" className="ml-2 text-xs">{result.total}</Badge>}</TabsTrigger>)}</TabsList></div><div className="flex flex-col justify-between gap-3 p-4 md:flex-row md:items-center"><div className="relative min-w-0 flex-1 md:max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search posts" placeholder="Search titles and AI briefs…" value={query} disabled={busy} onChange={(event) => { setQuery(event.target.value); setPage(1); setSelected(new Set()); }} className="pl-9 pr-9" />{query && <button type="button" aria-label="Clear search" disabled={busy} onClick={() => { setQuery(""); setPage(1); setSelected(new Set()); }} className="absolute right-3 top-1/2 -translate-y-1/2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X className="h-4 w-4 text-muted-foreground" /></button>}</div><div className="flex flex-wrap items-center gap-2"><Select value={platform} disabled={busy} onValueChange={(value) => { setPlatform(value as SocialPlatform | "all"); setSelected(new Set()); }}><SelectTrigger aria-label="Filter channels on this page" className="w-full sm:w-52"><Filter className="mr-2 h-3.5 w-3.5" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All channels · this page</SelectItem>{(["instagram", "facebook", "linkedin", "x"] as const).map((value) => <SelectItem key={value} value={value}>{PLATFORM_LABELS[value]}</SelectItem>)}</SelectContent></Select><Button variant="outline" size="icon" aria-label="Refresh posts" disabled={loading || busy || !workspaceId} onClick={() => void load()}><RefreshCw className={cn("h-4 w-4", loading && "motion-safe:animate-spin")} /></Button></div></div></Card>
 
-        <TabsContent value={tab} className="mt-4">
-          {selected.size > 0 && (
-            <div className="mb-3 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-              <span className="font-medium">{selected.size} selected</span>
-              <div className="flex items-center gap-1">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void bulkDuplicate()}
-                >
-                  <Copy className="mr-1 h-4 w-4" />
-                  Duplicate
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void bulkArchive()}
-                >
-                  <Archive className="mr-1 h-4 w-4" />
-                  Archive
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive"
-                  disabled={busy}
-                  onClick={() => void bulkDelete()}
-                >
-                  <Trash2 className="mr-1 h-4 w-4" />
-                  Delete
-                </Button>
-              </div>
-            </div>
-          )}
+        <TabsContent value={status} className="space-y-4">
+          {(error || actionError) && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"><span className="flex items-start gap-2"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" /><span>{actionError || error}{error && result ? " Previously loaded posts remain visible." : ""}</span></span>{error && <Button variant="outline" size="sm" disabled={loading} onClick={() => void load()}>Try again</Button>}</div>}
 
-          {loading ? (
-            <Card>
-              <CardContent className="space-y-3 p-4">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} className="h-12 w-full" />
-                ))}
-              </CardContent>
-            </Card>
-          ) : filtered.length === 0 ? (
-            <EmptyState />
-          ) : (
-            <Card className="overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="w-10 px-4 py-3">
-                        <Checkbox
-                          checked={
-                            selected.size === filtered.length && filtered.length > 0
-                          }
-                          onCheckedChange={toggleAll}
-                        />
-                      </th>
-                      <th className="px-4 py-3 text-left font-medium">Post</th>
-                      <th className="px-4 py-3 text-left font-medium">Platform</th>
-                      <th className="px-4 py-3 text-left font-medium">Status</th>
-                      <th className="px-4 py-3 text-left font-medium">Date</th>
-                      <th className="px-4 py-3 text-left font-medium">Performance</th>
-                      <th className="w-12 px-4 py-3" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((p) => {
-                      const S = statusMeta[p.status] ?? statusMeta.draft!;
-                      const M = mediaIcon[mediaKind(p)];
-                      const plat = postPlatform(p);
-                      const metrics = postMetrics(p);
-                      const err = postError(p);
-                      return (
-                        <tr
-                          key={p.id}
-                          className="border-t border-border transition-colors hover:bg-muted/30"
-                        >
-                          <td className="px-4 py-3">
-                            <Checkbox
-                              checked={selected.has(p.id)}
-                              onCheckedChange={() => toggleOne(p.id)}
-                            />
-                          </td>
-                          <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              className="flex items-start gap-3 text-left"
-                              onClick={() => setPreview(p)}
-                            >
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                                {p.imageUrl ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={p.imageUrl}
-                                    alt=""
-                                    className="h-10 w-10 rounded-md object-cover"
-                                  />
-                                ) : (
-                                  <M className="h-4 w-4" />
-                                )}
-                              </div>
-                              <div className="min-w-0">
-                                <div className="max-w-[280px] truncate font-medium">
-                                  {p.title || "Untitled"}
-                                </div>
-                                <div className="max-w-[280px] truncate text-xs text-muted-foreground">
-                                  {postCaption(p)}
-                                </div>
-                              </div>
-                            </button>
-                          </td>
-                          <td className="px-4 py-3">
-                            {plat ? (
-                              <PlatformIcon platform={plat} size="sm" />
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge
-                              variant="outline"
-                              className={cn("gap-1 font-medium", S.className)}
-                            >
-                              <S.Icon className="h-3 w-3" />
-                              {S.label}
-                            </Badge>
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                            {formatDate(p.publishedAt || p.scheduledAt || p.updatedAt)}
-                          </td>
-                          <td className="px-4 py-3">
-                            {metrics ? (
-                              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                <span>
-                                  <span className="font-semibold text-foreground">
-                                    {metrics.reach.toLocaleString()}
-                                  </span>{" "}
-                                  reach
-                                </span>
-                                <span>
-                                  <span className="font-semibold text-foreground">
-                                    {metrics.likes}
-                                  </span>{" "}
-                                  likes
-                                </span>
-                                <span>
-                                  <span className="font-semibold text-foreground">
-                                    {metrics.comments}
-                                  </span>{" "}
-                                  comments
-                                </span>
-                              </div>
-                            ) : err ? (
-                              <span className="text-xs text-destructive">{err}</span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <RowMenu
-                              post={p}
-                              busy={busy}
-                              onPreview={() => setPreview(p)}
-                              onEdit={() => router.push(`/dashboard/posts/${p.id}`)}
-                              onDuplicate={() =>
-                                workspaceId &&
-                                void runAction(
-                                  () => socialMediaApi.duplicatePost(workspaceId, p.id),
-                                  "Duplicated",
-                                )
-                              }
-                              onRetry={() =>
-                                workspaceId &&
-                                void runAction(
-                                  () => socialMediaApi.retryPost(workspaceId, p.id),
-                                  "Retry queued",
-                                )
-                              }
-                              onPublishNow={() =>
-                                workspaceId &&
-                                void runAction(
-                                  () => socialMediaApi.publishNow(workspaceId, p.id),
-                                  "Publishing…",
-                                )
-                              }
-                              onArchive={() =>
-                                workspaceId &&
-                                void runAction(
-                                  () => socialMediaApi.archivePost(workspaceId, p.id),
-                                  "Archived",
-                                )
-                              }
-                              onDelete={() => setConfirmDelete(p)}
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
+          {selected.size > 0 && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3"><span role="status" className="text-sm font-medium">{selected.size} selected on this page</span><div className="flex flex-wrap gap-1"><Button variant="ghost" size="sm" disabled={busy} onClick={() => void runAction(() => bulkAction([...selected], duplicate), "Posts duplicated")}><Copy className="mr-1.5 h-4 w-4" />Duplicate</Button><Button variant="ghost" size="sm" disabled={busy} onClick={() => void runAction(() => bulkAction([...selected], archive), "Posts archived")}><Archive className="mr-1.5 h-4 w-4" />Archive</Button><Button variant="ghost" size="sm" disabled={busy} className="text-destructive" onClick={() => setDeleteIds([...selected])}><Trash2 className="mr-1.5 h-4 w-4" />Delete</Button><Button variant="ghost" size="icon" disabled={busy} aria-label="Clear selection" onClick={() => setSelected(new Set())}><X className="h-4 w-4" /></Button></div></div>}
+
+          {!workspaceId ? <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">Select a workspace to manage its posts.</CardContent></Card> : !result && !error ? <Card role="status" aria-label="Loading posts"><CardContent className="space-y-3 p-4">{Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-24 rounded-xl" />)}</CardContent></Card> : result ? (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground"><label className="flex items-center gap-2"><Checkbox aria-label="Select all posts on this page" checked={allSelected ? true : selected.size ? "indeterminate" : false} disabled={busy || visible.length === 0} onCheckedChange={toggleAll} />Select page</label><span aria-live="polite">Showing {visible.length} of {posts.length} on this page · {result.total} total results</span></div>
+              {platform !== "all" && <p className="text-xs text-muted-foreground">Channel filtering applies to the current page. Use pagination to browse other results.</p>}
+              {visible.length === 0 ? <Card className="border-dashed shadow-soft"><CardContent className="flex flex-col items-center gap-3 px-5 py-14 text-center"><span className="rounded-2xl bg-primary/10 p-4 text-primary"><FileText className="h-6 w-6" /></span><h3 className="font-semibold">{query || platform !== "all" ? "No posts match these filters" : "Your next post starts here"}</h3><p className="max-w-sm text-sm text-muted-foreground">{query || platform !== "all" ? "Try a different search or channel. You can also browse another page." : "Create a draft, shape it for your channels, and publish when you’re ready."}</p><div className="flex flex-wrap justify-center gap-2">{(query || platform !== "all") && <Button variant="outline" disabled={busy} onClick={() => { setQuery(""); setPlatform("all"); setPage(1); setSelected(new Set()); }}>Clear filters</Button>}<Button asChild><Link href="/dashboard/content-studio/generate">Create a post<ArrowRight className="ml-2 h-4 w-4" /></Link></Button></div></CardContent></Card> : (
+                <div className="space-y-3" aria-busy={busy}>{visible.map((post) => {
+                  const performance = metrics(post);
+                  const failure = post.platforms.find((item) => item.errorMessage)?.errorMessage;
+                  return <Card key={post.id} className={cn("min-w-0 shadow-soft transition-colors", selected.has(post.id) && "border-primary/40 bg-primary/5")}><CardContent className="flex items-start gap-3 p-4 sm:gap-4 sm:p-5"><Checkbox className="mt-1" aria-label={`Select ${post.title || "Untitled post"}`} checked={selected.has(post.id)} disabled={busy} onCheckedChange={() => toggleOne(post.id)} /><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><button type="button" onClick={() => setPreview(post)} className="flex min-w-0 items-start gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><MediaThumbnail post={post} /><span className="min-w-0"><span className="block break-words text-sm font-semibold">{post.title || "Untitled post"}</span><span className="mt-1 line-clamp-2 break-words text-sm leading-relaxed text-muted-foreground">{caption(post) || "No caption yet"}</span></span></button>{rowMenu(post)}</div><div className="mt-3 flex flex-wrap items-center gap-3"><PostStatusBadge status={post.status} /><PostChannels platforms={platforms(post)} /><span className="text-xs text-muted-foreground">{post.publishedAt ? "Published" : post.scheduledAt ? "Scheduled" : "Updated"} · {formatPostDate(postDate(post))}</span></div>{post.status === "published" && <p className="mt-3 text-xs text-muted-foreground">{performance.reach.toLocaleString()} reach · {performance.likes.toLocaleString()} likes · {performance.comments.toLocaleString()} comments · {performance.shares.toLocaleString()} shares</p>}{failure && <p className="mt-3 flex items-start gap-1.5 break-words text-xs text-destructive"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{failure}</p>}<div className="mt-3 flex flex-wrap gap-3 text-xs font-medium"><Link href={`/dashboard/posts/${post.id}`} className="rounded text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">View details</Link>{(post.status === "draft" || post.status === "failed" || post.status === "scheduled") && <Link href={`/dashboard/content-studio/generate?draftId=${post.id}`} className="rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Edit in AI Studio</Link>}</div></div></CardContent></Card>;
+                })}</div>
+              )}
+              {result.totalPages > 1 && <nav aria-label="Posts pagination" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"><p className="text-xs text-muted-foreground">Page {page} of {result.totalPages}</p><div className="flex gap-2"><Button variant="outline" size="sm" disabled={loading || busy || page <= 1} onClick={() => changePage(page - 1)}>Previous</Button><Button variant="outline" size="sm" disabled={loading || busy || page >= result.totalPages} onClick={() => changePage(page + 1)}>Next</Button></div></nav>}
+            </>
+          ) : null}
         </TabsContent>
       </Tabs>
 
-      <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
-        <DialogContent className="max-w-lg">
-          {preview && (
-            <>
-              <DialogHeader>
-                <div className="flex items-center gap-3">
-                  {postPlatform(preview) && (
-                    <PlatformIcon platform={postPlatform(preview)!} />
-                  )}
-                  <div>
-                    <DialogTitle>{preview.title || "Untitled"}</DialogTitle>
-                    <DialogDescription>
-                      {formatDate(
-                        preview.publishedAt || preview.scheduledAt || preview.updatedAt,
-                      )}
-                    </DialogDescription>
-                  </div>
-                </div>
-              </DialogHeader>
-              <div className="flex aspect-video items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/30 text-muted-foreground">
-                {preview.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={preview.imageUrl}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <ImageIcon className="h-10 w-10" />
-                )}
-              </div>
-              <p className="text-sm leading-relaxed">{postCaption(preview)}</p>
-              {postMetrics(preview) && (
-                <div className="grid grid-cols-4 gap-2 rounded-lg border border-border p-3 text-center">
-                  {(["reach", "likes", "comments", "shares"] as const).map((k) => (
-                    <div key={k}>
-                      <div className="text-sm font-semibold">
-                        {postMetrics(preview)![k].toLocaleString()}
-                      </div>
-                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                        {k}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) setPreview(null); }}><DialogContent className="max-h-screen overflow-y-auto sm:max-w-xl">{preview && <><DialogHeader><DialogTitle className="break-words pr-4">{preview.title || "Untitled post"}</DialogTitle><DialogDescription>{formatPostDate(postDate(preview))}</DialogDescription></DialogHeader><div className="flex flex-wrap items-center gap-3"><PostStatusBadge status={preview.status} /><PostChannels platforms={platforms(preview)} /></div>{preview.imageUrl && (isVideoMediaUrl(preview.imageUrl) ? <video src={preview.imageUrl} controls preload="metadata" className="max-h-72 w-full rounded-xl" /> : <img src={preview.imageUrl} alt="Post media" className="max-h-72 w-full rounded-xl object-contain" />)}<p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{caption(preview) || "No caption yet"}</p>{preview.status === "published" && <dl className="grid grid-cols-2 gap-3 rounded-xl border border-border p-4 sm:grid-cols-4">{Object.entries(metrics(preview)).map(([label, value]) => <div key={label}><dt className="text-xs capitalize text-muted-foreground">{label}</dt><dd className="mt-1 text-lg font-semibold tabular-nums">{value.toLocaleString()}</dd></div>)}</dl>}<DialogFooter><Button variant="outline" asChild><Link href={`/dashboard/posts/${preview.id}`}>View details</Link></Button><Button asChild><Link href={`/dashboard/content-studio/generate?draftId=${preview.id}`}>Open in AI Studio</Link></Button></DialogFooter></>}</DialogContent></Dialog>
 
-      <Dialog
-        open={!!confirmDelete}
-        onOpenChange={(o) => !o && setConfirmDelete(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete this post?</DialogTitle>
-            <DialogDescription>
-              This can&apos;t be undone. The post will be removed from OpsBrain.
-              {deleteFromPlatforms
-                ? " If it was published, we will also try to delete it from Facebook, Instagram, and LinkedIn (when connected)."
-                : " Published posts will stay live on social networks."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-start gap-2 py-1">
-            <Checkbox
-              id="delete-from-platforms"
-              checked={deleteFromPlatforms}
-              onCheckedChange={(v) => setDeleteFromPlatforms(v === true)}
-            />
-            <label
-              htmlFor="delete-from-platforms"
-              className="text-sm leading-snug text-muted-foreground"
-            >
-              Also remove from connected platforms (if already published)
-            </label>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDelete(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={() => {
-                if (!confirmDelete || !workspaceId) return;
-                void runAction(
-                  () =>
-                    socialMediaApi.deletePost(workspaceId, confirmDelete.id, {
-                      deleteFromPlatforms,
-                    }),
-                  "Post deleted",
-                ).then(() => setConfirmDelete(null));
-              }}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Dialog open={deleteIds.length > 0} onOpenChange={(open) => { if (!open && !busy) setDeleteIds([]); }}><DialogContent><DialogHeader><DialogTitle>Delete {deleteIds.length === 1 ? "this post" : `${deleteIds.length} posts`}?</DialogTitle><DialogDescription>This can’t be undone. {deleteFromPlatforms ? "We will also try to remove published copies from connected platforms that support deletion." : "Published copies will stay live on social networks."}</DialogDescription></DialogHeader><label className="flex items-start gap-2 text-sm text-muted-foreground"><Checkbox aria-label="Also remove from connected platforms" checked={deleteFromPlatforms} disabled={busy} onCheckedChange={(value) => setDeleteFromPlatforms(value === true)} />Also remove from connected platforms, where supported</label><DialogFooter><Button variant="outline" disabled={busy} onClick={() => setDeleteIds([])}>Cancel</Button><Button variant="destructive" disabled={busy} onClick={() => { void runAction(() => bulkAction(deleteIds, (id) => socialMediaApi.deletePost(workspaceId, id, { deleteFromPlatforms })), "Posts deleted").then(() => { if (mounted.current) setDeleteIds([]); }); }}>{busy ? "Deleting…" : "Delete posts"}</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }
 
-function RowMenu({
-  post,
-  busy,
-  onPreview,
-  onEdit,
-  onDuplicate,
-  onRetry,
-  onPublishNow,
-  onArchive,
-  onDelete,
-}: {
-  post: SocialPost;
-  busy: boolean;
-  onPreview: () => void;
-  onEdit: () => void;
-  onDuplicate: () => void;
-  onRetry: () => void;
-  onPublishNow: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busy}>
-          <MoreHorizontal className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onPreview}>
-          <Eye className="mr-2 h-4 w-4" />
-          Preview
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={onEdit}>
-          <FileText className="mr-2 h-4 w-4" />
-          Edit
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={onDuplicate}>
-          <Copy className="mr-2 h-4 w-4" />
-          Duplicate
-        </DropdownMenuItem>
-        {(post.status === "draft" || post.status === "scheduled" || post.status === "publishing") && (
-          <DropdownMenuItem onClick={onPublishNow}>
-            <Send className="mr-2 h-4 w-4" />
-            {post.status === "publishing" ? "Retry publish" : "Publish now"}
-          </DropdownMenuItem>
-        )}
-        {post.status === "failed" && (
-          <DropdownMenuItem onClick={onRetry}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Retry
-          </DropdownMenuItem>
-        )}
-        {post.status !== "archived" && (
-          <DropdownMenuItem onClick={onArchive}>
-            <Archive className="mr-2 h-4 w-4" />
-            Archive
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="text-destructive" onClick={onDelete}>
-          <Trash2 className="mr-2 h-4 w-4" />
-          Delete
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+function MediaThumbnail({ post }: { post: SocialPost }) {
+  return <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted text-muted-foreground sm:h-16 sm:w-16">{post.imageUrl && !isVideoMediaUrl(post.imageUrl) ? <img src={post.imageUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : post.imageUrl ? <Video className="h-5 w-5" /> : <FileText className="h-5 w-5" />}</span>;
 }
 
-function EmptyState() {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-          <FileText className="h-5 w-5 text-muted-foreground" />
-        </div>
-        <div>
-          <h3 className="font-semibold">No posts match your filters</h3>
-          <p className="text-sm text-muted-foreground">
-            Try clearing filters or create a new post.
-          </p>
-        </div>
-        <Button size="sm" asChild>
-          <Link href="/dashboard/content-studio/generate">
-            <Plus className="mr-2 h-4 w-4" />
-            New post
-          </Link>
-        </Button>
-      </CardContent>
-    </Card>
-  );
+function PostMenu({ post, busy, onPreview, onEdit, onDuplicate, onRetry, onPublish, onArchive, onDelete }: { post: SocialPost; busy: boolean; onPreview: () => void; onEdit: () => void; onDuplicate: () => void; onRetry: () => void; onPublish: () => void; onArchive: () => void; onDelete: () => void }) {
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${post.title || "Untitled post"}`} disabled={busy} className="h-8 w-8 shrink-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={onPreview}><Eye className="mr-2 h-4 w-4" />Preview</DropdownMenuItem><DropdownMenuItem onClick={onEdit}><FileText className="mr-2 h-4 w-4" />View details / edit</DropdownMenuItem><DropdownMenuItem onClick={onDuplicate}><Copy className="mr-2 h-4 w-4" />Duplicate</DropdownMenuItem>{["draft", "scheduled", "publishing"].includes(post.status) && <DropdownMenuItem onClick={onPublish}><Send className="mr-2 h-4 w-4" />{post.status === "publishing" ? "Retry publish" : "Publish now"}</DropdownMenuItem>}{post.status === "failed" && <DropdownMenuItem onClick={onRetry}><RefreshCw className="mr-2 h-4 w-4" />Retry</DropdownMenuItem>}{post.status !== "archived" && <DropdownMenuItem onClick={onArchive}><Archive className="mr-2 h-4 w-4" />Archive</DropdownMenuItem>}<DropdownMenuSeparator /><DropdownMenuItem className="text-destructive" onClick={onDelete}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem></DropdownMenuContent></DropdownMenu>;
 }

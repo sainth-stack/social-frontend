@@ -1,26 +1,17 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  Grid,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import AuthCardShell from "@/components/auth/AuthCardShell";
-import PasswordInput from "@/components/auth/PasswordInput";
-import PasswordStrengthMeter from "@/components/auth/PasswordStrengthMeter";
-import AppInput from "@/components/ui/AppInput";
+import { AuthFormField, AuthPasswordStrength } from "@/components/auth/AuthFormFields";
+import { Button } from "@/components/ui/button";
 import {
   clearAuthError,
   selectAuthError,
@@ -31,13 +22,6 @@ import {
 } from "@/features/auth/authSlice";
 import { register as registerUser } from "@/features/auth/authThunks";
 import { platformBrand } from "@/lib/brand";
-import {
-  authFooterLinkSx,
-  authInlineLinkSx,
-  authInputSx,
-  authLayout,
-  authPrimaryButtonSx,
-} from "@/lib/authStyles";
 import { getHomeRoute } from "@/lib/auth/users";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
@@ -67,12 +51,13 @@ export default function RegisterForm() {
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
   const isHydrated = useAppSelector(selectIsAuthHydrated);
   const user = useAppSelector(selectUser);
+  const submitting = useRef(false);
 
   const {
     register,
     handleSubmit,
     watch,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<RegisterValues>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
@@ -88,6 +73,10 @@ export default function RegisterForm() {
   const passwordValue = watch("password");
 
   useEffect(() => {
+    dispatch(clearAuthError());
+  }, [dispatch]);
+
+  useEffect(() => {
     if (!isHydrated || !isAuthenticated || !user) return;
     if (user.isPlatformAdmin) {
       router.replace(getHomeRoute(user));
@@ -96,24 +85,31 @@ export default function RegisterForm() {
     router.replace("/dashboard/onboarding");
   }, [isAuthenticated, isHydrated, router, user]);
 
-  const onSubmit = handleSubmit(async (values) => {
-    dispatch(clearAuthError());
-
+  const busy = isSubmitting || authLoading;
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting.current || busy) return;
+    submitting.current = true;
     try {
-      await dispatch(
-        registerUser({
-          name: values.name,
-          workspaceName: values.business,
-          email: values.email,
-          password: values.password,
-        }),
-      ).unwrap();
-      toast.success("Workspace created — welcome to OpsBrain");
-      router.replace("/dashboard/onboarding");
-    } catch {
-      // Error stored in auth slice
+      await handleSubmit(async (values) => {
+        dispatch(clearAuthError());
+        try {
+          await dispatch(
+            registerUser({
+              name: values.name,
+              workspaceName: values.business,
+              email: values.email,
+              password: values.password,
+            }),
+          ).unwrap();
+          toast.success("Workspace created — welcome to OpsBrain");
+          router.replace("/dashboard/onboarding");
+        } catch {}
+      })(event);
+    } finally {
+      submitting.current = false;
     }
-  });
+  };
 
   const termsUrl = `${platformBrand.marketingUrl}/terms`;
   const privacyUrl = `${platformBrand.marketingUrl}/privacy`;
@@ -121,121 +117,104 @@ export default function RegisterForm() {
   return (
     <AuthCardShell
       title="Create your workspace"
-      subtitle="Start free. Connect channels, generate content with AI, and schedule posts in minutes."
+      subtitle="Bring your channels, content, and team together in one workspace."
       footer={
         <>
           Already have an account?{" "}
-          <Link href="/login" style={{ textDecoration: "none" }}>
-            <Typography component="span" sx={authFooterLinkSx}>
-              Sign in
-            </Typography>
+          <Link href="/login" className="rounded-sm font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Sign in
           </Link>
         </>
       }
     >
-      <Box component="form" onSubmit={onSubmit} noValidate>
-        <Stack sx={{ gap: authLayout.fieldGap }}>
+      <form onSubmit={onSubmit} noValidate aria-busy={busy} className="space-y-5">
           {authError ? (
-            <Alert severity="error" variant="outlined" sx={{ borderRadius: "10px" }}>
+            <div role="alert" className="rounded-xl border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm text-destructive">
               {authError}
-            </Alert>
+            </div>
           ) : null}
 
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <AppInput
+          <div className="grid gap-5 sm:grid-cols-2">
+              <AuthFormField
                 label="Full name"
                 autoComplete="name"
                 autoFocus
                 placeholder="Ava Chen"
-                error={!!errors.name}
-                helperText={errors.name?.message}
-                sx={authInputSx}
+                error={errors.name?.message}
+                disabled={busy}
                 {...register("name")}
               />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <AppInput
+              <AuthFormField
                 label="Business name"
                 autoComplete="organization"
                 placeholder="Northstar Media"
-                error={!!errors.business}
-                helperText={errors.business?.message}
-                sx={authInputSx}
+                error={errors.business?.message}
+                disabled={busy}
                 {...register("business")}
               />
-            </Grid>
-          </Grid>
+          </div>
 
-          <AppInput
+          <AuthFormField
             label="Work email"
             type="email"
             autoComplete="email"
             placeholder="you@company.com"
-            error={!!errors.email}
-            helperText={errors.email?.message}
-            sx={authInputSx}
+            error={errors.email?.message}
+            disabled={busy}
             {...register("email")}
           />
 
-          <Stack sx={{ gap: 0 }}>
-            <PasswordInput
+          <div>
+            <AuthFormField
               label="Password"
+              password
               autoComplete="new-password"
               placeholder="At least 8 characters"
-              error={!!errors.password}
-              helperText={errors.password?.message}
-              sx={authInputSx}
+              error={errors.password?.message}
+              hint="Use at least 8 characters, including a letter and a number."
+              disabled={busy}
               {...register("password")}
             />
-            <PasswordStrengthMeter password={passwordValue} />
-          </Stack>
+            <AuthPasswordStrength password={passwordValue} />
+          </div>
 
-          <PasswordInput
+          <AuthFormField
             label="Confirm password"
+            password
             autoComplete="new-password"
             placeholder="Re-enter your password"
-            error={!!errors.confirm}
-            helperText={errors.confirm?.message}
-            sx={authInputSx}
+            error={errors.confirm?.message}
+            disabled={busy}
             {...register("confirm")}
           />
 
           <Button
             type="submit"
-            variant="contained"
-            color="primary"
-            fullWidth
-            disabled={authLoading}
-            sx={authPrimaryButtonSx}
+            disabled={busy}
+            className="h-12 w-full rounded-xl text-sm font-semibold focus-visible:ring-2"
           >
-            {authLoading ? (
+            {busy ? (
               <>
-                <CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />
+                <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />
                 Creating workspace…
               </>
             ) : (
-              "Create account"
+              <>Create account <ArrowRight aria-hidden="true" /></>
             )}
           </Button>
 
-          <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.55, textAlign: "center" }}>
+          <p className="text-center text-xs leading-relaxed text-muted-foreground">
             By creating an account, you agree to our{" "}
-            <Link href={termsUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
-              <Typography component="span" variant="caption" sx={authInlineLinkSx}>
-                Terms
-              </Typography>
+            <Link href={termsUrl} target="_blank" rel="noopener noreferrer" className="rounded-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Terms
             </Link>{" "}
             and{" "}
-            <Link href={privacyUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
-              <Typography component="span" variant="caption" sx={authInlineLinkSx}>
-                Privacy Policy
-              </Typography>
+            <Link href={privacyUrl} target="_blank" rel="noopener noreferrer" className="rounded-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Privacy Policy
             </Link>
             .
-          </Typography>
-        </Stack>
-      </Box>
+          </p>
+      </form>
     </AuthCardShell>
   );
 }

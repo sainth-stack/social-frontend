@@ -27,6 +27,7 @@ import type { PlanTier } from "@/types/auth";
 import type { BillingPlanPrice, CouponPreview } from "@/types/billing";
 
 const PLAN_RANK: Record<PlanTier, number> = { starter: 0, growth: 1, enterprise: 2 };
+const SCALE_SALES_URL = "mailto:founder@opsbrainai.com?subject=OpsBrain%20AI%20Scale%20plan";
 const planName = (key: string) => DEFAULT_PRICING_CATALOG.find((plan) => plan.id === key)?.name ?? key;
 const money = (paise: number, currency = "INR") => new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: paise % 100 === 0 ? 0 : 2 }).format(paise / 100);
 
@@ -112,7 +113,7 @@ function WorkspaceBilling({ workspaceId, checkoutMutex, paying, setPaying }: { w
   const priceLabel = (key: PlanTier) => key === "starter" ? "Free" : livePrice(key) ? money(livePrice(key)!.monthlyPricePaise) : "Price unavailable";
   const usageBars = usage.data ? [
     { label: "Posts this month", ...usage.data.postsThisMonth },
-    { label: "Connected accounts", ...usage.data.accounts },
+    { label: "Connected accounts", used: usage.data.accounts.used, limit: null },
     { label: "Saved templates", ...usage.data.templates },
   ] : [];
   const atLimit = usageBars.some((item) => item.limit !== null && (item.limit === 0 ? item.used > 0 : item.used / item.limit >= 0.8));
@@ -221,15 +222,15 @@ function WorkspaceBilling({ workspaceId, checkoutMutex, paying, setPaying }: { w
         <Card><CardHeader><span aria-hidden="true" className="mb-2 flex size-10 items-center justify-center rounded-xl bg-muted text-primary"><ShieldCheck className="size-5" /></span><CardTitle role="heading" aria-level={2} className="text-base">Simple, secure payments</CardTitle><CardDescription>Pay once for 30 days of paid plan access.</CardDescription></CardHeader><CardContent><ul className="space-y-3 text-sm text-muted-foreground">{["Secure Razorpay checkout", "UPI, cards, and netbanking", "Optional coupon codes", "No automatic recurring charge"].map((text) => <li key={text} className="flex items-start gap-2"><Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-success" />{text}</li>)}</ul></CardContent></Card>
       </div>
       <section aria-labelledby="plans-heading" className="space-y-4">
-        <div><h2 ref={plansHeading} id="plans-heading" tabIndex={-1} className="text-lg font-semibold tracking-tight">Find your next level</h2><p className="mt-1 text-sm text-muted-foreground">One-time upgrades in INR. Plan allowances are monthly; paid access lasts 30 days.</p></div>
+        <div><h2 ref={plansHeading} id="plans-heading" tabIndex={-1} className="text-lg font-semibold tracking-tight">Find your next level</h2><p className="mt-1 text-sm text-muted-foreground">Unlimited social accounts on every plan. Self-service upgrades are one-time payments in INR for 30 days of access. Scale is available through sales.</p></div>
         {prices.error && <ResourceError message={prices.error} retry={() => void prices.reload()} label="Retry prices" />}
-        {prices.loading ? <div role="status" aria-label="Loading plans" className="grid gap-4 lg:grid-cols-3">{Array.from({ length: 3 }, (_, i) => <Skeleton key={i} className="h-80 w-full rounded-2xl" />)}</div> : <div className="grid gap-4 lg:grid-cols-3">{DEFAULT_PRICING_CATALOG.map((plan) => {
+        {prices.loading ? <div role="status" aria-label="Loading plans" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-80 w-full rounded-2xl" />)}</div> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{DEFAULT_PRICING_CATALOG.map((plan) => {
           const current = plan.id === planId;
           const higher = PLAN_RANK[plan.id] > PLAN_RANK[planId];
           const price = livePrice(plan.id);
           const features = [
             `${plan.limits.postsPerMonth === null ? "Unlimited" : plan.limits.postsPerMonth} posts / month`,
-            `${plan.limits.accounts === null ? "Unlimited" : plan.limits.accounts} connected accounts`,
+            "Unlimited connected accounts",
             `${plan.limits.aiTextGenerations === null ? "Unlimited" : plan.limits.aiTextGenerations} AI text generations / month`,
             `${plan.limits.aiImageGenerations === null ? "Unlimited" : plan.limits.aiImageGenerations} AI images / month`,
             `${plan.limits.aiVideoGenerations === null ? "Unlimited" : plan.limits.aiVideoGenerations} AI videos / month`,
@@ -261,7 +262,20 @@ function WorkspaceBilling({ workspaceId, checkoutMutex, paying, setPaying }: { w
               </CardContent>
             </Card>
           );
-        })}</div>}
+        })}
+          <Card className="flex flex-col">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-2"><CardTitle role="heading" aria-level={3} className="text-base">Scale</CardTitle><Badge variant="outline">Sales-assisted</Badge></div>
+              <div className="pt-3"><p className="text-3xl font-semibold tracking-tight">{money(499900)}</p><p className="mt-1 text-xs text-muted-foreground">Per month · Available through sales</p></div>
+              <CardDescription>Larger teams and multi-brand operations</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col">
+              <ul className="mb-6 flex-1 space-y-3 text-sm">{["Unlimited connected accounts", "Tailored monthly post allowance", "Tailored AI text and image allowances", "Brand voice", "Approval workflow"].map((feature) => <li key={feature} className="flex items-start gap-2"><Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-success" /><span className="text-muted-foreground">{feature}</span></li>)}</ul>
+              <Button variant="outline" asChild><a href={SCALE_SALES_URL}>Contact sales</a></Button>
+              <p className="mt-2 text-xs text-muted-foreground">Discuss allowances and activation with sales. Scale is not available in self-service checkout.</p>
+            </CardContent>
+          </Card>
+        </div>}
         {!prices.loading && !prices.error && DEFAULT_PRICING_CATALOG.some((plan) => plan.id !== "starter" && !livePrice(plan.id)) && <Button variant="outline" onClick={() => void prices.reload()}>Refresh prices</Button>}
       </section>
       <Card><CardHeader><CardTitle role="heading" aria-level={2} className="text-base">Payment history</CardTitle><CardDescription>Workspace checkout attempts and confirmed payments. This is not an invoice.</CardDescription></CardHeader><CardContent className="space-y-4">

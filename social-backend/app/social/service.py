@@ -291,9 +291,6 @@ class SocialMediaService:
         *,
         reconnect_account_id: Optional[str] = None,
     ) -> str:
-        from app.social.limits import enforce_account_limit
-
-        enforce_account_limit(self.db, workspace)
         try:
             handler = get_oauth_handler(platform)
         except ValueError as exc:

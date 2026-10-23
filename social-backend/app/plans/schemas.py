@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 class PlanLimitsOut(BaseModel):
-    connected_accounts: int
+    connected_accounts: Optional[int]
     posts_per_month: int
     ai_text_per_month: int
     ai_images_per_month: int

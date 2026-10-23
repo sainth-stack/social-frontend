@@ -1,0 +1,20 @@
+{
+  "title": "Meet OpsBrain AI — Your social content, connected",
+  "voice": "en-US-AriaNeural",
+  "site": "opsbrainai.com",
+  "fps": 24,
+  "width": 1920,
+  "height": 1080,
+  "scenes": [
+    {"id": "opening", "duration": 9, "eyebrow": "MEET OPSBRAIN AI", "title": "Your next week.\nAlready taking shape.", "subtitle": "Content planning. Publishing. Performance.", "narration": "Your business has a story. But finding time to tell it, every day, takes work. Meet OpsBrain AI."},
+    {"id": "brand", "duration": 9, "eyebrow": "01 / BRAND FOUNDATION", "title": "Start with what makes\nyour brand, yours.", "subtitle": "Your audience, tone and visual identity. In one place.", "narration": "Start with your brand. Bring together your audience, tone, colors and visual identity, so every draft starts with the right context."},
+    {"id": "brief", "duration": 9, "eyebrow": "02 / THE BRIEF", "title": "A clear goal.\nA stronger starting point.", "subtitle": "Tell OpsBrain what your next campaign needs to achieve.", "narration": "Tell OpsBrain what you are working toward. Introduce a product, share your expertise, or start a conversation with your audience."},
+    {"id": "planner", "duration": 9, "eyebrow": "03 / WEEKLY PLANNING", "title": "One brief.\nA week of direction.", "subtitle": "Seven days of topics, formats and editable drafts.", "narration": "Turn that brief into a seven-day content plan. Explore topics, formats and captions, then shape each idea around your business."},
+    {"id": "studio", "duration": 9, "eyebrow": "04 / CONTENT STUDIO", "title": "From first idea\nto a draft worth sharing.", "subtitle": "Create captions and visuals. Make every detail your own.", "narration": "Move into Content Studio to develop your posts. Create captions and visuals, refine the wording, and review the details before anything goes live."},
+    {"id": "channels", "duration": 9, "eyebrow": "05 / CONNECTED CHANNELS", "title": "Nine platforms.\nOne connected workflow.", "subtitle": "Adapt your content for the channels your audience uses.", "narration": "Connect the channels your audience uses. Manage content across nine social platforms, and adapt each post to the format and account you are publishing to."},
+    {"id": "approval", "duration": 9, "eyebrow": "06 / TEAM REVIEW", "title": "The right feedback.\nBefore the final post.", "subtitle": "Share drafts, collect feedback and track approvals.", "narration": "Bring your team into the process. Share drafts, collect feedback and track approvals, so everyone knows what is ready and what needs another look."},
+    {"id": "calendar", "duration": 9, "eyebrow": "07 / PUBLISHING", "title": "A clear calendar.\nA coordinated week.", "subtitle": "Review your schedule. Choose when each post goes live.", "narration": "See your publishing week in one calendar. Check statuses, set publish times, and schedule approved content across your connected accounts."},
+    {"id": "analytics", "duration": 9, "eyebrow": "08 / PERFORMANCE", "title": "Learn from the posts\nyou put into the world.", "subtitle": "Turn performance insights into your next content decisions.", "narration": "Then review what happened. Compare post performance and engagement, understand what resonated, and use those insights to guide the next plan."},
+    {"id": "closing", "duration": 9, "eyebrow": "YOUR NEXT WEEK STARTS HERE", "title": "Get your content in order.\nGet back to your business.", "subtitle": "Start free at opsbrainai.com", "narration": "From your first brief to your next campaign. Plan, create, review and publish with OpsBrain AI. Start free, and put your next week in motion."}
+  ]
+}

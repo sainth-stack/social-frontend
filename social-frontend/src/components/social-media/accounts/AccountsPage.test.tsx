@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import socialMediaApi from "@/api/endpoints/social-media.api";
 import authReducer from "@/features/auth/authSlice";
 import type { User } from "@/types/auth";
-import type { SocialAccount, SocialDashboardStats } from "@/types/social-media.types";
+import type { SocialAccount } from "@/types/social-media.types";
 import { openSocialOAuthPopup } from "./OAuthConnectButton";
 import AccountsPage from "./AccountsPage";
 
@@ -31,10 +31,6 @@ const user: User = {
   id: "user-1", email: "alex@example.com", name: "Alex", isPlatformAdmin: false,
   workspaceId: "workspace-1", workspaceName: "Acme", socialPermissionLevel: "admin", plan: "starter",
 };
-const usage: SocialDashboardStats["usage"] = {
-  plan: "starter", accounts: { used: 2, limit: 10 }, postsThisMonth: { used: 0, limit: 10 },
-  templates: { used: 0, limit: null }, brandVoice: true, approvalWorkflow: false,
-};
 const account: SocialAccount = {
   id: "account-1", orgId: "workspace-1", platform: "instagram", accountType: "profile",
   platformAccountId: "profile-1", accountName: "Acme Studio", accountPictureUrl: null,
@@ -50,8 +46,8 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function renderAccounts(workspaceId = "workspace-1", strict = false) {
-  const initial = { ...authReducer(undefined, { type: "init" }), user: { ...user, workspaceId }, accessToken: "test-token", isAuthenticated: true, isHydrated: true };
+function renderAccounts(workspaceId = "workspace-1", strict = false, plan: User["plan"] = "starter") {
+  const initial = { ...authReducer(undefined, { type: "init" }), user: { ...user, workspaceId, plan }, accessToken: "test-token", isAuthenticated: true, isHydrated: true };
   const store = configureStore({
     reducer: {
       auth: (state: ReturnType<typeof authReducer> = initial, action: UnknownAction) => action.type === "test/workspace"
@@ -77,7 +73,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => null);
   vi.mocked(socialMediaApi.listAccounts).mockReset().mockResolvedValue([account, second]);
-  vi.mocked(socialMediaApi.getUsage).mockReset().mockResolvedValue(usage);
+  vi.mocked(socialMediaApi.getUsage).mockReset();
   vi.mocked(socialMediaApi.getOAuthUrl).mockReset().mockResolvedValue({ url: "https://provider.example/connect" });
   vi.mocked(socialMediaApi.reconnectAccount).mockReset().mockResolvedValue({ url: "https://provider.example/reconnect" });
   vi.mocked(socialMediaApi.syncAccount).mockReset().mockResolvedValue(account);
@@ -86,18 +82,18 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("AccountsPage", () => {
-  it("loads accounts and lightweight usage independently without dashboard stats", async () => {
+  it("loads only accounts with an unlimited summary and no usage or dashboard dependency", async () => {
     const pending = deferred<SocialAccount[]>();
     vi.mocked(socialMediaApi.listAccounts).mockReturnValueOnce(pending.promise);
     renderAccounts();
     expect(screen.getByRole("status", { name: "Loading accounts" })).toBeTruthy();
-    await screen.findByText("— / 10");
+    expect(screen.getByText("— / Unlimited")).toBeTruthy();
     expect(screen.queryByText("No accounts connected yet")).toBeNull();
     expect(socialMediaApi.listAccounts).toHaveBeenCalledWith("workspace-1");
-    expect(socialMediaApi.getUsage).toHaveBeenCalledWith("workspace-1");
+    expect(socialMediaApi.getUsage).not.toHaveBeenCalled();
     expect(socialMediaApi.getDashboardStats).not.toHaveBeenCalled();
     await act(async () => pending.resolve([account]));
-    expect(screen.getByText("1 / 10")).toBeTruthy();
+    expect(screen.getByText("1 / Unlimited")).toBeTruthy();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 
@@ -118,7 +114,7 @@ describe("AccountsPage", () => {
     expect(screen.getByText("Expires soon")).toBeTruthy();
     expect(screen.getByText("just now")).toBeTruthy();
     expect(screen.getByText("Disconnected")).toBeTruthy();
-    expect(screen.getByText("4 / 10")).toBeTruthy();
+    expect(screen.getByText("4 / Unlimited")).toBeTruthy();
     expect(screen.queryByText("Inactive")).toBeNull();
   });
 
@@ -132,7 +128,7 @@ describe("AccountsPage", () => {
     expect(await screen.findByText("No accounts connected yet")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Connect Instagram" })).toBeTruthy();
     expect(socialMediaApi.listAccounts).toHaveBeenCalledTimes(2);
-    expect(socialMediaApi.getUsage).toHaveBeenCalledTimes(1);
+    expect(socialMediaApi.getUsage).not.toHaveBeenCalled();
   });
 
   it("retains rows while refreshing and after refresh failure, then retries", async () => {
@@ -151,55 +147,47 @@ describe("AccountsPage", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
-  it("does not block rows on pending or failed usage and retries usage separately", async () => {
-    const pending = deferred<SocialDashboardStats["usage"]>();
-    vi.mocked(socialMediaApi.getUsage).mockReturnValueOnce(pending.promise);
+  it.each(["free", "pro", "growth", "scale", "starter", "enterprise"])("allows more accounts beyond old caps on the %s plan without reading usage", async (plan) => {
+    vi.mocked(socialMediaApi.listAccounts).mockResolvedValue(Array.from({ length: 26 }, (_, index) => ({ ...account, id: `account-${index}`, accountName: `Account ${index}` })));
+    renderAccounts("workspace-1", false, plan as User["plan"]);
+    await screen.findByText("26 / Unlimited");
+    expect(screen.getByText("Unlimited accounts on every plan.")).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Upgrade" })).toBeNull();
+    expect(screen.queryByText(/Checking account limit|Limit unknown|Retry usage/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Add another Instagram account" }));
+    expect(socialMediaApi.getOAuthUrl).toHaveBeenCalledWith("workspace-1", "instagram");
+    oauthResult(true);
+    await waitFor(() => expect(socialMediaApi.listAccounts).toHaveBeenCalledTimes(2));
+    expect(socialMediaApi.getUsage).not.toHaveBeenCalled();
+  });
+
+  it("keeps an empty account list connectable with an unlimited summary", async () => {
+    vi.mocked(socialMediaApi.listAccounts).mockResolvedValue([]);
+    renderAccounts();
+    expect(await screen.findByText("0 / Unlimited")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Connect Instagram" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Connect Facebook" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Connect LinkedIn" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it.each(["X", "Threads", "YouTube", "TikTok", "Pinterest", "Bluesky"])("shows %s as Coming soon with no authorization or account API actions", async (name) => {
     renderAccounts();
     await screen.findByText("Acme Shop");
-    expect(screen.getByText("2 / Limit unknown")).toBeTruthy();
-    expect(screen.queryByRole("progressbar")).toBeNull();
-    await act(async () => pending.reject(new Error("Offline")));
-    expect(screen.getByText(/Account limit unavailable/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Add another Instagram account" }) as HTMLButtonElement).disabled).toBe(false);
-    await userEvent.click(screen.getByRole("button", { name: "Retry usage" }));
-    expect(await screen.findByText("2 / 10")).toBeTruthy();
+    const upcoming = screen.getByRole("region", { name: "More channels, coming soon" });
+    expect(within(upcoming).getAllByRole("heading", { level: 3 })).toHaveLength(6);
+    expect(within(upcoming).getByRole("heading", { name })).toBeTruthy();
+    const button = within(upcoming).getByRole("button", { name: `Connect ${name} — Coming soon` });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(button);
+    fireEvent.click(button);
+    expect(socialMediaApi.getOAuthUrl).not.toHaveBeenCalled();
+    expect(socialMediaApi.reconnectAccount).not.toHaveBeenCalled();
+    expect(socialMediaApi.syncAccount).not.toHaveBeenCalled();
+    expect(socialMediaApi.deleteAccount).not.toHaveBeenCalled();
+    expect(openSocialOAuthPopup).not.toHaveBeenCalled();
     expect(socialMediaApi.listAccounts).toHaveBeenCalledTimes(1);
-  });
-
-  it("replaces a previously unlimited limit with unknown when usage refresh fails", async () => {
-    vi.mocked(socialMediaApi.getUsage).mockResolvedValueOnce({ ...usage, accounts: { used: 2, limit: null } });
-    renderAccounts();
-    await screen.findByText("2 / Unlimited");
-    vi.mocked(socialMediaApi.getUsage).mockRejectedValueOnce(new Error("Offline"));
-    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
-    expect(await screen.findByText("2 / Limit unknown")).toBeTruthy();
-    expect(screen.queryByText(/Unlimited/)).toBeNull();
-    expect(screen.queryByRole("progressbar")).toBeNull();
-    expect(screen.getByText(/Account limit unavailable/)).toBeTruthy();
-    expect(screen.getByText("Acme Shop")).toBeTruthy();
-  });
-
-  it.each([null, 0, 2])("keeps the %s plan limit honest and preserves billing navigation", async (limit) => {
-    vi.mocked(socialMediaApi.getUsage).mockResolvedValue({ ...usage, accounts: { used: 2, limit } });
-    renderAccounts();
-    await screen.findByText(`2 / ${limit === null ? "Unlimited" : limit}`);
-    const add = screen.getByRole("button", { name: "Add another Instagram account" }) as HTMLButtonElement;
-    expect(add.disabled).toBe(limit !== null);
-    if (limit === null) {
-      expect(screen.queryByRole("progressbar")).toBeNull();
-      expect(screen.queryByRole("link", { name: "Upgrade" })).toBeNull();
-    } else {
-      expect(screen.getByRole("progressbar", { name: "Account usage" }).getAttribute("aria-valuenow")).toBe("100");
-      expect(screen.getByRole("link", { name: "Upgrade" }).getAttribute("href")).toBe("/dashboard/billing");
-    }
-  });
-
-  it("keeps a zero limit distinct from an empty account list", async () => {
-    vi.mocked(socialMediaApi.listAccounts).mockResolvedValue([]);
-    vi.mocked(socialMediaApi.getUsage).mockResolvedValue({ ...usage, accounts: { used: 0, limit: 0 } });
-    renderAccounts();
-    expect(await screen.findByText("0 / 0")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Connect Instagram" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(socialMediaApi.getUsage).not.toHaveBeenCalled();
   });
 
   it("connects via the original popup helper, refreshes on success and ignores repeated callbacks", async () => {
@@ -211,7 +199,7 @@ describe("AccountsPage", () => {
     await waitFor(() => expect(socialMediaApi.listAccounts).toHaveBeenCalledTimes(2));
     act(() => callback(true));
     expect(socialMediaApi.listAccounts).toHaveBeenCalledTimes(2);
-    expect(socialMediaApi.getUsage).toHaveBeenCalledTimes(2);
+    expect(socialMediaApi.getUsage).not.toHaveBeenCalled();
     expect(toast.success).toHaveBeenCalledWith("LinkedIn connected");
   });
 
@@ -295,7 +283,11 @@ describe("AccountsPage", () => {
     const row = await screen.findByRole("region", { name: "X account Acme Studio" });
     expect((within(row).getByRole("button", { name: "Reconnect" }) as HTMLButtonElement).disabled).toBe(true);
     expect((within(row).getByRole("button", { name: "Sync now" }) as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.queryByRole("button", { name: /Connect X|Add another X/ })).toBeNull();
+    const connect = screen.getByRole("button", { name: "Connect X — Coming soon" });
+    expect((connect as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(connect);
+    await userEvent.click(within(row).getByRole("button", { name: "Reconnect" }));
+    expect(screen.queryByRole("button", { name: /Add another X/ })).toBeNull();
     await userEvent.click(within(row).getByRole("button", { name: "Sync now" }));
     await waitFor(() => expect((within(row).getByRole("button", { name: "Disconnect" }) as HTMLButtonElement).disabled).toBe(false));
     await userEvent.click(within(row).getByRole("button", { name: "Disconnect" }));
@@ -324,31 +316,27 @@ describe("AccountsPage", () => {
     await act(async () => pending.resolve({ ...account, url: "https://provider.example/oauth" }));
   });
 
-  it("ignores old workspace list and usage results", async () => {
+  it("ignores old workspace list results", async () => {
     const oldList = deferred<SocialAccount[]>();
-    const oldUsage = deferred<SocialDashboardStats["usage"]>();
     vi.mocked(socialMediaApi.listAccounts).mockReturnValueOnce(oldList.promise).mockResolvedValue([]);
-    vi.mocked(socialMediaApi.getUsage).mockReturnValueOnce(oldUsage.promise).mockResolvedValue({ ...usage, accounts: { used: 0, limit: null } });
     const { store } = renderAccounts();
     switchWorkspace(store);
     await screen.findByText("0 / Unlimited");
-    await act(async () => { oldList.resolve([second]); oldUsage.resolve(usage); });
+    await act(async () => { oldList.resolve([second]); });
     expect(screen.queryByText("Acme Shop")).toBeNull();
     expect(screen.getByText("0 / Unlimited")).toBeTruthy();
     expect(socialMediaApi.listAccounts).toHaveBeenLastCalledWith("workspace-2");
   });
 
-  it("ignores old workspace list and usage failures", async () => {
+  it("ignores old workspace list failures", async () => {
     const oldList = deferred<SocialAccount[]>();
-    const oldUsage = deferred<SocialDashboardStats["usage"]>();
     vi.mocked(socialMediaApi.listAccounts).mockReturnValueOnce(oldList.promise);
-    vi.mocked(socialMediaApi.getUsage).mockReturnValueOnce(oldUsage.promise);
     const { store } = renderAccounts();
     switchWorkspace(store);
     await screen.findByText("Acme Shop");
-    await act(async () => { oldList.reject(new Error("Offline")); oldUsage.reject(new Error("Offline")); });
+    await act(async () => { oldList.reject(new Error("Offline")); });
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText("2 / 10")).toBeTruthy();
+    expect(screen.getByText("2 / Unlimited")).toBeTruthy();
   });
 
   it("deduplicates refreshes and blocks actions until the account read settles", async () => {
@@ -379,42 +367,36 @@ describe("AccountsPage", () => {
     });
     expect(socialMediaApi.syncAccount).toHaveBeenCalledTimes(1);
     expect(socialMediaApi.listAccounts).toHaveBeenCalledTimes(1);
-    expect(socialMediaApi.getUsage).toHaveBeenCalledTimes(1);
+    expect(socialMediaApi.getUsage).not.toHaveBeenCalled();
     vi.mocked(socialMediaApi.listAccounts).mockResolvedValue([account, { ...second, accountName: "Synced shop" }]);
     await act(async () => pending.resolve(second));
     expect(await screen.findByText("Synced shop")).toBeTruthy();
     expect(socialMediaApi.listAccounts).toHaveBeenCalledTimes(2);
-    expect(socialMediaApi.getUsage).toHaveBeenCalledTimes(2);
+    expect(socialMediaApi.getUsage).not.toHaveBeenCalled();
   });
 
-  it("guards usage and account retries while a mutation is pending, including the same event batch", async () => {
+  it("guards account retries while a mutation is pending, including the same event batch", async () => {
     const pending = deferred<SocialAccount>();
     vi.mocked(socialMediaApi.syncAccount).mockReturnValueOnce(pending.promise);
     renderAccounts();
     const row = await screen.findByRole("region", { name: "Instagram account Acme Shop" });
     vi.mocked(socialMediaApi.listAccounts).mockRejectedValueOnce(new Error("Offline"));
-    vi.mocked(socialMediaApi.getUsage).mockRejectedValueOnce(new Error("Offline"));
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
     const retryAccounts = await screen.findByRole("button", { name: "Retry accounts" });
-    const retryUsage = screen.getByRole("button", { name: "Retry usage" });
     act(() => {
       fireEvent.click(within(row).getByRole("button", { name: "Sync now" }));
       fireEvent.click(retryAccounts);
-      fireEvent.click(retryUsage);
     });
     expect(socialMediaApi.listAccounts).toHaveBeenCalledTimes(2);
-    expect(socialMediaApi.getUsage).toHaveBeenCalledTimes(2);
-    expect((retryUsage as HTMLButtonElement).disabled).toBe(true);
+    expect(socialMediaApi.getUsage).not.toHaveBeenCalled();
+    expect((retryAccounts as HTMLButtonElement).disabled).toBe(true);
     await act(async () => pending.resolve(second));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     expect(socialMediaApi.listAccounts).toHaveBeenCalledTimes(3);
-    expect(socialMediaApi.getUsage).toHaveBeenCalledTimes(3);
+    expect(socialMediaApi.getUsage).not.toHaveBeenCalled();
   });
 
-  it.each(["connect", "reconnect", "sync", "disconnect"] as const)("supersedes pending usage after %s and ignores the earlier result", async (kind) => {
-    const pending = deferred<SocialDashboardStats["usage"]>();
-    vi.mocked(socialMediaApi.getUsage).mockReturnValueOnce(pending.promise)
-      .mockResolvedValue({ ...usage, accounts: { used: 2, limit: 0 } });
+  it.each(["connect", "reconnect", "sync", "disconnect"] as const)("reloads only accounts after %s and keeps the summary unlimited", async (kind) => {
     renderAccounts();
     const row = await screen.findByRole("region", { name: "Instagram account Acme Shop" });
     if (kind === "connect") await userEvent.click(screen.getByRole("button", { name: "Connect LinkedIn" }));
@@ -423,23 +405,10 @@ describe("AccountsPage", () => {
       await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }));
     } else await userEvent.click(within(row).getByRole("button", { name: kind === "sync" ? "Sync now" : "Reconnect" }));
     if (kind === "connect" || kind === "reconnect") oauthResult(true);
-    await screen.findByText("2 / 0");
-    expect(socialMediaApi.getUsage).toHaveBeenCalledTimes(2);
-    await act(async () => pending.resolve({ ...usage, accounts: { used: 2, limit: null } }));
-    expect(screen.getByText("2 / 0")).toBeTruthy();
-    expect(screen.queryByText(/Unlimited/)).toBeNull();
-    expect((screen.getByRole("button", { name: "Add another Instagram account" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("ignores superseded usage failures after a successful mutation refresh", async () => {
-    const pending = deferred<SocialDashboardStats["usage"]>();
-    vi.mocked(socialMediaApi.getUsage).mockReturnValueOnce(pending.promise);
-    renderAccounts();
-    const row = await screen.findByRole("region", { name: "Instagram account Acme Shop" });
-    await userEvent.click(within(row).getByRole("button", { name: "Sync now" }));
-    await screen.findByText("2 / 10");
-    await act(async () => pending.reject(new Error("Old usage failed")));
-    expect(screen.getByText("2 / 10")).toBeTruthy();
+    await waitFor(() => expect(socialMediaApi.listAccounts).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Add another Instagram account" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(socialMediaApi.getUsage).not.toHaveBeenCalled();
+    expect(screen.getByText("2 / Unlimited")).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -541,7 +510,7 @@ describe("AccountsPage", () => {
     const { container } = renderAccounts();
     if (state === "empty") await screen.findByText("No accounts connected yet");
     if (state === "error") await screen.findByRole("alert");
-    if (state === "loading") await screen.findByText("— / 10");
+    if (state === "loading") await screen.findByText("— / Unlimited");
     expect((await axe(container)).violations).toEqual([]);
   });
 });

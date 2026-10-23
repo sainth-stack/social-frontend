@@ -21,7 +21,6 @@ type FormState = {
   tagline: string;
   priceMonthlyUsd: string;
   priceAnnualUsd: string;
-  accounts: string;
   postsPerMonth: string;
   aiTextGenerations: string;
   aiImageGenerations: string;
@@ -47,7 +46,6 @@ function formFromPlan(plan: PricingPlan): FormState {
     tagline: plan.tagline,
     priceMonthlyUsd: plan.priceMonthlyUsd === null ? "" : String(plan.priceMonthlyUsd),
     priceAnnualUsd: plan.priceAnnualUsd === null ? "" : String(plan.priceAnnualUsd),
-    accounts: toFieldValue(plan.limits.accounts),
     postsPerMonth: toFieldValue(plan.limits.postsPerMonth),
     aiTextGenerations: toFieldValue(plan.limits.aiTextGenerations),
     aiImageGenerations: toFieldValue(plan.limits.aiImageGenerations),
@@ -96,7 +94,7 @@ export default function PricingPlanEditModal({
       priceMonthlyUsd: plan.isCustom ? null : Number(form.priceMonthlyUsd) || 0,
       priceAnnualUsd: plan.isCustom ? null : Number(form.priceAnnualUsd) || 0,
       limits: {
-        accounts: toLimitValue(form.accounts),
+        accounts: null,
         postsPerMonth: toLimitValue(form.postsPerMonth),
         aiTextGenerations: toLimitValue(form.aiTextGenerations),
         aiImageGenerations: toLimitValue(form.aiImageGenerations),
@@ -114,7 +112,7 @@ export default function PricingPlanEditModal({
         <DialogHeader>
           <DialogTitle>Edit {plan.name} plan</DialogTitle>
           <DialogDescription>
-            Update plan limits. Leave a limit blank for unlimited.
+            Update content allowances. Social accounts are unlimited on every plan. Leave a limit blank for unlimited.
           </DialogDescription>
         </DialogHeader>
 
@@ -150,7 +148,6 @@ export default function PricingPlanEditModal({
             {(
               [
                 ["postsPerMonth", "Max posts / month"],
-                ["accounts", "Max accounts"],
                 ["aiTextGenerations", "AI text limit"],
                 ["aiImageGenerations", "AI image limit"],
                 ["aiVideoGenerations", "AI video limit"],

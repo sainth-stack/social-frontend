@@ -60,6 +60,25 @@ beforeEach(() => {
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("BillingOverview", () => {
+  it("matches landing prices, unlimited accounts and the sales-only Scale offering", async () => {
+    vi.mocked(billingApi.listPlans).mockResolvedValue([
+      { planKey: "growth", name: "Pro", monthlyPriceInr: 499, monthlyPricePaise: 49900 },
+      { planKey: "enterprise", name: "Growth", monthlyPriceInr: 999, monthlyPricePaise: 99900 },
+    ]);
+    renderBilling();
+    await screen.findByText("₹499");
+    expect(screen.getByText("₹999")).toBeTruthy();
+    expect(screen.getByText("₹4,999")).toBeTruthy();
+    expect(screen.getAllByText("Unlimited connected accounts")).toHaveLength(4);
+    expect(screen.getByText("2 / Unlimited")).toBeTruthy();
+    expect(screen.queryByRole("progressbar", { name: "Connected accounts" })).toBeNull();
+    const popular = screen.getByText("Popular").parentElement!;
+    expect(within(popular).getByRole("heading", { name: "Growth" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Contact sales" }).getAttribute("href")).toContain("mailto:founder@opsbrainai.com");
+    expect(screen.queryByRole("button", { name: "Upgrade to Scale" })).toBeNull();
+    expect(billingApi.createCheckout).not.toHaveBeenCalled();
+  });
+
   it("loads usage, live prices, and payment history independently and in parallel", async () => {
     const pending = deferred<SocialDashboardStats["usage"]>();
     vi.mocked(socialMediaApi.getUsage).mockReturnValueOnce(pending.promise);

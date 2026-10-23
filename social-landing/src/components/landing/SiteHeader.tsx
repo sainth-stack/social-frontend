@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useState } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -16,14 +18,9 @@ export function SiteHeader() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const go = (href: string) => {
-    setOpen(false);
-    setTimeout(() => document.querySelector(href)?.scrollIntoView({ behavior: "smooth" }), 50);
-  };
-
   return (
-    <header className={`sticky top-0 z-50 border-b bg-background/90 backdrop-blur transition-shadow ${scrolled ? "shadow-card border-border" : "border-transparent"}`}>
-      <div className="container-page flex h-[68px] items-center justify-between gap-4">
+    <header className={`site-header ${scrolled ? "site-header-scrolled" : ""}`}>
+      <div className="container-page flex h-20 items-center justify-between gap-4">
         <a href="#top" aria-label="OpsBrain AI home"><BrandLockup /></a>
 
         <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
@@ -33,8 +30,8 @@ export function SiteHeader() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-60 rounded-xl p-1.5">
               {featureLinks.map((f) => (
-                <DropdownMenuItem key={f.href} className="cursor-pointer rounded-lg px-3 py-2.5" onSelect={() => go(f.href)}>
-                  {f.label}
+                <DropdownMenuItem key={f.href} asChild className="cursor-pointer rounded-lg px-3 py-2.5">
+                  <a href={f.href}>{f.label}</a>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -53,7 +50,7 @@ export function SiteHeader() {
           <a href={SIGNUP_URL} className="btn btn-primary hidden px-4 sm:inline-flex">Start free</a>
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger className="btn btn-outline px-3" aria-label="Open menu"><Menu className="h-5 w-5" /></SheetTrigger>
-            <SheetContent side="right" className="w-[88vw] max-w-sm p-0 [&>button]:hidden">
+            <SheetContent side="right" aria-describedby={undefined} className="w-[88vw] max-w-sm overflow-y-auto p-0 [&>button]:hidden">
               <div className="flex h-[68px] items-center justify-between border-b px-5">
                 <SheetTitle><BrandLockup /></SheetTitle>
                 <button className="btn btn-outline px-3" onClick={() => setOpen(false)} aria-label="Close menu"><X className="h-5 w-5" /></button>
@@ -61,11 +58,11 @@ export function SiteHeader() {
               <nav aria-label="Mobile" className="flex flex-col p-5">
                 <p className="eyebrow mb-2">Features</p>
                 {featureLinks.map((f) => (
-                  <button key={f.href} onClick={() => go(f.href)} className="min-h-11 rounded-lg px-2 text-left font-medium hover:bg-muted">{f.label}</button>
+                  <a key={f.href} href={f.href} onClick={() => setOpen(false)} className="flex min-h-11 items-center rounded-lg px-2 text-left font-medium hover:bg-muted">{f.label}</a>
                 ))}
                 <div className="my-4 h-px bg-border" />
                 {navLinks.map((l) => (
-                  <button key={l.href} onClick={() => go(l.href)} className="min-h-11 rounded-lg px-2 text-left font-medium hover:bg-muted">{l.label}</button>
+                  <a key={l.href} href={l.href} onClick={() => setOpen(false)} className="flex min-h-11 items-center rounded-lg px-2 text-left font-medium hover:bg-muted">{l.label}</a>
                 ))}
                 <div className="mt-6 grid gap-2">
                   <a href={SIGNUP_URL} className="btn btn-primary">Start free</a>

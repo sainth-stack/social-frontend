@@ -9,12 +9,12 @@ export const DEFAULT_PRICING_CATALOG: PricingPlan[] = [
   {
     id: "starter",
     name: "Free",
-    tagline: "Brand voice included — 2 accounts and AI content basics",
+    tagline: "Try the essentials with unlimited social accounts",
     priceMonthlyUsd: 0,
     priceAnnualUsd: 0,
     isCustom: false,
     limits: {
-      accounts: 2,
+      accounts: null,
       postsPerMonth: 10,
       aiTextGenerations: 30,
       aiImageGenerations: 5,
@@ -27,14 +27,13 @@ export const DEFAULT_PRICING_CATALOG: PricingPlan[] = [
   {
     id: "growth",
     name: "Pro",
-    tagline: "More posts, approval workflow, and multi-version AI",
+    tagline: "Creators and solo businesses",
     priceMonthlyUsd: 99,
     priceMonthlyInr: 499,
     priceAnnualUsd: 990,
     isCustom: false,
-    recommended: true,
     limits: {
-      accounts: 10,
+      accounts: null,
       postsPerMonth: 100,
       aiTextGenerations: 300,
       aiImageGenerations: 50,
@@ -47,13 +46,14 @@ export const DEFAULT_PRICING_CATALOG: PricingPlan[] = [
   {
     id: "enterprise",
     name: "Growth",
-    tagline: "For agencies and larger brands scaling content",
+    tagline: "Growing brands and small teams",
     priceMonthlyUsd: 299,
     priceMonthlyInr: 999,
     priceAnnualUsd: 2990,
     isCustom: false,
+    recommended: true,
     limits: {
-      accounts: 50,
+      accounts: null,
       postsPerMonth: 500,
       aiTextGenerations: 1500,
       aiImageGenerations: 200,

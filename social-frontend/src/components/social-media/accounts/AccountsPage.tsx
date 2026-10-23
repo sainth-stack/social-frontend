@@ -1,14 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import {
+  AtSign,
+  Cloud,
   Link2,
   Link2Off,
+  Music2,
+  Pin,
   RefreshCcw,
   Sparkles,
   Users,
-  Zap,
+  Video,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -26,7 +29,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { selectUser } from "@/features/auth/authSlice";
 import { cn } from "@/lib/utils";
@@ -42,6 +44,15 @@ const ACCOUNTS_CONNECT_PLATFORMS: { platform: SocialPlatform; name: string }[] =
 ];
 
 const X_ACCOUNTS_DISABLED = true;
+
+const UPCOMING_PLATFORMS = [
+  { name: "X", Icon: null, description: "Keep your conversations connected." },
+  { name: "Threads", Icon: AtSign, description: "Make room for more conversations." },
+  { name: "YouTube", Icon: Video, description: "Bring your video channel into the mix." },
+  { name: "TikTok", Icon: Music2, description: "Give short-form stories a home." },
+  { name: "Pinterest", Icon: Pin, description: "Keep your next inspiration in view." },
+  { name: "Bluesky", Icon: Cloud, description: "Explore a new space for your community." },
+] as const;
 
 function accountSections(
   accounts: SocialAccount[],
@@ -110,17 +121,13 @@ export default function AccountsPage() {
 
 function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
-  const [accountsLimit, setAccountsLimit] = useState<number | null | undefined>();
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState(false);
-  const [usageLoading, setUsageLoading] = useState(false);
-  const [usageError, setUsageError] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<SocialAccount | null>(null);
   const alive = useRef(false);
   const listRequest = useRef<symbol | null>(null);
-  const usageRequest = useRef<symbol | null>(null);
   const action = useRef<symbol | null>(null);
 
   const load = useCallback(async () => {
@@ -144,47 +151,17 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
     }
   }, [workspaceId]);
 
-  const loadUsage = useCallback(async (replacePending = false) => {
-    if (!workspaceId || !alive.current || (usageRequest.current && !replacePending)) return;
-    const request = Symbol();
-    usageRequest.current = request;
-    setUsageLoading(true);
-    try {
-      const usage = await socialMediaApi.getUsage(workspaceId);
-      if (!alive.current || usageRequest.current !== request) return;
-      setAccountsLimit(usage.accounts.limit);
-      setUsageError(false);
-    } catch {
-      if (alive.current && usageRequest.current === request) {
-        setAccountsLimit(undefined);
-        setUsageError(true);
-      }
-    } finally {
-      if (alive.current && usageRequest.current === request) {
-        usageRequest.current = null;
-        setUsageLoading(false);
-      }
-    }
-  }, [workspaceId]);
-
   useEffect(() => {
     alive.current = true;
     void load();
-    void loadUsage();
     return () => {
       alive.current = false;
       listRequest.current = null;
-      usageRequest.current = null;
       action.current = null;
     };
-  }, [load, loadUsage]);
+  }, [load]);
 
   const connectedCount = accounts.length;
-  const limitReached =
-    accountsLimit != null && connectedCount >= accountsLimit;
-  const usagePercent = accountsLimit == null
-    ? undefined
-    : accountsLimit === 0 ? 100 : Math.min(100, (connectedCount / accountsLimit) * 100);
 
   const byPlatform = useMemo(() => {
     const map = new Map<SocialPlatform, SocialAccount[]>();
@@ -206,10 +183,9 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
 
   const current = (token: symbol) => alive.current && action.current === token;
 
-  const refresh = (resource: "all" | "accounts" | "usage" = "all") => {
+  const refresh = () => {
     if (action.current) return;
-    if (resource !== "usage") void load();
-    if (resource !== "accounts") void loadUsage();
+    void load();
   };
 
   const finish = (token: symbol) => {
@@ -220,10 +196,6 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
 
   const authorize = async (platform: SocialPlatform, account?: SocialAccount) => {
     if (X_ACCOUNTS_DISABLED && platform === "x") return;
-    if (!account && limitReached) {
-      toast.error("You've reached your account limit. Request an upgrade from admin.");
-      return;
-    }
     const token = begin(account ? `reconnect:${account.id}` : `connect:${platform}`);
     if (!token) return;
     try {
@@ -247,7 +219,6 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
         if (success) {
           toast.success(message || (account ? "Account reconnected" : `${PLATFORM_LABELS[platform]} connected`));
           void load();
-          void loadUsage(true);
         } else if (message) {
           toast.error(message);
         }
@@ -271,7 +242,7 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
         toast("Account disconnected");
         setDisconnectTarget(null);
       }
-      await Promise.all([load(), loadUsage(true)]);
+      await load();
     } catch (err) {
       if (current(token)) toast.error(extractErrorMessage(err, kind === "sync" ? "Sync failed" : "Failed to disconnect"));
     } finally {
@@ -285,14 +256,14 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
     <div className="mx-auto min-w-0 max-w-7xl space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <PageHeader icon={Users} title="Accounts" description="Your connected channels, all in one place. Keep every account ready to publish." />
-        <Button variant="outline" className="shrink-0" disabled={!workspaceId || loading || usageLoading || !!busy} onClick={() => refresh()}>
+        <Button variant="outline" className="shrink-0" disabled={!workspaceId || loading || !!busy} onClick={() => refresh()}>
           <RefreshCcw aria-hidden className={cn("mr-2 h-4 w-4", loading && "motion-safe:animate-spin")} />
           {loading && loaded ? "Refreshing…" : "Refresh"}
         </Button>
       </div>
 
       {!workspaceId ? <p role="status" className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">Select a workspace to manage its accounts.</p> : <>
-      <Card className={cn("shadow-soft", limitReached && "border-warning/40")}>
+      <Card className="shadow-soft">
         <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
@@ -301,38 +272,17 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
             <div>
               <p className="text-sm font-medium">Connected accounts</p>
               <p className="text-sm text-muted-foreground" aria-live="polite">
-                {loaded ? connectedCount : "—"} / {accountsLimit === undefined ? "Limit unknown" : accountsLimit === null ? "Unlimited" : accountsLimit}
+                {loaded ? connectedCount : "—"} / Unlimited
               </p>
-              {usageLoading && <p role="status" className="mt-1 text-xs text-muted-foreground">Checking account limit…</p>}
             </div>
           </div>
-          {loaded && usagePercent !== undefined && (
-            <Progress
-              aria-label="Account usage"
-              aria-valuenow={usagePercent}
-              aria-valuetext={`${connectedCount} of ${accountsLimit} accounts`}
-              value={usagePercent}
-              className="h-2 md:max-w-xs"
-            />
-          )}
-          {limitReached && (
-            <Button asChild>
-              <Link href="/dashboard/billing">
-                <Zap aria-hidden className="mr-2 h-4 w-4" /> Upgrade
-              </Link>
-            </Button>
-          )}
+          <p className="text-sm text-muted-foreground">Unlimited accounts on every plan.</p>
         </CardContent>
       </Card>
 
-      {usageError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 p-4 text-sm">
-        <p>Account limit unavailable. You can still manage your accounts; connection limits are checked when you connect.</p>
-        <Button variant="outline" size="sm" disabled={usageLoading || !!busy} onClick={() => refresh("usage")}>Retry usage</Button>
-      </div>}
-      {limitReached && <p className="text-sm text-muted-foreground">You&apos;ve reached your account limit. Request an upgrade from admin to connect more accounts.</p>}
       {listError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-card p-4 text-sm">
         <p>{loaded ? "Couldn't refresh accounts. Showing the last loaded accounts." : "Couldn't load accounts. Try again to see your connected channels."}</p>
-        <Button variant="outline" size="sm" disabled={loading || !!busy} onClick={() => refresh("accounts")}>Retry accounts</Button>
+        <Button variant="outline" size="sm" disabled={loading || !!busy} onClick={() => refresh()}>Retry accounts</Button>
       </div>}
 
       {!loaded && !listError ? (
@@ -378,7 +328,7 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
                 <CardContent>
                   {xDisabled ? (
                     <p className="mb-3 text-xs text-muted-foreground">
-                      New X connections are turned off. You can disconnect existing accounts below.
+                      New X connections are coming soon. You can sync or disconnect existing accounts below; reconnect is unavailable.
                     </p>
                   ) : null}
                   <div className="space-y-4">
@@ -455,7 +405,7 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
                   ))}
                   </div>
                   {!xDisabled && (platformAccounts.length ? (
-                    <Button variant="outline" size="sm" className="mt-4" disabled={!!busy || loading || limitReached} onClick={() => void authorize(platform)}>
+                    <Button variant="outline" size="sm" className="mt-4" disabled={!!busy || loading} onClick={() => void authorize(platform)}>
                       <Sparkles aria-hidden className="mr-2 h-4 w-4" /> {busy === `connect:${platform}` ? "Connecting…" : `Add another ${name} account`}
                     </Button>
                   ) : (
@@ -466,7 +416,7 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
                       <Button
                         size="sm"
                         onClick={() => void authorize(platform)}
-                        disabled={!!busy || loading || limitReached}
+                        disabled={!!busy || loading}
                       >
                         {busy === `connect:${platform}` ? (
                           <>
@@ -499,6 +449,31 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
         </Card>
       )}
       {busy && <p role="status" className="text-sm text-muted-foreground">{busy.startsWith("connect:") || busy.startsWith("reconnect:") ? "Complete authorization in the popup window." : "Updating account…"}</p>}
+      <section aria-labelledby="upcoming-platforms" className="space-y-4">
+        <div>
+          <h2 id="upcoming-platforms" className="text-lg font-semibold">More channels, coming soon</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Connect Instagram, Facebook, and LinkedIn today. These six platforms aren&apos;t available to connect yet.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {UPCOMING_PLATFORMS.map(({ name, Icon, description }) => (
+            <Card key={name} className="min-w-0 bg-muted/20 shadow-soft">
+              <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+                <div className="flex items-center gap-3">
+                  {Icon ? <span className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-accent text-accent-foreground"><Icon aria-hidden className="h-5 w-5" /></span> : <PlatformIcon platform="x" size="lg" />}
+                  <h3 className="text-base font-semibold">{name}</h3>
+                </div>
+                <Badge variant="secondary">Coming soon</Badge>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">{description}</p>
+                <Button variant="outline" size="sm" disabled aria-label={`Connect ${name} — Coming soon`}>
+                  <Link2 aria-hidden className="mr-2 h-4 w-4" /> Coming soon
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
       </>}
 
       <Dialog

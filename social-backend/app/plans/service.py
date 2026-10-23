@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from pymongo.database import Database
 
-from app.plans.catalog import PLAN_CATALOG, PlanDefinition, PlanLimits, get_plan_definition
+from app.plans.catalog import PLAN_CATALOG, UNLIMITED, PlanDefinition, PlanLimits, get_plan_definition
 from app.plans.schemas import PlanLimitsOut, PlanOut
 
 
@@ -16,7 +16,7 @@ def _apply_override(base: PlanDefinition, override: dict | None) -> tuple[PlanDe
         return base, False
 
     limits = PlanLimits(
-        connected_accounts=_coalesce(override.get("connected_accounts"), base.limits.connected_accounts),
+        connected_accounts=UNLIMITED,
         posts_per_month=_coalesce(override.get("posts_per_month"), base.limits.posts_per_month),
         ai_text_per_month=_coalesce(override.get("ai_text_per_month"), base.limits.ai_text_per_month),
         ai_images_per_month=_coalesce(override.get("ai_images_per_month"), base.limits.ai_images_per_month),
@@ -38,7 +38,6 @@ def _apply_override(base: PlanDefinition, override: dict | None) -> tuple[PlanDe
         for f in (
             "monthly_price_usd",
             "annual_price_usd",
-            "connected_accounts",
             "posts_per_month",
             "ai_text_per_month",
             "ai_images_per_month",
@@ -94,7 +93,7 @@ def to_plan_out(db: Database, plan_key: str) -> PlanOut:
         monthly_price_usd=definition.monthly_price_usd,
         annual_price_usd=definition.annual_price_usd,
         description=definition.description,
-        limits=PlanLimitsOut(**definition.limits.__dict__),
+        limits=PlanLimitsOut(**{**definition.limits.__dict__, "connected_accounts": None}),
         is_override=is_override,
     )
 

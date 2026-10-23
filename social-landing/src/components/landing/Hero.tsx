@@ -1,93 +1,52 @@
-import { ArrowRight, Coffee, Sparkles } from "lucide-react";
+import Image from "next/image";
+import { ArrowDown, ArrowRight, CalendarDays, Check, CheckCheck, Circle, ImageIcon, LayoutGrid, MoreHorizontal, Plus, Users } from "lucide-react";
 import { SIGNUP_URL } from "@/content/site";
+import { BrandMark, PlatformIcon } from "./Brand";
 
 const week = [
-  { d: "Mon", t: "Brand story", s: "Scheduled" },
-  { d: "Tue", t: "Quick tip", s: "Scheduled" },
-  { d: "Wed", t: "Cold brew", s: "Review", active: true },
-  { d: "Thu", t: "Behind scenes", s: "Draft" },
-  { d: "Fri", t: "Question", s: "Draft" },
-  { d: "Sat", t: "Community", s: "Draft" },
-  { d: "Sun", t: "Promo", s: "Draft" },
+  { day: "Mon", date: 12, title: "Coffee, together.", state: "Scheduled", type: "Brand story", image: "/images/coffee-editorial.webp", alt: "Friends sharing freshly prepared coffee" },
+  { day: "Tue", date: 13, title: "Brewed with care.", state: "Scheduled", type: "Product spotlight", image: "/images/coffee-detail.webp", alt: "Fresh coffee prepared for a café's product post" },
+  { day: "Wed", date: 14, title: "Room for a break.", state: "Review", type: "Behind the scenes", image: "/images/brand-interior.webp", alt: "Sunlit interior with contemporary furniture" },
 ];
 
 export function StatusBadge({ s }: { s: string }) {
-  const cls =
-    s === "Scheduled" ? "bg-mint-soft text-mint-foreground" : s === "Review" || s === "Needs review" ? "bg-amber-soft text-amber-foreground" : "bg-muted text-muted-foreground";
-  return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{s}</span>;
+  const scheduled = s === "Scheduled";
+  const review = s === "Review" || s === "Needs review";
+  const Icon = scheduled ? CheckCheck : review ? Circle : ImageIcon;
+  return <span className={`status-badge inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold ${scheduled ? "bg-mint-soft text-mint-foreground" : review ? "bg-amber-soft text-amber-foreground" : "bg-muted text-muted-foreground"}`}><Icon className="size-3" />{s}</span>;
 }
 
 function ProductPreview() {
-  return (
-    <div className="relative">
-      <div className="absolute -inset-6 -z-10 rounded-[32px] bg-grid" aria-hidden="true" />
-      <div className="card-panel shadow-lift overflow-hidden">
-        <div className="flex items-center justify-between border-b bg-surface px-5 py-3">
-          <p className="font-display text-sm font-bold">Your weekly content plan</p>
-          <span className="rounded-full border bg-background px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">Illustrative preview</span>
-        </div>
-        <div className="grid gap-4 p-5">
-          <div className="rounded-xl border bg-primary-soft p-3.5">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-accent-foreground">Brand brief</p>
-            <p className="mt-1 text-sm font-medium">A neighbourhood coffee brand launching a new cold brew</p>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {["Behind the scenes", "A quick tip", "Product spotlight"].map((c) => (
-                <span key={c} className="inline-flex items-center gap-1 rounded-full border bg-background px-2.5 py-1 text-xs font-medium">
-                  <Sparkles className="h-3 w-3 text-primary" />{c}
-                </span>
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-7 gap-1.5">
-            {week.map((w) => (
-              <div key={w.d} className={`rounded-lg border p-1.5 text-center ${w.active ? "border-primary bg-primary-soft" : "bg-background"}`}>
-                <p className="text-[11px] font-bold">{w.d}</p>
-                <p className="mt-0.5 hidden truncate text-[10px] text-muted-foreground sm:block">{w.t}</p>
-                <span className={`mx-auto mt-1 block h-1.5 w-1.5 rounded-full ${w.s === "Scheduled" ? "bg-mint" : w.s === "Review" ? "bg-amber-foreground" : "bg-border"}`} />
-              </div>
-            ))}
-          </div>
-          <div className="grid gap-4 rounded-xl border p-4 sm:grid-cols-[120px_1fr]">
-            <div className="flex aspect-square items-center justify-center rounded-lg bg-amber-soft text-amber-foreground">
-              <Coffee className="h-12 w-12" strokeWidth={1.5} />
-            </div>
-            <div>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-muted-foreground">Wednesday · Instagram</p>
-                <StatusBadge s="Review" />
-              </div>
-              <p className="mt-2 text-sm leading-relaxed">Your afternoon reset, poured over ice. Meet our new cold brew: slow-steeped, smooth, and ready when you are.</p>
-              <p className="mt-2 text-xs font-medium text-primary">#ColdBrew #CoffeeBreak #LocalCafe</p>
-            </div>
-          </div>
+  return <div className="hero-art" aria-label="Illustrative OpsBrain weekly planner preview">
+    <div className="hero-workspace">
+      <div className="workspace-topbar"><div className="flex items-center gap-2.5"><BrandMark size={25} /><span className="text-xs font-semibold">Corner Café <span className="ml-1 text-muted-foreground">/ Workspace</span></span></div><span className="workspace-avatar">CC</span></div>
+      <div className="workspace-body">
+        <aside className="workspace-rail" aria-hidden="true"><LayoutGrid /><CalendarDays className="rail-active" /><ImageIcon /><Users /><span className="mt-auto"><Plus /></span></aside>
+        <div className="workspace-content">
+          <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-medium text-muted-foreground">Content calendar</p><h2 className="mt-1 text-xl font-bold">Your week at a glance</h2></div><span className="workspace-add"><Plus className="size-3.5" />New post</span></div>
+          <div className="workspace-brief"><CalendarDays className="size-4 shrink-0 text-primary" /><div><p className="text-xs font-semibold">June content plan</p><p className="mt-1 text-xs text-muted-foreground">7 posts · 3 channels · Ready for review</p></div><Check className="ml-auto size-4 shrink-0 text-primary" /></div>
+          <div className="workspace-calendar-label"><span className="font-semibold">June 12–18</span><span className="text-muted-foreground">Week view</span></div>
+          <div className="workspace-week">{week.map((day, index) => <div key={day.day} className={`workspace-day ${index === 2 ? "workspace-day-active" : ""}`}><div className="flex items-center justify-between"><span className="text-xs text-muted-foreground">{day.day}</span><span className={`text-xs font-semibold ${index === 2 ? "text-primary" : ""}`}>{day.date}</span></div><Image src={day.image} alt={day.alt} width={320} height={400} sizes="(min-width: 1024px) 150px, (min-width: 640px) 175px, 27vw" preload={index === 0} className="workspace-post-image" /><p className="mt-3 text-xs font-semibold leading-snug">{day.title}</p><p className="mt-1 text-xs text-muted-foreground">{day.type}</p><span className="mt-3 block"><StatusBadge s={day.state} /></span></div>)}</div>
+          <div className="workspace-bottom"><span className="flex items-center gap-1.5"><Check className="size-3.5 shrink-0 text-mint-foreground" />Review every post before it goes live.</span><MoreHorizontal className="size-4 shrink-0" /></div>
         </div>
       </div>
     </div>
-  );
+    <div className="hero-floating-card"><span className="floating-check"><Check className="size-4" /></span><div><p className="text-sm font-semibold">Content approved</p><p className="mt-1 text-xs text-muted-foreground">Monday’s post is ready to publish.</p></div><PlatformIcon name="Instagram" color="var(--platform-instagram)" size={28} /></div>
+    <p className="hero-preview-label">Illustrative product preview</p>
+  </div>;
 }
 
 export function Hero() {
-  return (
-    <section id="top" className="relative overflow-hidden pb-16 pt-12 md:pb-24 md:pt-20">
-      <div className="container-page grid items-center gap-12 lg:grid-cols-[1fr_1.05fr] lg:gap-16">
-        <div>
-          <p className="inline-flex items-center gap-2 rounded-full border bg-primary-soft px-3 py-1 text-sm font-semibold text-accent-foreground">
-            <span className="h-2 w-2 rounded-full bg-mint" /> AI-powered social media planning
-          </p>
-          <h1 className="mt-6 text-[40px] font-extrabold leading-[1.05] md:text-[64px]">
-            Your next week of social content, <span className="text-primary">planned.</span>
-          </h1>
-          <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
-            Turn a simple business brief into fresh content ideas, on-brand captions, and a ready-to-edit weekly plan. Create, organize, and schedule your social content in one workspace.
-          </p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <a href={SIGNUP_URL} className="btn btn-primary px-6">Start planning free <ArrowRight className="h-4 w-4" /></a>
-            <a href="#weekly-planner" className="btn btn-outline px-6">Explore the weekly planner</a>
-          </div>
-          <p className="mt-4 text-sm text-muted-foreground">Free plan available. No credit card needed to start.</p>
-        </div>
-        <ProductPreview />
+  return <section id="top" className="hero-section">
+    <div className="container-page hero-layout">
+      <div className="hero-copy">
+        <p className="hero-eyebrow"><span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />Instagram, Facebook & LinkedIn. One workspace.</p>
+        <h1>Your next week of social content,<span className="hero-title-accent"> planned.</span></h1>
+        <p className="hero-description">Turn your business goals into on-brand posts. Create a seven-day plan, review with your team and schedule on Instagram, Facebook and LinkedIn. More integrations coming soon.</p>
+        <div className="hero-actions"><a href={SIGNUP_URL} className="btn btn-primary">Start planning free <ArrowRight className="size-4" /></a><a href="#weekly-planner" className="btn btn-outline">See it in action <ArrowDown className="size-4" /></a></div>
+        <p className="hero-microcopy"><Check className="size-3.5 text-mint-foreground" />Free plan available. No credit card required.</p>
       </div>
-    </section>
-  );
+      <ProductPreview />
+    </div>
+  </section>;
 }

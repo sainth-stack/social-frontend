@@ -31,23 +31,6 @@ def _payment_required(code: str, message: str, limit: int, used: int) -> HTTPExc
     )
 
 
-def enforce_account_limit(db: Database, workspace: dict) -> None:
-    plan = get_limits(db, workspace)
-    limit = plan.limits.connected_accounts
-    if is_unlimited(limit):
-        return
-    count = db["social_accounts"].count_documents(
-        {"workspace_id": workspace["id"], "is_active": True}
-    )
-    if count >= limit:
-        raise _payment_required(
-            "PLAN_LIMIT_ACCOUNTS",
-            f"Your {plan.name} plan allows {limit} connected accounts. Upgrade to connect more.",
-            limit,
-            count,
-        )
-
-
 def enforce_posts_limit(db: Database, workspace: dict) -> None:
     plan = get_limits(db, workspace)
     limit = plan.limits.posts_per_month
@@ -154,7 +137,7 @@ def usage_snapshot(db: Database, workspace: dict, *, active_accounts: int | None
     ai_videos = ai_usage.get("video", 0)
     return {
         "plan": workspace.get("plan", "starter"),
-        "accounts": {"used": accounts, "limit": plan.limits.connected_accounts},
+        "accounts": {"used": accounts, "limit": None},
         "postsThisMonth": {"used": posts, "limit": plan.limits.posts_per_month},
         "templates": {"used": templates, "limit": plan.limits.templates},
         "aiTextThisMonth": {"used": ai_text, "limit": plan.limits.ai_text_per_month},

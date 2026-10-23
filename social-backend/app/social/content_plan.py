@@ -1,0 +1,787 @@
+"""Day-wise content plan: generate captions (+ images) and schedule auto-publish."""
+
+from __future__ import annotations
+
+import logging
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Callable, Optional
+from zoneinfo import ZoneInfo
+
+from fastapi import HTTPException, status
+from pymongo.database import Database
+
+from app.social.models import (
+    SocialImageSource,
+    SocialMediaAssetType,
+    SocialPlatform,
+    SocialPostStatus,
+)
+from app.social.polish import DEFAULT_POSTING_TIMES, SocialPolishService
+from app.social.schemas import (
+    CalendarPostOut,
+    ContentPlanDayOut,
+    ContentPlanGenerateRequest,
+    ContentPlanGenerateResponse,
+    CreateSocialPostRequest,
+    SchedulePostRequest,
+    SocialPostPlatformIn,
+)
+from app.workspaces.models import WorkspacePlan
+
+logger = logging.getLogger(__name__)
+
+PUBLISHABLE = (
+    SocialPlatform.FACEBOOK,
+    SocialPlatform.INSTAGRAM,
+    SocialPlatform.LINKEDIN,
+)
+
+PLAN_DAY_CAP: dict[str, int] = {
+    WorkspacePlan.STARTER.value: 7,
+    WorkspacePlan.GROWTH.value: 15,
+    WorkspacePlan.ENTERPRISE.value: 30,
+}
+
+WEEKDAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+DAY_FOCUS_ANGLES = [
+    "Launch-week hook — one bold outcome or tension your ICP feels; no greeting, no fluff",
+    "Actionable how-to — one specific tactic from the brief with steps someone can do today",
+    "Customer story pattern — before/after or 'teams like yours' narrative (no fake names/stats)",
+    "Myth vs truth — debunk one misconception in your category; teach in 3–5 short beats",
+    "Checklist — 3–5 numbered quick wins tied to the product or service in the brief",
+    "Trend lens — tie the brief to what buyers care about this quarter (no fake news)",
+    "ROI / value — translate feature into time saved, risk reduced, or revenue protected",
+    "Conversation starter — one sharp question that earns comments/DMs; still deliver value first",
+    "Expert deep-dive — one framework or lesson that positions the brand as the guide",
+    "Trust + CTA — founder/expert voice, one proof pattern, one clear next step",
+]
+
+
+def _resolve_plan_prompt(payload: ContentPlanGenerateRequest) -> str:
+    return (payload.prompt or payload.theme or "").strip()
+
+
+def build_plan_day_topic(
+    *,
+    user_prompt: str,
+    brand_name: str,
+    brand: dict[str, Any],
+    platform: SocialPlatform,
+    day_index: int,
+    total_days: int,
+    audience: Optional[str],
+    day_focus: str,
+    tone: str,
+    cta: Optional[str],
+) -> str:
+    industry = (brand.get("industry") or "your industry").strip()
+    tagline = (brand.get("tagline") or "").strip()
+    words_use = ", ".join(brand.get("words_to_use") or []) or "n/a"
+    words_avoid = ", ".join(brand.get("words_to_avoid") or []) or "n/a"
+    platform_label = platform.value
+    cta_line = cta or (brand.get("cta_phrases") or ["Get started"])[0]
+
+    parts = [
+        f"CONTENT PLAN — Day {day_index} of {total_days} ({platform_label}).",
+        f"Campaign brief (source of truth): {user_prompt}",
+        f"Today's creative angle: {day_focus}",
+        f"Brand: {brand_name} · Industry: {industry}.",
+    ]
+    if tagline:
+        parts.append(f"Tagline / positioning: {tagline}.")
+    if audience:
+        parts.append(f"Target audience: {audience}.")
+    parts.extend(
+        [
+            f"Tone: {tone}. Preferred CTA phrase to weave in naturally: \"{cta_line}\".",
+            f"Words to prefer: {words_use}. Words to avoid: {words_avoid}.",
+            f"Write for {platform_label} like a top product company's organic social — "
+            "publish-ready, specific, confident, zero generic AI filler.",
+            "Must be clearly different from other days in this series (new hook, new structure).",
+            "Do not invent fake metrics, client logos, testimonials, or URLs.",
+        ]
+    )
+    return " ".join(parts)
+
+
+def build_plan_image_brief(
+    *,
+    caption: str,
+    brand_name: str,
+    platform: SocialPlatform,
+    day_focus: str,
+    user_prompt: str,
+) -> str:
+    return (
+        f"Premium {platform.value} marketing visual for {brand_name}. "
+        f"Campaign context: {user_prompt[:200]}. "
+        f"Creative angle: {day_focus}. "
+        f"Post mood (do not render as text): {caption[:220]}. "
+        "Editorial product-brand photography, cinematic light, modern SaaS/consumer brand aesthetic, "
+        "single strong focal point, square crop, no watermarks, no readable text in image."
+    )
+
+
+def _plan_cap(workspace: dict) -> int:
+    plan = workspace.get("plan") or "starter"
+    return PLAN_DAY_CAP.get(str(plan).lower(), 7)
+
+
+def _tz(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name or "UTC")
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def build_posting_slots(
+    *,
+    days: int,
+    timezone_name: str,
+    posting_times: dict[str, Any] | None,
+    blackout_dates: list[Any] | None,
+    queue_gap_minutes: int = 30,
+    start: Optional[datetime] = None,
+    start_day_offset: int = 0,
+) -> list[datetime]:
+    tz = _tz(timezone_name)
+    now_local = (start or datetime.now(timezone.utc)).astimezone(tz)
+    if start_day_offset > 0:
+        now_local = now_local + timedelta(days=start_day_offset)
+    times_map = posting_times or DEFAULT_POSTING_TIMES
+    blackouts = {str(d)[:10] for d in (blackout_dates or []) if d}
+    gap = max(15, int(queue_gap_minutes or 30))
+
+    slots: list[datetime] = []
+    day_cursor = now_local.date()
+    safety = 0
+    while len(slots) < days and safety < days * 14:
+        safety += 1
+        key = WEEKDAY_KEYS[day_cursor.weekday()]
+        day_str = day_cursor.isoformat()
+        if day_str in blackouts:
+            day_cursor += timedelta(days=1)
+            continue
+
+        raw_times = times_map.get(key) or ["10:00"]
+        if isinstance(raw_times, str):
+            raw_times = [raw_times]
+
+        chosen: Optional[datetime] = None
+        for t in raw_times:
+            try:
+                hh, mm = str(t).split(":")[:2]
+                local_dt = datetime(
+                    day_cursor.year,
+                    day_cursor.month,
+                    day_cursor.day,
+                    int(hh),
+                    int(mm),
+                    tzinfo=tz,
+                )
+            except (ValueError, TypeError):
+                continue
+            if local_dt <= now_local + timedelta(minutes=5):
+                continue
+            if slots:
+                prev = slots[-1].astimezone(tz)
+                if local_dt < prev + timedelta(minutes=gap):
+                    continue
+            chosen = local_dt
+            break
+
+        if chosen is None and day_cursor == now_local.date():
+            day_cursor += timedelta(days=1)
+            continue
+
+        if chosen is None:
+            fallback = datetime(
+                day_cursor.year, day_cursor.month, day_cursor.day, 10, 0, tzinfo=tz
+            )
+            if fallback > now_local + timedelta(minutes=5):
+                if not slots or fallback >= slots[-1].astimezone(tz) + timedelta(minutes=gap):
+                    chosen = fallback
+
+        if chosen is not None:
+            slots.append(chosen.astimezone(timezone.utc))
+        day_cursor += timedelta(days=1)
+
+    if len(slots) < days:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Could only find {len(slots)} posting slots. "
+                "Check default posting times and blackout dates in Settings."
+            ),
+        )
+    return slots
+
+
+def build_slot_for_plan_date(
+    *,
+    target: date,
+    timezone_name: str,
+    posting_times: dict[str, Any] | None,
+) -> datetime:
+    """One scheduled UTC slot on a specific calendar date (workspace timezone)."""
+    tz = _tz(timezone_name)
+    now_local = datetime.now(timezone.utc).astimezone(tz)
+    if target < now_local.date():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="targetDate must be today or a future date",
+        )
+    times_map = posting_times or DEFAULT_POSTING_TIMES
+    key = WEEKDAY_KEYS[target.weekday()]
+    raw_times = times_map.get(key) or ["10:00"]
+    if isinstance(raw_times, str):
+        raw_times = [raw_times]
+
+    chosen: Optional[datetime] = None
+    for t in raw_times:
+        try:
+            hh, mm = str(t).split(":")[:2]
+            local_dt = datetime(
+                target.year, target.month, target.day, int(hh), int(mm), tzinfo=tz
+            )
+        except (ValueError, TypeError):
+            continue
+        if local_dt > now_local + timedelta(minutes=5):
+            chosen = local_dt
+            break
+
+    if chosen is None:
+        chosen = datetime(target.year, target.month, target.day, 10, 0, tzinfo=tz)
+        if chosen <= now_local + timedelta(minutes=5):
+            chosen = now_local + timedelta(hours=1)
+
+    return chosen.astimezone(timezone.utc)
+
+
+def _connected_publishable(db: Database, workspace_id: str) -> list[dict]:
+    return list(
+        db["social_accounts"].find(
+            {
+                "workspace_id": str(workspace_id),
+                "is_active": True,
+                "platform": {"$in": [p.value for p in PUBLISHABLE]},
+            }
+        ).sort([("is_default", -1), ("created_at", 1)])
+    )
+
+
+def _accounts_for_plan(
+    db: Database,
+    workspace_id: str,
+    platforms: Optional[list[SocialPlatform]],
+) -> list[dict]:
+    accounts = _connected_publishable(db, workspace_id)
+    if not platforms:
+        return accounts
+    allowed = {p.value if hasattr(p, "value") else str(p) for p in platforms}
+    allowed = allowed & {p.value for p in PUBLISHABLE}
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Select at least one platform: Facebook, Instagram, or LinkedIn.",
+        )
+    filtered = [a for a in accounts if str(a.get("platform")) in allowed]
+    if not filtered:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Connect the selected platform(s) before generating a plan.",
+        )
+    return filtered
+
+
+PLAN_PLATFORM_ORDER = (
+    SocialPlatform.FACEBOOK,
+    SocialPlatform.INSTAGRAM,
+    SocialPlatform.LINKEDIN,
+)
+
+
+def _plan_platform_targets(
+    accounts: list[dict],
+    platforms: Optional[list[SocialPlatform]],
+) -> list[tuple[SocialPlatform, dict]]:
+    """One account per selected platform — each plan day posts to every selected platform."""
+    by_platform: dict[str, list[dict]] = {}
+    for account in accounts:
+        key = str(account.get("platform") or "")
+        by_platform.setdefault(key, []).append(account)
+
+    if platforms:
+        selected: list[tuple[SocialPlatform, dict]] = []
+        for p in platforms:
+            val = p.value if hasattr(p, "value") else str(p)
+            accs = by_platform.get(val) or []
+            if accs:
+                selected.append((SocialPlatform(val), accs[0]))
+        return selected
+
+    out: list[tuple[SocialPlatform, dict]] = []
+    for p in PLAN_PLATFORM_ORDER:
+        accs = by_platform.get(p.value) or []
+        if accs:
+            out.append((p, accs[0]))
+    return out
+
+
+def estimate_plan_work_steps(
+    *,
+    workspace: dict,
+    payload: ContentPlanGenerateRequest,
+    accounts: list[dict],
+) -> int:
+    targets = _plan_platform_targets(accounts, payload.platforms)
+    if not targets:
+        return 1
+    if getattr(payload, "targetDate", None):
+        return len(targets)
+    days = min(int(payload.days), _plan_cap(workspace))
+    return max(1, days * len(targets))
+
+
+def _occupied_plan_dates(db: Database, workspace_id: str, tz_name: str) -> set[str]:
+    tz = _tz(tz_name)
+    posts = list(
+        db["social_posts"].find(
+            {
+                "workspace_id": str(workspace_id),
+                "status": {
+                    "$in": [
+                        SocialPostStatus.DRAFT.value,
+                        SocialPostStatus.SCHEDULED.value,
+                        SocialPostStatus.PUBLISHING.value,
+                        SocialPostStatus.PUBLISHED.value,
+                        SocialPostStatus.FAILED.value,
+                    ]
+                },
+            }
+        )
+    )
+    occupied: set[str] = set()
+    for post in posts:
+        for dt in (post.get("scheduled_at"), post.get("published_at")):
+            if dt is None:
+                continue
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            occupied.add(dt.astimezone(tz).date().isoformat())
+    return occupied
+
+
+ProgressCallback = Callable[[int, int, str], None]
+
+
+class ContentPlanService:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def validate_plan_request(
+        self,
+        workspace: dict,
+        user: dict,
+        payload: ContentPlanGenerateRequest,
+    ) -> None:
+        from app.social.models import SocialPermission
+        from app.social.permissions import require_permission
+
+        require_permission(self.db, workspace, user, SocialPermission.EDITOR)
+
+        days = min(int(payload.days), _plan_cap(workspace))
+        if days < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="days must be at least 1"
+            )
+
+        accounts = _accounts_for_plan(self.db, workspace["id"], payload.platforms)
+        if not accounts:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Connect Facebook, Instagram, or LinkedIn to generate and schedule posts."
+                ),
+            )
+
+        settings = SocialPolishService(self.db).get_settings(workspace)
+        tz_name = settings.get("timezone") or "UTC"
+        if getattr(payload, "targetDate", None):
+            try:
+                target = date.fromisoformat(str(payload.targetDate).strip()[:10])
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="targetDate must be YYYY-MM-DD",
+                ) from exc
+            build_slot_for_plan_date(
+                target=target,
+                timezone_name=tz_name,
+                posting_times=settings.get("defaultPostingTimes"),
+            )
+        else:
+            build_posting_slots(
+                days=days,
+                timezone_name=tz_name,
+                posting_times=settings.get("defaultPostingTimes"),
+                blackout_dates=settings.get("blackoutDates"),
+                queue_gap_minutes=int(settings.get("queueGapMinutes") or 30),
+                start_day_offset=max(0, int(getattr(payload, "startDayOffset", 0) or 0)),
+            )
+
+        user_prompt = _resolve_plan_prompt(payload)
+        if len(user_prompt) < 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Add a content brief (at least 10 characters) describing what to post about",
+            )
+
+    def generate(
+        self,
+        workspace: dict,
+        user: dict,
+        payload: ContentPlanGenerateRequest,
+        progress_callback: Optional[ProgressCallback] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> ContentPlanGenerateResponse:
+        from app.plans.service import record_ai_usage
+        from app.social.ai.generator import generate_platform_content
+        from app.social.ai.creative import CreativeSpec
+        from app.social.limits import enforce_ai_image_limit, enforce_ai_text_limit, enforce_posts_limit
+        from app.social.media import SocialBlobUpload, upload_social_image_bytes
+        from app.social.models import SocialPermission
+        from app.social.permissions import require_permission
+        from app.social.service import SocialMediaService
+
+        require_permission(self.db, workspace, user, SocialPermission.EDITOR)
+
+        cap = _plan_cap(workspace)
+        days = min(int(payload.days), cap)
+        if days < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="days must be at least 1"
+            )
+
+        accounts = _accounts_for_plan(self.db, workspace["id"], payload.platforms)
+        if not accounts:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Connect Facebook, Instagram, or LinkedIn to generate and schedule posts."
+                ),
+            )
+
+        settings = SocialPolishService(self.db).get_settings(workspace)
+        tz_name = settings.get("timezone") or "UTC"
+
+        if getattr(payload, "targetDate", None):
+            try:
+                target = date.fromisoformat(str(payload.targetDate).strip()[:10])
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="targetDate must be YYYY-MM-DD",
+                ) from exc
+            slots = [
+                build_slot_for_plan_date(
+                    target=target,
+                    timezone_name=tz_name,
+                    posting_times=settings.get("defaultPostingTimes"),
+                )
+            ]
+            days = 1
+        else:
+            slots = build_posting_slots(
+                days=days,
+                timezone_name=tz_name,
+                posting_times=settings.get("defaultPostingTimes"),
+                blackout_dates=settings.get("blackoutDates"),
+                queue_gap_minutes=int(settings.get("queueGapMinutes") or 30),
+                start_day_offset=max(0, int(getattr(payload, "startDayOffset", 0) or 0)),
+            )
+
+        social = SocialMediaService(self.db)
+        brand = social._brand_voice_dict(workspace["id"])
+        brand_name = (brand.get("brand_name") or workspace.get("name") or "our brand").strip()
+        tone = (
+            payload.tone
+            or settings.get("defaultTone")
+            or ((brand.get("tones") or ["Professional"])[0])
+        )
+        cta = payload.cta or settings.get("defaultCta") or None
+        user_prompt = _resolve_plan_prompt(payload)
+        if len(user_prompt) < 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Add a content brief (at least 10 characters) describing what to post about",
+            )
+        image_style = settings.get("imageGenerationStyle")
+        audience = brand.get("target_audience")
+        occupied_dates = (
+            _occupied_plan_dates(self.db, workspace["id"], tz_name)
+            if payload.skipFilledDays
+            else set()
+        )
+
+        platform_targets = _plan_platform_targets(accounts, payload.platforms)
+        if not platform_targets:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No connected accounts match the selected platforms.",
+            )
+        queue_gap = max(15, int(settings.get("queueGapMinutes") or 30))
+        total_steps = len(slots) * len(platform_targets)
+        work_step = 0
+
+        day_outs: list[ContentPlanDayOut] = []
+        calendar_items: list[CalendarPostOut] = []
+        scheduled_count = 0
+        draft_count = 0
+        skipped_count = 0
+        errors: list[str] = []
+        stopped_by_user = False
+        stop_plan = False
+
+        for i, base_slot in enumerate(slots):
+            if cancel_check and cancel_check():
+                stopped_by_user = True
+                errors.append("Stopped by user — partial plan saved.")
+                break
+
+            local_base = base_slot.astimezone(_tz(tz_name))
+            slot_date = local_base.date().isoformat()
+            day_label = f"Day {i + 1}"
+            day_focus = DAY_FOCUS_ANGLES[i % len(DAY_FOCUS_ANGLES)]
+
+            if payload.skipFilledDays and slot_date in occupied_dates:
+                skipped_count += 1
+                work_step += len(platform_targets)
+                errors.append(f"{day_label} ({slot_date}): skipped — already has a post")
+                continue
+
+            for p_idx, (platform, account) in enumerate(platform_targets):
+                if cancel_check and cancel_check():
+                    stopped_by_user = True
+                    errors.append("Stopped by user — partial plan saved.")
+                    stop_plan = True
+                    break
+
+                work_step += 1
+                slot = base_slot + timedelta(minutes=p_idx * queue_gap)
+                local_slot = slot.astimezone(_tz(tz_name))
+                platform_label = platform.value
+
+                if progress_callback:
+                    progress_callback(
+                        work_step,
+                        total_steps,
+                        f"{day_label} · {platform_label} — {local_slot.strftime('%a %b %d')}",
+                    )
+
+                topic = build_plan_day_topic(
+                    user_prompt=user_prompt,
+                    brand_name=brand_name,
+                    brand=brand,
+                    platform=platform,
+                    day_index=i + 1,
+                    total_days=len(slots),
+                    audience=audience,
+                    day_focus=day_focus,
+                    tone=tone,
+                    cta=cta,
+                )
+
+                try:
+                    enforce_posts_limit(self.db, workspace)
+                    enforce_ai_text_limit(self.db, workspace)
+                except HTTPException as exc:
+                    errors.append(f"{day_label} ({platform_label}): {exc.detail}")
+                    stop_plan = True
+                    break
+
+                try:
+                    result = generate_platform_content(
+                        topic=topic,
+                        tone=tone,
+                        platforms=[platform.value],
+                        audience=audience,
+                        cta=cta,
+                        include_hashtags=True,
+                        include_comment=False,
+                        brand_voice=brand,
+                        content_series_mode=True,
+                    )
+                    record_ai_usage(self.db, workspace["id"], "text", user_id=user["id"])
+                except Exception as exc:
+                    logger.warning("Plan %s %s caption failed: %s", day_label, platform_label, exc)
+                    errors.append(f"{day_label} ({platform_label}): caption generation failed")
+                    continue
+
+                pc = result.get(platform.value) or {}
+                caption = (pc.get("caption") or "").strip()
+                hashtags = list(pc.get("hashtags") or [])
+                if not caption:
+                    errors.append(f"{day_label} ({platform_label}): empty caption")
+                    continue
+
+                image_url: Optional[str] = None
+                image_source = SocialImageSource.NONE
+                need_image = platform == SocialPlatform.INSTAGRAM or payload.generateImages
+                if need_image:
+                    try:
+                        enforce_ai_image_limit(self.db, workspace)
+                        creative = social.render_brand_creative(
+                            workspace,
+                            build_plan_image_brief(
+                                caption=caption,
+                                brand_name=brand_name,
+                                platform=platform,
+                                day_focus=day_focus,
+                                user_prompt=user_prompt,
+                            ),
+                            image_style,
+                            CreativeSpec(format="post", platform=platform.value, auto_copy=False),
+                        )
+                        record_ai_usage(self.db, workspace["id"], "image", user_id=user["id"])
+                        upload: Optional[SocialBlobUpload] = upload_social_image_bytes(
+                            workspace["id"],
+                            creative.image,
+                            content_type="image/jpeg",
+                        )
+                        if upload:
+                            social._record_media_asset(
+                                workspace,
+                                user,
+                                media_type=SocialMediaAssetType.IMAGE,
+                                source=SocialImageSource.AI_GENERATED,
+                                blob_key=upload.blob_key,
+                                blob_url=upload.url,
+                                mime_type=upload.content_type,
+                                file_size_bytes=upload.file_size,
+                                prompt=topic,
+                            )
+                            image_url = upload.url
+                            image_source = SocialImageSource.AI_GENERATED
+                    except Exception as exc:
+                        logger.warning("Plan %s %s image failed: %s", day_label, platform_label, exc)
+                        if platform == SocialPlatform.INSTAGRAM:
+                            errors.append(f"{day_label} ({platform_label}): Instagram needs an image — skipped")
+                            continue
+
+                title = f"{day_label} ({platform_label}): {caption[:50]}"
+
+                try:
+                    created = social.create_post(
+                        workspace,
+                        user,
+                        CreateSocialPostRequest(
+                            title=title,
+                            status=SocialPostStatus.DRAFT,
+                            imageUrl=image_url,
+                            imageSource=image_source,
+                            aiPrompt=user_prompt,
+                            platforms=[
+                                SocialPostPlatformIn(
+                                    platform=platform,
+                                    socialAccountId=str(account["id"]),
+                                    caption=caption,
+                                    hashtags=hashtags,
+                                )
+                            ],
+                        ),
+                    )
+                    post_id = created.id
+                    final_status = SocialPostStatus.DRAFT
+                    scheduled_at_iso: Optional[str] = None
+
+                    if payload.autoSchedule:
+                        try:
+                            post = self._load_post(post_id)
+                            scheduled = social.schedule_post(
+                                post, SchedulePostRequest(scheduledAt=slot.isoformat())
+                            )
+                            final_status = scheduled.status
+                            scheduled_at_iso = scheduled.scheduledAt
+                            scheduled_count += 1
+                        except Exception as exc:
+                            logger.warning("Plan %s %s schedule failed: %s", day_label, platform_label, exc)
+                            try:
+                                self.db["social_posts"].update_one(
+                                    {"id": post_id}, {"$set": {"scheduled_at": slot}}
+                                )
+                                scheduled_at_iso = slot.isoformat()
+                            except Exception:
+                                scheduled_at_iso = slot.isoformat()
+                            errors.append(f"{day_label} ({platform_label}): saved as draft (schedule failed)")
+                            draft_count += 1
+                    else:
+                        draft_count += 1
+
+                    day_outs.append(
+                        ContentPlanDayOut(
+                            dayIndex=i + 1,
+                            date=local_slot.date().isoformat(),
+                            weekday=local_slot.strftime("%a"),
+                            scheduledAt=scheduled_at_iso or slot.isoformat(),
+                            platform=platform,
+                            topic=day_focus,
+                            title=title,
+                            caption=caption,
+                            hashtags=hashtags,
+                            imageUrl=image_url,
+                            postId=post_id,
+                            status=final_status,
+                        )
+                    )
+                    calendar_items.append(
+                        CalendarPostOut(
+                            id=post_id,
+                            title=title,
+                            status=final_status,
+                            scheduledAt=scheduled_at_iso or slot.isoformat(),
+                            publishedAt=None,
+                            platforms=[platform],
+                            captionPreview=caption[:80],
+                            imageUrl=image_url,
+                        )
+                    )
+                except Exception:
+                    logger.exception("Plan %s %s create failed", day_label, platform_label)
+                    errors.append(f"{day_label} ({platform_label}): could not create post")
+
+            occupied_dates.add(slot_date)
+            if stop_plan:
+                break
+
+        if progress_callback:
+            progress_callback(total_steps, total_steps, "Content plan complete")
+
+        skip_note = f", {skipped_count} skipped" if skipped_count else ""
+        base_message = (
+            f"Planned {len(day_outs)} post(s)"
+            + (f", {scheduled_count} set to auto-post" if scheduled_count else "")
+            + skip_note
+            + ("." if not errors else f" · {len(errors)} note(s).")
+        )
+        if stopped_by_user:
+            base_message = f"Stopped — {base_message}"
+        return ContentPlanGenerateResponse(
+            days=len(day_outs),
+            timezone=tz_name,
+            autoScheduled=payload.autoSchedule,
+            scheduledCount=scheduled_count,
+            draftCount=draft_count,
+            skippedCount=skipped_count,
+            items=day_outs,
+            calendarItems=calendar_items,
+            errors=errors,
+            message=base_message,
+        )
+
+    def _load_post(self, post_id: str) -> dict:
+        post = self.db["social_posts"].find_one({"id": str(post_id)})
+        if not post:
+            raise HTTPException(status_code=404, detail="Post not found")
+        return post

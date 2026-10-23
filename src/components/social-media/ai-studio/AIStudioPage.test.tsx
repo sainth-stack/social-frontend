@@ -7,7 +7,6 @@ import type { AxiosResponse } from "axios";
 import { axe } from "vitest-axe";
 import apiClient from "@/api/client";
 import socialMediaApi from "@/api/endpoints/social-media.api";
-import type { AIModelCatalog } from "@/types/ai-models";
 import type { BrandVoice, GeneratedContent, GenerateImageResult } from "@/types/social-media.types";
 import AIStudioPage from "./AIStudioPage";
 
@@ -34,22 +33,6 @@ const generated: GeneratedContent = {
     facebook: { caption: "Fresh ideas for your community.", hashtags: [], characterCount: 30, firstComment: "" },
   },
 };
-const catalog: AIModelCatalog = {
-  textModels: [
-    { id: "openai.gpt-oss-120b-1:0", label: "GPT-OSS 120B", provider: "OpenAI", region: "us-east-1", availability: "catalogued", invokeAccessVerified: false },
-    { id: "anthropic.claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "Anthropic", region: "us-east-1", availability: "unknown", invokeAccessVerified: false },
-  ],
-  imageModels: [
-    { id: "stability.sd3-5-large-v1:0", label: "Stable Diffusion 3.5 Large", provider: "Stability AI", region: "us-west-2", availability: "catalogued", invokeAccessVerified: false },
-    { id: "stability.stable-image-ultra-v1:1", label: "Stable Image Ultra", provider: "Stability AI", region: "us-west-2", availability: "unknown", invokeAccessVerified: false },
-  ],
-  defaultTextModelId: "openai.gpt-oss-120b-1:0",
-  defaultImageModelId: "stability.sd3-5-large-v1:0",
-  discovery: [{ region: "us-east-1", foundationModels: "ok", inferenceProfiles: "access_denied" }, { region: "us-west-2", foundationModels: "unavailable", inferenceProfiles: "unavailable" }],
-  cacheTtlSeconds: 120,
-  invokeAccessVerified: false,
-  message: "Catalog presence does not verify account invoke access.",
-};
 const generatedImage: GenerateImageResult = { imageUrl: "https://example.test/studio-image.jpg", source: "ai_generated", width: 1200, height: 1200, format: "post", logoApplied: false };
 const mediaPage = { items: [], total: 0, page: 1, pageSize: 24, totalPages: 0, stats: { images: 0, videos: 0, totalBytes: 0 } };
 const response = (data: unknown) => ({ data }) as AxiosResponse;
@@ -64,7 +47,7 @@ beforeEach(() => {
   context.token = `studio-${++session}`;
   context.params = new URLSearchParams();
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
-  vi.mocked(apiClient.get).mockImplementation(async (url) => response(String(url).endsWith("/ai-models") ? catalog : String(url).endsWith("/brand-voice") ? brand : String(url).endsWith("/brand-logos") ? { items: [] } : mediaPage));
+  vi.mocked(apiClient.get).mockImplementation(async (url) => response(String(url).endsWith("/brand-voice") ? brand : String(url).endsWith("/brand-logos") ? { items: [] } : mediaPage));
   vi.mocked(apiClient.post).mockImplementation(async (url) => response(String(url).endsWith("/generate-image") ? generatedImage : generated));
   vi.mocked(apiClient.put).mockResolvedValue(response(brand));
 });
@@ -85,13 +68,50 @@ async function createCopy(user: ReturnType<typeof userEvent.setup>) {
   return screen.findByRole("textbox", { name: "LinkedIn caption" });
 }
 
-async function chooseModel(label: "Text model" | "Image model", option: string) {
-  await waitFor(() => expect(screen.queryByText("Loading model catalog. Server defaults remain available.")).toBeNull());
-  fireEvent.keyDown(screen.getByRole("combobox", { name: label }), { key: "ArrowDown" });
-  fireEvent.click(await screen.findByRole("option", { name: option }));
-}
-
 describe("AIStudioPage", () => {
+  it("navigates the single-page workspace explicitly and focuses the requested heading", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    const brief = screen.getByRole("heading", { name: "Your creative brief" });
+    const content = screen.getByRole("heading", { name: "Your content workspace" });
+    await user.click(screen.getByRole("button", { name: "Content" }));
+    expect(document.activeElement).toBe(content);
+    expect(content.scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start" });
+    await user.click(screen.getByRole("button", { name: "Brief" }));
+    expect(document.activeElement).toBe(brief);
+    expect(apiClient.post).not.toHaveBeenCalled();
+    const caption = await createCopy(user);
+    fireEvent.change(caption, { target: { value: "Keep my edits while navigating" } });
+    await user.click(screen.getByRole("button", { name: "View content" }));
+    expect(document.activeElement).toBe(content);
+    expect((caption as HTMLTextAreaElement).value).toBe("Keep my edits while navigating");
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps publishing actions accessible without triggering them by opening the menu", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "More post actions" }));
+    for (const name of ["Schedule", "Publish now", "Submit for approval", "New post"]) {
+      expect(screen.getByRole("menuitem", { name }).getAttribute("data-disabled")).toBeNull();
+    }
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    await user.keyboard("{Escape}");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "More post actions" }));
+  });
+
+  it("returns to section navigation when opening Brand from a deeply scrolled brief", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    const navigation = screen.getByRole("tablist", { name: "Studio sections" });
+    vi.spyOn(navigation, "getBoundingClientRect").mockReturnValue({ ...navigation.getBoundingClientRect(), top: -300 });
+    await user.click(screen.getByRole("button", { name: "Brand" }));
+    await screen.findByRole("textbox", { name: "Business name" });
+    expect(navigation.scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start" });
+    expect(screen.getByRole("tab", { name: "Brand Profile" }).getAttribute("aria-selected")).toBe("true");
+  });
+
   it("provides a clear empty workspace and visible keyboard-accessible preferences", async () => {
     const user = userEvent.setup();
     renderStudio();
@@ -120,93 +140,32 @@ describe("AIStudioPage", () => {
     expect(screen.getByLabelText("Platform preview").textContent).toBe("Our edited update");
   });
 
-  it.each(catalog.textModels)("generates copy with the selected $label request header", async (model) => {
+  it("uses server defaults for copy and image generation without loading a model catalog", async () => {
     const user = userEvent.setup();
     renderStudio();
-    await chooseModel("Text model", `${model.label} · ${model.provider}`);
-    expect(apiClient.get).toHaveBeenCalledWith("/api/v1/workspaces/studio/social/ai-models");
-    expect(apiClient.post).not.toHaveBeenCalled();
-    const caption = await createCopy(user);
-    expect((caption as HTMLTextAreaElement).value).toBe(generated.platforms.linkedin!.caption);
-    expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
-      "/api/v1/workspaces/studio/social/generate",
-      expect.objectContaining({ platforms: ["linkedin", "facebook"], format: "single" }),
-      { timeout: 120_000, headers: { "X-AI-Text-Model": model.id } },
-    );
-  });
-
-  it.each(catalog.imageModels)("generates an image with the selected $label request header", async (model) => {
-    const user = userEvent.setup();
-    renderStudio();
-    await chooseModel("Image model", `${model.label} · ${model.provider}`);
-    expect(apiClient.post).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Share our latest business update" } });
-    await user.click(screen.getByRole("button", { name: "Create image only" }));
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
-      "/api/v1/workspaces/studio/social/generate-image",
-      expect.objectContaining({ mode: "create", format: "post", platform: "linkedin" }),
-      { timeout: 150_000, headers: { "X-AI-Image-Model": model.id } },
-    ));
-    expect((await screen.findByRole("link", { name: "Download" })).getAttribute("href")).toBe(generatedImage.imageUrl);
-  });
-
-  it("passes selected text and image models to caption generation and image art direction", async () => {
-    const user = userEvent.setup();
-    renderStudio();
-    await chooseModel("Text model", "Claude Sonnet 4.6 · Anthropic");
-    await chooseModel("Image model", "Stable Image Ultra · Stability AI");
+    expect(screen.queryByRole("combobox", { name: /model/i })).toBeNull();
     await user.click(screen.getByRole("switch", { name: "Add an image" }));
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Share our latest business update" } });
     await user.click(screen.getByRole("button", { name: "Create post + image" }));
     await screen.findByRole("textbox", { name: "LinkedIn caption" });
-    const headers = { "X-AI-Text-Model": catalog.textModels[1].id, "X-AI-Image-Model": catalog.imageModels[1].id };
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
     expect(apiClient.post).toHaveBeenNthCalledWith(1,
       "/api/v1/workspaces/studio/social/generate",
       expect.objectContaining({ platforms: ["linkedin", "facebook"] }),
-      { timeout: 120_000, headers },
+      { timeout: 120_000 },
     );
     expect(apiClient.post).toHaveBeenNthCalledWith(2,
       "/api/v1/workspaces/studio/social/generate-image",
       expect.objectContaining({ mode: "create", format: "post", platform: "linkedin", caption: generated.platforms.linkedin!.caption, textOverlay: true }),
-      { timeout: 150_000, headers },
+      { timeout: 150_000 },
     );
     expect((await screen.findByRole("link", { name: "Download" })).getAttribute("href")).toBe(generatedImage.imageUrl);
+    expect(vi.mocked(apiClient.get).mock.calls.some(([url]) => String(url).endsWith("/ai-models"))).toBe(false);
   });
 
-  it("keeps edited copy and never posts when model dropdowns are opened, changed or reset", async () => {
+  it("uses server defaults for image-only generation", async () => {
     const user = userEvent.setup();
     renderStudio();
-    const caption = await createCopy(user);
-    fireEvent.change(caption, { target: { value: "Keep this edited caption" } });
-    for (const model of catalog.textModels) await chooseModel("Text model", `${model.label} · ${model.provider}`);
-    for (const model of catalog.imageModels) await chooseModel("Image model", `${model.label} · ${model.provider}`);
-    await chooseModel("Text model", "Server default");
-    await chooseModel("Image model", "Server default");
-    for (const label of ["Text model", "Image model"]) {
-      fireEvent.keyDown(screen.getByRole("combobox", { name: label }), { key: "ArrowDown" });
-      await screen.findByRole("listbox");
-      await user.keyboard("{Escape}");
-    }
-    expect(screen.getByRole("textbox", { name: "LinkedIn caption" })).toBe(caption);
-    expect((caption as HTMLTextAreaElement).value).toBe("Keep this edited caption");
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(apiClient.post).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("button", { name: "Create post" }));
-    await user.click(screen.getByRole("button", { name: "Generate again" }));
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(apiClient.post).mock.lastCall?.[2]).toEqual({ timeout: 120_000 });
-  });
-
-  it.each([false, true])("uses server defaults without image generation headers after resetting selections: %s", async (reset) => {
-    const user = userEvent.setup();
-    renderStudio();
-    if (reset) {
-      await chooseModel("Text model", "GPT-OSS 120B · OpenAI");
-      await chooseModel("Image model", "Stable Diffusion 3.5 Large · Stability AI");
-      await chooseModel("Text model", "Server default");
-      await chooseModel("Image model", "Server default");
-    }
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Share our latest business update" } });
     await user.click(screen.getByRole("button", { name: "Create image only" }));
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
@@ -225,7 +184,7 @@ describe("AIStudioPage", () => {
     await user.click(screen.getByRole("button", { name: "Create post" }));
     expect(screen.getByRole("status", { name: "Generating content" })).toBeTruthy();
     expect((screen.getByRole("button", { name: "Create image only" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "New" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "More post actions" }) as HTMLButtonElement).disabled).toBe(true);
     expect(apiClient.post).toHaveBeenCalledTimes(1);
   });
 
@@ -271,7 +230,8 @@ describe("AIStudioPage", () => {
     const user = userEvent.setup();
     renderStudio();
     await createCopy(user);
-    await user.click(screen.getByRole("button", { name: "New" }));
+    await user.click(screen.getByRole("button", { name: "More post actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "New post" }));
     await user.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(screen.getByRole("textbox", { name: "LinkedIn caption" })).toBeTruthy();
   });

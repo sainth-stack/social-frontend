@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import socialMediaApi from "@/api/endpoints/social-media.api";
 import type { BrandLogo, BrandVoice, BrandVoiceTestResult } from "@/types/social-media.types";
-import { useAIModelSelection } from "./AIModelSelector";
 import { BrandTab } from "./AIStudioPage";
 
 const mocks = vi.hoisted(() => ({ saved: vi.fn(), logos: vi.fn(), reload: vi.fn(), success: vi.fn() }));
@@ -70,9 +69,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("BrandTab", () => {
-  it("uses server defaults without a model provider and omits the optional third preview argument", async () => {
-    const { result } = renderHook(() => useAIModelSelection());
-    expect(result.current).toEqual({});
+  it("uses server defaults and omits the optional third preview argument", async () => {
     mount();
     await ready();
     fireEvent.click(screen.getByRole("button", { name: "Generate preview" }));

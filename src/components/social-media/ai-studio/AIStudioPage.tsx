@@ -18,6 +18,7 @@ import {
   Lock,
   Megaphone,
   MessageSquare,
+  MoreHorizontal,
   Palette,
   Pencil,
   Play,
@@ -51,7 +52,6 @@ import {
   useBrandLogos,
 } from "@/components/social-media/ai-studio/BrandLogoLibrary";
 import ResponsivePhonePreview from "@/components/social-media/ai-studio/ResponsivePhonePreview";
-import { AIModelSelectionProvider, AIModelSelector, useAIModelSelection } from "@/components/social-media/ai-studio/AIModelSelector";
 import PlatformPreview from "@/components/social-media/content-studio/PlatformPreview";
 import ScheduleModal from "@/components/social-media/posts/ScheduleModal";
 import {
@@ -74,6 +74,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -507,11 +508,17 @@ function GenerateTab({
 }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
-  const modelSelection = useAIModelSelection();
   const studioParams = useSearchParams();
   const user = useAppSelector(selectUser);
   const accounts = useAppSelector(selectSocialAccounts);
   const publishing = useAppSelector(selectPublishing);
+  const briefHeading = useRef<HTMLHeadingElement>(null);
+  const contentHeading = useRef<HTMLHeadingElement>(null);
+  const moveToSection = (section: "brief" | "content") => {
+    const heading = section === "brief" ? briefHeading.current : contentHeading.current;
+    heading?.scrollIntoView({ behavior: "instant", block: "start" });
+    heading?.focus({ preventScroll: true });
+  };
   // Multi A/B/C versions: Pro + Growth. Free stays at 1.
   // Multi-platform generation is available on every plan.
   const canMultiVariation = canUseMultiVariations(user?.plan);
@@ -824,7 +831,7 @@ function GenerateTab({
         includeLogo: includeLogo && Boolean(selectedLogo),
         logoId: selectedLogo?.id ?? null,
         logoPosition,
-      }, ...(modelSelection.textModel || modelSelection.imageModel ? [modelSelection] as const : []));
+      });
       setGeneratedImageUrl(img.imageUrl);
       setImageMeta(img);
       setMediaSource("ai_generated");
@@ -869,7 +876,7 @@ function GenerateTab({
             logoPosition,
             slideIndex: i + 1,
             slideCount: count,
-          }, ...(modelSelection.textModel || modelSelection.imageModel ? [modelSelection] as const : []));
+          });
           results[i] = img.imageUrl;
           setSlideImages([...results]);
           if (i === 0) {
@@ -951,7 +958,7 @@ function GenerateTab({
             includeComment: false,
             format: formatKey,
             ...generationMeta(),
-          }, ...(modelSelection.textModel || modelSelection.imageModel ? [modelSelection] as const : [])),
+          }),
         ),
       );
 
@@ -1231,7 +1238,7 @@ function GenerateTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {(editingPostId || templateName) && <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           {editingPostId ? (
             <Badge variant="secondary" className="text-[10px]">
@@ -1243,10 +1250,13 @@ function GenerateTab({
             </p>
           ) : null}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="ghost" size="sm" disabled={busy || saving} onClick={() => hasContent ? setPendingAction("reset") : resetStudio()}>
-            New
-          </Button>
+      </div>}
+      <div role="region" aria-label="Post controls" className="sticky top-16 z-10 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-2 shadow-soft">
+        <nav aria-label="Create workspace" className="flex gap-1">
+          <Button type="button" variant="ghost" size="sm" onClick={() => moveToSection("brief")}><FileText className="hidden h-3.5 w-3.5 sm:block" />Brief</Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => moveToSection("content")}><Pencil className="hidden h-3.5 w-3.5 sm:block" />Content</Button>
+        </nav>
+        <div className="flex items-center gap-1 sm:gap-2">
           <Button
             type="button"
             variant="outline"
@@ -1254,37 +1264,29 @@ function GenerateTab({
             disabled={!hasContent || saving || busy}
             onClick={() => void saveDraft()}
           >
-            <Save className="mr-1.5 h-3.5 w-3.5" />
+            <Save className="hidden h-3.5 w-3.5 sm:block" />
             Save draft
           </Button>
           <Button
             type="button"
-            variant="outline"
             size="sm"
-            disabled={!hasContent || saving || busy || publishing || hasVideoAttached}
-            onClick={() => setScheduleOpen(true)}
-          >
-            <Calendar className="mr-1.5 h-3.5 w-3.5" />
-            Schedule
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={!hasContent || saving || busy}
-            onClick={() => void handleSubmitApproval()}
-          >
-            Submit for approval
-          </Button>
-          <Button
-            type="button"
-            size="sm"
+            className="hidden sm:inline-flex"
             disabled={!hasContent || saving || busy || publishing || hasVideoAttached}
             onClick={() => void handlePublishNow()}
           >
             <Rocket className="mr-1.5 h-3.5 w-3.5" />
             Publish now
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-9 w-9" aria-label="More post actions" disabled={busy || saving}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem disabled={!hasContent || publishing || hasVideoAttached} onSelect={() => void handlePublishNow()}><Rocket />Publish now</DropdownMenuItem>
+              <DropdownMenuItem disabled={!hasContent || publishing || hasVideoAttached} onSelect={() => setScheduleOpen(true)}><Calendar />Schedule</DropdownMenuItem>
+              <DropdownMenuItem disabled={!hasContent} onSelect={() => void handleSubmitApproval()}><Save />Submit for approval</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => hasContent ? setPendingAction("reset") : resetStudio()}><FileText />New post</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -1324,7 +1326,7 @@ function GenerateTab({
                 <ProductGenerateIcon className="h-4 w-4" />
               </span>
               <div>
-                <CardTitle className="text-base"><h2>Your creative brief</h2></CardTitle>
+                <CardTitle className="text-base"><h2 ref={briefHeading} tabIndex={-1} className="scroll-mt-44 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:scroll-mt-36">Your creative brief</h2></CardTitle>
                 <p className="text-xs text-muted-foreground">
                   {brandKit?.brandName ? `Written in the ${brandKit.brandName} voice` : "Describe it, we write and design it"}
                 </p>
@@ -1642,7 +1644,7 @@ function GenerateTab({
             </div>
           )}
 
-          <div className="sticky bottom-0 -mx-6 space-y-2 border-t border-border bg-card/95 px-6 pb-1 pt-4 backdrop-blur">
+          <div className="space-y-2 border-t border-border pt-4">
             <Button className="w-full" size="lg" onClick={() => variations?.length ? setPendingAction("generate") : void generate()} disabled={busy || saving || !orgId || prompt.trim().length < 5}>
               {loading ? (
                 <>
@@ -1656,6 +1658,7 @@ function GenerateTab({
               )}
             </Button>
             <p role="status" className="text-center text-xs text-muted-foreground">{slidesLoading ? "Creating slide visuals…" : imageLoading ? "Creating your visual…" : loading ? "Writing your content…" : "Review and edit before publishing. Nothing posts automatically."}</p>
+            {(hasContent || busy) && <Button type="button" variant="outline" className="w-full" onClick={() => moveToSection("content")}>View content<Pencil className="ml-2 h-3.5 w-3.5" /></Button>}
             <Button
               type="button"
               variant="ghost"
@@ -1681,7 +1684,7 @@ function GenerateTab({
       <Card className="min-w-0 shadow-soft xl:col-span-7">
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base"><h2>Your content workspace</h2></CardTitle>
+            <CardTitle className="text-base"><h2 ref={contentHeading} tabIndex={-1} className="scroll-mt-44 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:scroll-mt-36">Your content workspace</h2></CardTitle>
             {variations && (
               <Badge variant="secondary" className="text-[10px]">
                 {multiPlatform
@@ -2045,7 +2048,6 @@ export function BrandTab({
   onSaved?: () => void;
   brandVersion: number;
 }) {
-  const modelSelection = useAIModelSelection();
   const { logos, setLogos, loading: logosLoading, error: logosError, reload: reloadLogos } = useBrandLogos(orgId, brandVersion);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [form, setForm] = useState<BrandVoicePayload>(emptyBrand);
@@ -2190,7 +2192,7 @@ export function BrandTab({
     setRefreshing(true);
     setPreviewError(null);
     try {
-      const result = await socialMediaApi.testBrandVoice(orgId, buildBrandPayload(), ...(modelSelection.textModel || modelSelection.imageModel ? [modelSelection] as const : []));
+      const result = await socialMediaApi.testBrandVoice(orgId, buildBrandPayload());
       if (!current()) return;
       setPreview(result.caption);
       setPreviewDraft(draftKey);
@@ -3025,6 +3027,7 @@ export default function AIStudioPage({
   const [tab, setTab] = useState<AIStudioTab>(requestedTab);
   const [visited, setVisited] = useState<Set<AIStudioTab>>(() => new Set([requestedTab]));
   const [prefillMedia, setPrefillMedia] = useState<PrefillMedia>(null);
+  const sectionNavigation = useRef<HTMLDivElement>(null);
 
   const draftId = searchParams.get("draftId");
   const templateId = searchParams.get("templateId");
@@ -3036,17 +3039,24 @@ export default function AIStudioPage({
     setVisited((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
   }, []);
 
+  const navigateTab = useCallback((next: AIStudioTab) => {
+    changeTab(next);
+    const navigation = sectionNavigation.current;
+    if (navigation && navigation.getBoundingClientRect().top < 64) {
+      navigation.scrollIntoView({ behavior: "instant", block: "start" });
+    }
+  }, [changeTab]);
+
   const clearPrefillMedia = useCallback(() => setPrefillMedia(null), []);
   const [brandVersion, setBrandVersion] = useState(0);
   const bumpBrandVersion = useCallback(() => setBrandVersion((v) => v + 1), []);
-  const openBrand = useCallback(() => changeTab("brand"), [changeTab]);
+  const openBrand = useCallback(() => navigateTab("brand"), [navigateTab]);
 
   useEffect(() => {
     changeTab(requestedTab);
   }, [requestedTab, changeTab]);
 
   return (
-    <AIModelSelectionProvider orgId={orgId}>
     <TooltipProvider key={orgId} delayDuration={200}>
       <div className="mx-auto max-w-7xl space-y-6">
         <PageHeader
@@ -3054,7 +3064,6 @@ export default function AIStudioPage({
           title="AI Studio"
           description="From your first idea to a ready-to-publish post. Your voice, every time."
         />
-        <AIModelSelector />
 
         {!orgId && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
@@ -3064,11 +3073,11 @@ export default function AIStudioPage({
 
         <Tabs
           value={tab}
-          onValueChange={(v) => changeTab(v as AIStudioTab)}
+          onValueChange={(v) => navigateTab(v as AIStudioTab)}
           className="space-y-6"
         >
-          <TabsList aria-label="Studio sections" className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl border border-border bg-muted/30 p-2 lg:grid-cols-4">
-            {STUDIO_TABS.map(({ value, label, description, icon: Icon }) => <TabsTrigger key={value} value={value} className="h-auto min-w-0 justify-start gap-3 whitespace-normal rounded-lg px-3 py-3 text-left data-[state=active]:bg-card data-[state=active]:shadow-soft"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Icon className="h-4 w-4" /></span><span className="min-w-0"><span className="block text-xs font-semibold sm:text-sm">{label}</span><span className="mt-1 hidden text-xs font-normal leading-relaxed text-muted-foreground sm:block">{description}</span></span></TabsTrigger>)}
+          <TabsList ref={sectionNavigation} aria-label="Studio sections" className="grid h-auto w-full scroll-mt-20 grid-cols-2 gap-1 rounded-xl border border-border bg-muted/30 p-1 sm:grid-cols-4">
+            {STUDIO_TABS.map(({ value, label, description, icon: Icon }) => <TabsTrigger key={value} value={value} title={description} className="h-10 min-w-0 gap-2 whitespace-normal rounded-lg px-2 text-xs data-[state=active]:bg-card data-[state=active]:shadow-soft sm:text-sm"><Icon className="h-4 w-4 shrink-0" /><span>{label}</span></TabsTrigger>)}
           </TabsList>
 
           <TabsContent value="generate" forceMount className="data-[state=inactive]:hidden">
@@ -3105,7 +3114,7 @@ export default function AIStudioPage({
                     url: asset.url,
                     mediaType: asset.mediaType,
                   });
-                  changeTab("generate");
+                  navigateTab("generate");
                   toast.success("Media attached. Continue in Create.");
                 }}
               />
@@ -3114,6 +3123,5 @@ export default function AIStudioPage({
         </Tabs>
       </div>
     </TooltipProvider>
-    </AIModelSelectionProvider>
   );
 }

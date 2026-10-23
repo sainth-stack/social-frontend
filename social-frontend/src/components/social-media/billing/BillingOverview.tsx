@@ -27,7 +27,7 @@ import type { PlanTier } from "@/types/auth";
 import type { BillingPlanPrice, CouponPreview } from "@/types/billing";
 
 const PLAN_RANK: Record<PlanTier, number> = { starter: 0, growth: 1, enterprise: 2 };
-const SCALE_SALES_URL = "mailto:founder@opsbrainai.com?subject=OpsBrain%20AI%20Scale%20plan";
+const SCALE_SALES_URL = "mailto:founder@opsbrainai.com?subject=EarnedVoice%20Scale%20plan";
 const planName = (key: string) => DEFAULT_PRICING_CATALOG.find((plan) => plan.id === key)?.name ?? key;
 const money = (paise: number, currency = "INR") => new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: paise % 100 === 0 ? 0 : 2 }).format(paise / 100);
 

@@ -2,11 +2,11 @@ import Image from "next/image";
 import { Facebook, Instagram, Linkedin, Youtube } from "lucide-react";
 
 export function BrandMark({ size = 36 }: { size?: number }) {
-  return <Image src="/brand/mark.png" alt="" width={size} height={size} className="brand-mark shrink-0" />;
+  return <Image src="/brand/earnedvoice-mark.svg" alt="" width={size} height={size} loading="eager" className="brand-mark shrink-0" />;
 }
 
 export function BrandLockup() {
-  return <span className="flex items-center gap-2.5 whitespace-nowrap"><BrandMark /><span className="font-display text-xl font-extrabold tracking-tight">OpsBrain<span className="ml-1 text-primary">AI</span></span></span>;
+  return <span className="flex items-center gap-2.5 whitespace-nowrap"><BrandMark /><span className="font-display text-xl font-bold tracking-tight">Earned<span className="text-primary">Voice</span></span></span>;
 }
 
 export function PlatformIcon({ name, color, size = 40 }: { name: string; color: string; size?: number }) {

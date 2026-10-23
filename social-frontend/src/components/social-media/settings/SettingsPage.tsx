@@ -136,7 +136,7 @@ function WorkspaceSettings({ section: explicitSection }: { section?: SettingsSec
           <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-5">
             <legend className="sr-only">{title} settings</legend>
             {section === "general" && <>
-              <Field id="workspaceName" label="Workspace name" hint="Managed by your OpsBrain account. Contact your administrator to rename it."><Input id="workspaceName" value={user?.workspaceName ?? ""} disabled aria-describedby="workspaceName-hint" /></Field>
+              <Field id="workspaceName" label="Workspace name" hint="Managed by your EarnedVoice account. Contact your administrator to rename it."><Input id="workspaceName" value={user?.workspaceName ?? ""} disabled aria-describedby="workspaceName-hint" /></Field>
               <div className="grid gap-5 sm:grid-cols-2">{choice("timezone", "Timezone", TIMEZONES)}{choice("defaultLanguage", "Default language", [["en", "English"], ["hi", "Hindi"], ["te", "Telugu"]])}</div>
               <div className="space-y-3"><h3 className="text-sm font-medium">Enabled platforms</h3><div className="grid gap-3 sm:grid-cols-2">{(["facebook", "instagram", "linkedin", "x"] as const).map((platform) => <Toggle key={platform} id={`platform-${platform}`} label={platform === "x" ? "X" : platform[0].toUpperCase() + platform.slice(1)} checked={Boolean(form.enabledPlatforms?.[platform])} onChange={(value) => patch("enabledPlatforms", { ...form.enabledPlatforms, [platform]: value })} />)}</div></div>
             </>}

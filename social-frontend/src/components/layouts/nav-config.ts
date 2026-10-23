@@ -1,11 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  Building2,
   CalendarDays,
   CreditCard,
   FileText,
   LayoutDashboard,
   LineChart,
+  Mail,
   Settings,
   Share2,
   Tag,
@@ -77,9 +79,11 @@ export const adminNavSections: NavSection[] = [
     items: [
       { label: "Overview", href: "/admin", icon: LayoutDashboard },
       { label: "Users", href: "/admin/users", icon: Users },
+      { label: "Workspaces", href: "/admin/workspaces", icon: Building2 },
       { label: "Plans", href: "/admin/pricing", icon: Tag },
       { label: "Coupons", href: "/admin/coupons", icon: CreditCard },
       { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
+      { label: "Enquiries", href: "/admin/contacts", icon: Mail },
     ],
   },
 ];

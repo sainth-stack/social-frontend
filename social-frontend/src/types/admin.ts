@@ -6,7 +6,7 @@ export type AdminUser = {
   id: string;
   email: string;
   name: string;
-  workspaceId: string;
+  workspaceId: string | null;
   workspaceName: string;
   plan: PlanTier;
   status: UserStatus;
@@ -21,6 +21,16 @@ export type AdminUserListResponse = {
   page: number;
   pageSize: number;
   totalPages: number;
+};
+
+export type AdminWorkspace = {
+  id: string;
+  name: string;
+  plan: PlanTier;
+  is_active: boolean;
+  owner_email: string | null;
+  member_count: number;
+  created_at: string;
 };
 
 export type CreateAdminUserPayload = {
@@ -62,6 +72,42 @@ export type AdminAnalytics = {
   postsOverTime: PostsOverTimePoint[];
   planDistribution: PlanDistributionRow[];
   platformMix: PlatformMixRow[];
+};
+
+export type MarketingAnalytics = {
+  pageViews30d: number;
+  signupClicks30d: number;
+  contactClicks30d: number;
+  contacts30d: number;
+  newContacts: number;
+  inProgressContacts: number;
+  resolvedContacts: number;
+  daily: {
+    date: string;
+    pageViews: number;
+    signupClicks: number;
+    contactClicks: number;
+    contacts: number;
+  }[];
+};
+
+export type ContactSubmission = {
+  id: string;
+  name: string;
+  email: string;
+  company: string | null;
+  message: string;
+  status: "new" | "in_progress" | "resolved";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ContactList = {
+  items: ContactSubmission[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 };
 
 export type PlanLimits = {

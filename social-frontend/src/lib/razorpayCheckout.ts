@@ -79,7 +79,7 @@ export async function openSocialCheckoutSession(
         key: session.keyId,
         amount: session.amountPaise,
         currency: session.currency || "INR",
-        name: "OpsBrain AI",
+        name: "EarnedVoice",
         description: `Social Media — ${planLabel}`,
         order_id: session.orderId,
         theme: { color: "#4F46E5" },

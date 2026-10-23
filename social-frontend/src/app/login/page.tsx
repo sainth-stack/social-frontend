@@ -1,22 +1,21 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Box, CircularProgress } from "@mui/material";
+import { Loader2 } from "lucide-react";
 
 import LoginForm from "./LoginForm";
-import { authPageSx } from "@/lib/theme";
 
 export const metadata: Metadata = {
-  title: "Sign in · OpsBrain AI",
-  description: "Sign in to your OpsBrain AI Social Media Manager workspace",
+  title: "Sign in",
+  description: "Sign in to your EarnedVoice Social Media Manager workspace",
 };
 
 export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <Box sx={{ ...authPageSx, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <CircularProgress size={28} />
-        </Box>
+        <main className="flex min-h-screen items-center justify-center bg-background" role="status" aria-label="Loading sign in">
+          <Loader2 className="size-7 animate-spin text-primary" aria-hidden="true" />
+        </main>
       }
     >
       <LoginForm />

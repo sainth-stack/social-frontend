@@ -99,7 +99,7 @@ function ResetPasswordForm() {
   return (
     <SparkAuthLayout
       title="Set a new password"
-      subtitle="Choose a strong password for your OpsBrain account."
+      subtitle="Choose a strong password for your EarnedVoice account."
       footer={
         <Link href="/login" className="font-medium text-primary hover:underline">
           Back to sign in

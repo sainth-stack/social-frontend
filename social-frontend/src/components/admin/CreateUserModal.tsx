@@ -30,6 +30,7 @@ type CreateUserModalProps = {
   error?: string | null;
   onClose: () => void;
   onConfirm: (payload: CreateAdminUserPayload) => void;
+  onCloseAutoFocus?: (event: Event) => void;
 };
 
 const EMPTY = {
@@ -47,6 +48,7 @@ export default function CreateUserModal({
   error = null,
   onClose,
   onConfirm,
+  onCloseAutoFocus,
 }: CreateUserModalProps) {
   const [form, setForm] = useState(EMPTY);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -59,6 +61,7 @@ export default function CreateUserModal({
   }, [open]);
 
   function submit() {
+    if (saving) return;
     if (!form.name.trim() || !form.email.trim() || form.password.length < 8) {
       setLocalError("Name, email, and a password of at least 8 characters are required.");
       return;
@@ -75,32 +78,37 @@ export default function CreateUserModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={(o) => !o && !saving && onClose()}>
+      <DialogContent className="max-h-dvh overflow-y-auto sm:max-w-lg" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Create user</DialogTitle>
           <DialogDescription>
-            Provision a workspace and assign a plan (no Stripe).
+            Create a user and their workspace. This administrative plan assignment does not collect payment. All plans include unlimited connected accounts.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); submit(); }} aria-busy={saving}>
+        <fieldset disabled={saving} className="min-w-0 space-y-4">
           {(localError || error) && (
-            <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <p role="alert" id="create-user-error" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {localError || error}
             </p>
           )}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Full name</Label>
+              <Label htmlFor="create-user-name">Full name</Label>
               <Input
+                id="create-user-name"
+                required
+                autoComplete="name"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Workspace</Label>
+              <Label htmlFor="create-user-workspace">Workspace</Label>
               <Input
+                id="create-user-workspace"
                 value={form.workspaceName}
                 onChange={(e) => setForm((f) => ({ ...f, workspaceName: e.target.value }))}
                 placeholder="Optional"
@@ -108,28 +116,38 @@ export default function CreateUserModal({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Email</Label>
+            <Label htmlFor="create-user-email">Email</Label>
             <Input
+              id="create-user-email"
+              required
+              autoComplete="email"
               type="email"
               value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Password</Label>
+            <Label htmlFor="create-user-password">Password</Label>
             <Input
+              id="create-user-password"
+              required
+              minLength={8}
+              autoComplete="new-password"
+              aria-describedby="create-user-password-hint"
               type="password"
               value={form.password}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
             />
+            <p id="create-user-password-hint" className="text-xs text-muted-foreground">Use at least 8 characters.</p>
           </div>
           <div className="space-y-1.5">
-            <Label>Plan</Label>
+            <Label htmlFor="create-user-plan">Plan</Label>
             <Select
+              disabled={saving}
               value={form.plan}
               onValueChange={(v) => setForm((f) => ({ ...f, plan: v as PlanTier }))}
             >
-              <SelectTrigger>
+              <SelectTrigger id="create-user-plan">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -141,23 +159,28 @@ export default function CreateUserModal({
           </div>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
+              disabled={saving}
+              aria-describedby="create-user-admin-context"
               checked={form.isPlatformAdmin}
               onCheckedChange={(v) =>
                 setForm((f) => ({ ...f, isPlatformAdmin: v === true }))
               }
             />
-            <span>Platform admin</span>
+            <span>Grant platform administrator access</span>
           </label>
-        </div>
+          <p id="create-user-admin-context" className="text-sm text-muted-foreground">Platform administrators can manage users, workspaces and platform settings. Only grant this privilege to a trusted operator.</p>
+          {form.isPlatformAdmin && <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">Confirm that {form.email || "this user"} should receive platform-wide administrator privileges before creating this account.</p>}
+        </fieldset>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving}>
-            {saving ? "Creating…" : "Create user"}
+          <Button type="submit" disabled={saving} aria-describedby={localError || error ? "create-user-error" : undefined}>
+            {saving ? "Creating…" : error ? "Retry creation" : form.isPlatformAdmin ? "Create platform admin" : "Create user"}
           </Button>
         </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

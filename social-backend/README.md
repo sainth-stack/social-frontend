@@ -71,6 +71,32 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 On startup, if `ADMIN_EMAIL` + `ADMIN_PASSWORD` are set, a platform admin user (with an
 Enterprise-plan workspace) is created idempotently.
 
+### One-off platform admin setup or password reset
+
+From this backend directory, with its virtual environment activated, run
+`python -m app.core.seed_admin`. Configure `MONGODB_URL` and `MONGODB_DB_NAME` for
+the intended database first. The command reads `ADMIN_EMAIL` and `ADMIN_PASSWORD`
+from environment variables or the backend `.env`; missing values are requested
+using an email prompt and a hidden password prompt. No default password is supplied.
+Do not commit credentials or put passwords in command-line arguments.
+
+Email validation and password length (8–128 characters) match registration. This
+explicit command creates or promotes only the normalized target email, activates
+that user, and sets/resets only that user's password using the existing password
+hashing helpers. Repeating it with the same credentials creates no duplicate user,
+workspace, or membership. It repairs an owned workspace's active state and the
+owner/admin membership, creating an Enterprise workspace when none is owned;
+existing workspace names and plans are preserved. Other users and shared-workspace
+memberships are not changed. Interrupted database writes may leave partial setup;
+rerun after fixing connectivity. Startup bootstrap is unchanged: it never resets
+an existing user's password.
+
+Local setup is currently blocked: MongoDB at `localhost:27017` refused the connection,
+and no backend `.env` or local MongoDB service executable was available. The requested
+`superadmin@gmail.com` account has **not** been seeded. Start/install MongoDB or
+configure a reachable MongoDB deployment, then run the command and enter the password
+securely when prompted.
+
 ### Running the background workers
 
 `./scripts/start.sh` starts api + worker + beat together.
@@ -127,6 +153,46 @@ All authenticated routes are under `API_V1_PREFIX` (default `/api/v1`).
     (snake_case totals) — all still work, kept for backwards compatibility
 
 Interactive docs at `/docs` once the server is running.
+
+### Marketing contacts and analytics
+
+Paths below use the default `/api/v1` prefix. Exact schemas and behavior are in
+[app/marketing/schemas.py](app/marketing/schemas.py),
+[app/marketing/service.py](app/marketing/service.py),
+[app/marketing/router.py](app/marketing/router.py), and
+[app/admin/router.py](app/admin/router.py).
+
+- `POST /api/v1/public/contact` — unauthenticated; rate limit 5 requests/60 seconds.
+  JSON: required `name` (2–100 characters), valid `email`, `message` (10–5000);
+  optional nullable `company` (max 160), `website` (max 2048). Strings are trimmed
+  and unknown fields rejected. `website` is a honeypot, not a company URL: leave
+  empty/omit it. A nonempty value returns success without storing a contact.
+  Returns HTTP 200 `{id: UUID, status: "received"}`. Stored contacts start as `new`.
+- `POST /api/v1/public/events` — unauthenticated; rate limit 120 requests/60 seconds.
+  JSON: `{event: "page_view" | "signup_click" | "contact_click", path: "/"}`;
+  both fields required, unknown fields rejected. Returns HTTP 200
+  `{status: "received"}`. Increments aggregate UTC daily counters, not unique
+  visitor, completed-signup, or conversion counts.
+- `GET /api/v1/admin/contacts` — active platform-admin bearer authentication required.
+  Query: optional `search` (max 200; case-insensitive literal substring across name,
+  email, company, message), optional `status` (`new`, `in_progress`, `resolved`),
+  `page` (default 1; 1–1,000,000), `pageSize` (default 20; 1–200).
+  Returns `{items, total, page, pageSize, totalPages}`; `totalPages` is at least 1.
+  Items are newest-first (`created_at` descending, ID ascending for ties), each
+  `{id, name, email, company, message, status, createdAt, updatedAt}`; timestamps
+  are UTC and `company` may be null. Passwords and honeypot values are not returned.
+- `PATCH /api/v1/admin/contacts/{contact_id}` — same admin authentication; UUID path
+  parameter, JSON `{status: "new" | "in_progress" | "resolved"}` only. Returns the
+  updated contact with the item shape above; unknown contact returns HTTP 404.
+- `GET /api/v1/admin/marketing-analytics` — same admin authentication; no parameters.
+  Returns `{pageViews30d, signupClicks30d, contactClicks30d, contacts30d,
+  newContacts, inProgressContacts, resolvedContacts, daily}`. The four `30d` totals
+  cover today and the preceding 29 UTC dates. `daily` contains exactly 30 ascending,
+  zero-filled entries `{date: "YYYY-MM-DD", pageViews, signupClicks, contactClicks,
+  contacts}`. Contact status counts are **all-time**, not limited to 30 days.
+
+Invalid request bodies/query values return HTTP 422; rate limits return HTTP 429.
+Contacts are stored in `marketing_contacts`; event counters in `marketing_daily`.
 
 ## Plans & AI usage enforcement
 

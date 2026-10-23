@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="144" viewBox="0 0 660 144" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">EarnedVoice — Resonance</title>
+  <desc id="desc">An open circular voice mark with an inward horizontal stroke and a conversation tail, paired with an understated wordmark.</desc>
+  <g transform="translate(12 12)">
+    <path d="M92 82A43 43 0 1 1 101 58H48" stroke="#4F46E5" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M30 91L18 110L53 100" fill="#4F46E5"/>
+    <circle cx="78" cy="82" r="7" fill="#818CF8"/>
+  </g>
+  <text x="158" y="94" fill="#171B2D" font-family="Inter, Arial, sans-serif" font-size="69" font-weight="600" letter-spacing="-3.2">EarnedVoice</text>
+</svg>

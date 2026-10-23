@@ -1,31 +1,26 @@
-"use client";
-
 import Image from "next/image";
 
 import { platformBrand } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
-type OpsBrainLogoProps = {
+type EarnedVoiceLogoProps = {
   className?: string;
-  /** Icon size in px */
   size?: number;
-  /** Mark only */
   compact?: boolean;
   priority?: boolean;
 };
 
-/** OpsBrain mark + wordmark — same asset as opsbrain-landing. */
-export function OpsBrainLogo({
+export function EarnedVoiceLogo({
   className,
   size = 32,
   compact = false,
   priority = false,
-}: OpsBrainLogoProps) {
+}: EarnedVoiceLogoProps) {
   return (
     <span
       className={cn("inline-flex items-center gap-2.5", className)}
       role="img"
-      aria-label={`${platformBrand.name} ${platformBrand.suffix}`}
+      aria-label="EarnedVoice"
     >
       <Image
         src={platformBrand.mark}
@@ -33,14 +28,13 @@ export function OpsBrainLogo({
         width={size}
         height={size}
         priority={priority}
-        aria-hidden
-        className="shrink-0 rounded-[22%] object-cover"
+        aria-hidden="true"
+        className="shrink-0 object-contain"
         style={{ width: size, height: size }}
       />
       {!compact ? (
-        <span className="font-semibold leading-none tracking-tight text-foreground">
-          {platformBrand.name}
-          <span className="ml-1 text-primary">{platformBrand.suffix}</span>
+        <span className="font-display font-bold leading-none tracking-tight">
+          Earned<span className="text-primary">Voice</span>
         </span>
       ) : null}
     </span>

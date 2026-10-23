@@ -1,10 +1,10 @@
-export type Business = "cafe" | "fitness" | "store";
+export type Business = "software" | "agency" | "consultancy";
 export type Goal = "awareness" | "conversations" | "offer";
 
 export const businesses: { id: Business; label: string }[] = [
-  { id: "cafe", label: "Café" },
-  { id: "fitness", label: "Fitness coach" },
-  { id: "store", label: "Online store" },
+  { id: "software", label: "Software startup" },
+  { id: "agency", label: "Marketing agency" },
+  { id: "consultancy", label: "IT consultancy" },
 ];
 
 export const goals: { id: Goal; label: string }[] = [
@@ -20,71 +20,71 @@ const times = ["8:30 AM", "12:00 PM", "5:30 PM", "10:00 AM", "4:00 PM", "11:00 A
 type Base = { ideas: string[]; hooks: string[]; captions: string[]; tags: string[] };
 
 const base: Record<Business, Base> = {
-  cafe: {
+  software: {
     ideas: [
-      "Meet the people behind your morning coffee",
-      "Three ways to make better iced coffee at home",
-      "A closer look at our new cold brew",
-      "From freshly ground beans to the first pour",
-      "How do you take your Friday coffee?",
-      "A weekend invitation to your neighbourhood café",
-      "Make your Monday easier with a cold brew stop",
+      "Why we are building Northstar",
+      "Give every launch task a clear owner",
+      "Meet the Northstar launch workspace",
+      "From product brief to release checklist",
+      "Where does your launch handoff get stuck?",
+      "An open discussion for product teams",
+      "Explore the Northstar product walkthrough",
     ],
-    hooks: ["Say hello to the team.", "Better iced coffee, three steps.", "New on the menu.", "Before the doors open…", "Quick question for you.", "Your weekend spot is ready.", "Monday, sorted."],
+    hooks: ["A clearer path to launch.", "One task. One owner.", "Meet Northstar.", "Inside the launch checklist.", "Where do handoffs stall?", "Let’s compare launch notes.", "Take a closer look."],
     captions: [
-      "The faces behind your first cup. Our baristas start before sunrise so your morning starts right.",
-      "Brew strong, chill fast, pour over fresh ice. Small steps, much better iced coffee at home.",
-      "Your afternoon reset, poured over ice. Meet our new cold brew: slow-steeped, smooth, and ready when you are. Drop by this week and tell us how you take yours.",
-      "Grinding, tamping, pouring. A quiet look at how every cup comes together.",
-      "Black, oat, iced or extra hot? Tell us how you take your Friday coffee.",
-      "Bring a friend, a book or nothing at all. Our tables are waiting this weekend.",
-      "Start next week on a smoother note with a cold brew on your way in.",
+      "We are building Northstar to bring launch tasks, owners and decisions into one workspace. Here is the thinking behind the product.",
+      "Before your next launch review, give each task one owner, a due date and a clear next step.",
+      "Introducing Northstar: a shared workspace for product launches. Plan tasks, assign owners and review release checklists in one place. Explore the product walkthrough.",
+      "A look at how we turn a product brief into a release checklist, with space for open questions and review notes.",
+      "Unclear owners, scattered feedback or last-minute approvals? Which handoff would you redesign first?",
+      "Product, engineering and marketing teams: what belongs in every launch checklist? Share an idea for the discussion.",
+      "Planning a release? Explore the Northstar walkthrough and see how a sample launch comes together.",
     ],
-    tags: ["#ColdBrew", "#CoffeeBreak", "#LocalCafe"],
+    tags: ["#Northstar", "#ProductLaunch", "#B2BSoftware"],
   },
-  fitness: {
+  agency: {
     ideas: [
-      "Why I started coaching (and who I help)",
-      "Three warm-up moves for desk workers",
-      "Inside my 6-week strength programme",
-      "A morning in the studio before clients arrive",
-      "What is your biggest fitness roadblock?",
-      "Saturday community walk: everyone welcome",
-      "Start the month with a free form check",
+      "How we approach a B2B launch brief",
+      "Write one message for one audience",
+      "Inside a Northstar launch campaign concept",
+      "From positioning notes to draft creative",
+      "What slows down your campaign reviews?",
+      "A discussion for B2B marketers",
+      "Explore our launch planning approach",
     ],
-    hooks: ["How it started.", "Stiff back? Try these.", "Here is what we build.", "5:45 AM in the studio.", "Be honest with me.", "Lace up this weekend.", "Your first step is free."],
+    hooks: ["Start with the brief.", "One audience. One message.", "A launch campaign, unpacked.", "Before the first draft.", "Where does review slow down?", "Let’s exchange campaign notes.", "Plan your next launch."],
     captions: [
-      "I coach busy people who want to feel strong without living at the gym. Here's my story.",
-      "Hip circles, cat-cow and wall slides. Two minutes that make long desk days easier.",
-      "Six weeks, three sessions a week, one clear plan. A look inside the programme.",
-      "Mats down, music on, coffee in hand. The quiet hour before the first session.",
-      "Time, motivation or knowing where to start? Tell me what gets in your way.",
-      "An easy-paced group walk this Saturday. Bring a friend and meet the community.",
-      "Book a short form check this month and leave with one thing to improve.",
+      "Our launch planning starts with three questions: who is this for, what problem matters and what should readers do next?",
+      "Choose one buyer role before writing a launch post. Name their problem, explain the product and make the next step clear.",
+      "A sample campaign concept for Northstar, a fictional software product: one launch message adapted for a product page, social post and email.",
+      "Positioning notes, draft headlines and a review checklist. A look at the working documents behind a launch concept.",
+      "Unclear briefs, too many reviewers or late feedback? What would make your next campaign review easier?",
+      "B2B marketers: what question do you always ask before a product launch? Add it to the discussion.",
+      "Preparing a software launch? Explore a sample brief and the steps we use to shape a campaign.",
     ],
-    tags: ["#StrengthTraining", "#FitnessCoach", "#MoveDaily"],
+    tags: ["#B2BMarketing", "#LaunchStrategy", "#MarketingAgency"],
   },
-  store: {
+  consultancy: {
     ideas: [
-      "How our little shop got started",
-      "How to style one piece three ways",
-      "Spotlight: the bestselling canvas tote",
-      "Packing orders on a Thursday afternoon",
-      "Which colour should we restock next?",
-      "Customer photos from this month",
-      "Weekend bundle for first-time customers",
+      "Why we start with a technical discovery",
+      "Map dependencies before a software rollout",
+      "A Northstar rollout planning example",
+      "Inside a technical readiness checklist",
+      "What is your biggest rollout unknown?",
+      "An open discussion for IT teams",
+      "Explore a technical discovery outline",
     ],
-    hooks: ["It started at a kitchen table.", "One piece, three looks.", "Meet the tote.", "Orders going out!", "You decide.", "Look what you made.", "A small thank-you."],
+    hooks: ["Understand before implementing.", "Map the dependencies first.", "Plan the rollout.", "Before deployment day.", "What still needs an answer?", "Let’s compare readiness checks.", "Start with discovery."],
     captions: [
-      "What began as a weekend project is now a shop shipping across the country. Thank you for being here.",
-      "Work, weekend, evening. A quick guide to getting more out of one favourite piece.",
-      "Sturdy canvas, inside pocket, fits a laptop. Here's why people keep coming back to it.",
-      "Tape, tissue and handwritten notes. A peek at how your order gets packed.",
-      "Sage, rust or navy? Vote below and help choose our next restock.",
-      "We love seeing our pieces in your everyday life. Keep tagging us.",
-      "New here? This weekend's bundle is a simple way to try a few favourites.",
+      "We begin with your systems, constraints and open questions. That context shapes the implementation plan before any deployment work starts.",
+      "List the systems, access requirements and owners involved in a rollout. Review the dependencies before setting a launch date.",
+      "Using fictional software Northstar as an example, here is how we would structure access reviews, onboarding and a phased rollout.",
+      "Access checks, test scenarios and rollback steps. A look at the questions in a technical readiness review.",
+      "Integration scope, access controls or onboarding? Which unknown would you resolve before a rollout?",
+      "IT teams: what check belongs in every rollout plan? Share a practical question for the discussion.",
+      "Considering a new software rollout? Explore a sample discovery outline to frame the technical questions.",
     ],
-    tags: ["#ShopSmall", "#OnlineStore", "#NewArrivals"],
+    tags: ["#ITConsultancy", "#SoftwareRollout", "#TechnicalPlanning"],
   },
 };
 
@@ -109,7 +109,7 @@ export function buildPlan(business: Business, goal: Goal): PlanDay[] {
     angle: angles[i]!,
     idea: b.ideas[i]!,
     hook: b.hooks[i]!,
-    caption: business === "cafe" && goal === "awareness" && i === 2 ? b.captions[i]! : `${b.captions[i]!} ${goalCta[goal]}`,
+    caption: business === "software" && goal === "awareness" && i === 2 ? b.captions[i]! : `${b.captions[i]!} ${goalCta[goal]}`,
     hashtags: [...b.tags, goalTag[goal]],
     time: times[i]!,
   }));

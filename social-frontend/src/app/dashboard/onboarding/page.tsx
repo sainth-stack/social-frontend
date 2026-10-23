@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 
 import socialMediaApi from "@/api/endpoints/social-media.api";
+import { EarnedVoiceLogo } from "@/components/brand/EarnedVoiceLogo";
 import { PlatformIcon } from "@/components/platform-icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -163,10 +164,7 @@ export default function OnboardingPage() {
     <div className="mx-auto w-full max-w-2xl py-4">
       <div className="mb-8 flex items-center justify-between">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Sparkles className="h-4 w-4" />
-          </div>
-          <span className="text-sm font-semibold">OpsBrain AI</span>
+          <EarnedVoiceLogo size={32} className="text-sm" />
         </Link>
         <button
           type="button"

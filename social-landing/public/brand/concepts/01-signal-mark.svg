@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" fill="none" role="img" aria-label="EarnedVoice Signal mark">
+  <rect width="120" height="120" rx="32" fill="#4F46E5"/>
+  <path d="M37 30V90" stroke="white" stroke-width="12" stroke-linecap="round"/>
+  <path d="M37 30H84M37 60H70M37 90H84" stroke="white" stroke-width="12" stroke-linecap="round"/>
+  <rect x="84" y="51" width="12" height="18" rx="6" fill="#C7D2FE"/>
+</svg>

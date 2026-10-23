@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { OpsBrainLogo } from "@/components/brand/OpsBrainLogo";
+import { EarnedVoiceLogo } from "@/components/brand/EarnedVoiceLogo";
 
 type SparkAuthLayoutProps = {
   title: string;
@@ -22,7 +22,7 @@ export default function SparkAuthLayout({
     <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-10">
       <div className="w-full max-w-md">
         <Link href="/" className="mb-8 flex items-center justify-center">
-          <OpsBrainLogo size={36} priority />
+          <EarnedVoiceLogo size={36} priority />
         </Link>
 
         <div className="rounded-2xl border border-border bg-card p-6 shadow-elevated sm:p-8">

@@ -13,78 +13,86 @@ import type {
   UpdatePricingPlanPayload,
 } from "@/types/admin";
 
-export const fetchAdminOverview = createAsyncThunk<AdminOverviewStats, void, { rejectValue: string }>(
+const createAdminThunk = createAsyncThunk.withTypes<{
+  rejectValue: string;
+  pendingMeta: { sessionUserId?: string };
+}>();
+
+const adminThunkOptions = {
+  getPendingMeta(_: unknown, { getState }: { getState: () => unknown }) {
+    const state = getState() as { auth?: { user?: { id: string } | null } };
+    return { sessionUserId: state.auth?.user?.id };
+  },
+};
+
+export const fetchAdminOverview = createAdminThunk<AdminOverviewStats, void>(
   "admin/fetchOverview",
-  async (_, { rejectWithValue }) => {
+  async (_, { rejectWithValue, signal }) => {
     try {
-      return await adminApi.getOverview();
+      return await adminApi.getOverview(signal);
     } catch (error) {
       return rejectWithValue(toApiError(error).message);
     }
   },
+  adminThunkOptions,
 );
 
-export const fetchAdminAnalytics = createAsyncThunk<
+export const fetchAdminAnalytics = createAdminThunk<
   AdminAnalytics,
-  { from?: string; to?: string } | void,
-  { rejectValue: string }
->("admin/fetchAnalytics", async (params, { rejectWithValue }) => {
+  { from?: string; to?: string } | void
+>("admin/fetchAnalytics", async (params, { rejectWithValue, signal }) => {
   try {
-    return await adminApi.getAnalytics(params ?? undefined);
+    return await adminApi.getAnalytics(params ?? undefined, signal);
   } catch (error) {
     return rejectWithValue(toApiError(error).message);
   }
-});
+}, adminThunkOptions);
 
-export const fetchAdminUsers = createAsyncThunk<
+export const fetchAdminUsers = createAdminThunk<
   AdminUserListResponse,
-  { search?: string; plan?: PlanTier; status?: string; page?: number; pageSize?: number } | void,
-  { rejectValue: string }
->("admin/fetchUsers", async (params, { rejectWithValue }) => {
+  { search?: string; plan?: PlanTier; status?: string; page?: number; pageSize?: number } | void
+>("admin/fetchUsers", async (params, { rejectWithValue, signal }) => {
   try {
-    return await adminApi.listUsers(params ?? undefined);
+    return await adminApi.listUsers(params ?? undefined, signal);
   } catch (error) {
     return rejectWithValue(toApiError(error).message);
   }
-});
+}, adminThunkOptions);
 
-export const createAdminUser = createAsyncThunk<
+export const createAdminUser = createAdminThunk<
   AdminUser,
-  CreateAdminUserPayload,
-  { rejectValue: string }
+  CreateAdminUserPayload
 >("admin/createUser", async (payload, { rejectWithValue }) => {
   try {
     return await adminApi.createUser(payload);
   } catch (error) {
     return rejectWithValue(toApiError(error).message);
   }
-});
+}, adminThunkOptions);
 
-export const suspendAdminUser = createAsyncThunk<
+export const suspendAdminUser = createAdminThunk<
   AdminUser,
-  { userId: string; suspended: boolean },
-  { rejectValue: string }
+  { userId: string; suspended: boolean }
 >("admin/suspendUser", async ({ userId, suspended }, { rejectWithValue }) => {
   try {
     return await adminApi.suspendUser(userId, suspended);
   } catch (error) {
     return rejectWithValue(toApiError(error).message);
   }
-});
+}, adminThunkOptions);
 
-export const changeAdminUserPlan = createAsyncThunk<
+export const changeAdminUserPlan = createAdminThunk<
   AdminUser,
-  { userId: string; plan: PlanTier },
-  { rejectValue: string }
+  { userId: string; plan: PlanTier }
 >("admin/changeUserPlan", async ({ userId, plan }, { rejectWithValue }) => {
   try {
     return await adminApi.changeUserPlan(userId, plan);
   } catch (error) {
     return rejectWithValue(toApiError(error).message);
   }
-});
+}, adminThunkOptions);
 
-export const fetchPricingPlans = createAsyncThunk<PricingPlan[], void, { rejectValue: string }>(
+export const fetchPricingPlans = createAdminThunk<PricingPlan[], void>(
   "admin/fetchPricingPlans",
   async (_, { rejectWithValue }) => {
     try {
@@ -93,16 +101,16 @@ export const fetchPricingPlans = createAsyncThunk<PricingPlan[], void, { rejectV
       return rejectWithValue(toApiError(error).message);
     }
   },
+  adminThunkOptions,
 );
 
-export const updatePricingPlan = createAsyncThunk<
+export const updatePricingPlan = createAdminThunk<
   PricingPlan,
-  { planId: PlanTier; payload: UpdatePricingPlanPayload },
-  { rejectValue: string }
+  { planId: PlanTier; payload: UpdatePricingPlanPayload }
 >("admin/updatePricingPlan", async ({ planId, payload }, { rejectWithValue }) => {
   try {
     return await adminApi.updatePricingPlan(planId, payload);
   } catch (error) {
     return rejectWithValue(toApiError(error).message);
   }
-});
+}, adminThunkOptions);

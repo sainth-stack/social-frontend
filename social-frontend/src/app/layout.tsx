@@ -24,8 +24,8 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: "OpsBrain AI — Social Media Manager",
-    template: "%s · OpsBrain AI",
+    default: "EarnedVoice — Social Media Manager",
+    template: "%s · EarnedVoice",
   },
   description: "AI-powered social media management: plan, generate, schedule, and analyze posts.",
   robots: {
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     },
   },
   icons: {
-    icon: "/favicon.png",
+    icon: "/brand/earnedvoice-mark.svg",
   },
 };
 

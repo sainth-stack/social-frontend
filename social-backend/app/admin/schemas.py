@@ -189,18 +189,19 @@ class PricingPlanOut(BaseModel):
     tagline: str
     price_monthly_usd: Optional[float]
     price_annual_usd: Optional[float]
+    price_monthly_inr: Optional[float] = None
     is_custom: bool
     recommended: bool = False
     limits: PricingPlanLimits
 
 
 class PricingPlanLimitsUpdate(BaseModel):
-    accounts: Optional[int] = None
-    posts_per_month: Optional[int] = Field(default=None, alias="postsPerMonth")
-    ai_text_generations: Optional[int] = Field(default=None, alias="aiTextGenerations")
-    ai_image_generations: Optional[int] = Field(default=None, alias="aiImageGenerations")
-    ai_video_generations: Optional[int] = Field(default=None, alias="aiVideoGenerations")
-    templates: Optional[int] = None
+    accounts: Optional[int] = Field(default=None, ge=0, strict=True)
+    posts_per_month: Optional[int] = Field(default=None, alias="postsPerMonth", ge=0, strict=True)
+    ai_text_generations: Optional[int] = Field(default=None, alias="aiTextGenerations", ge=0, strict=True)
+    ai_image_generations: Optional[int] = Field(default=None, alias="aiImageGenerations", ge=0, strict=True)
+    ai_video_generations: Optional[int] = Field(default=None, alias="aiVideoGenerations", ge=0, strict=True)
+    templates: Optional[int] = Field(default=None, ge=0, strict=True)
     brand_voice: Optional[bool] = Field(default=None, alias="brandVoice")
     approval_workflow: Optional[bool] = Field(default=None, alias="approvalWorkflow")
 
@@ -213,6 +214,6 @@ class PricingPlanUpdateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     tagline: Optional[str] = None
-    price_monthly_usd: Optional[float] = Field(default=None, alias="priceMonthlyUsd")
-    price_annual_usd: Optional[float] = Field(default=None, alias="priceAnnualUsd")
+    price_monthly_usd: Optional[float] = Field(default=None, alias="priceMonthlyUsd", ge=0, allow_inf_nan=False)
+    price_annual_usd: Optional[float] = Field(default=None, alias="priceAnnualUsd", ge=0, allow_inf_nan=False)
     limits: Optional[PricingPlanLimitsUpdate] = None

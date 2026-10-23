@@ -26,6 +26,14 @@ from app.admin.schemas import (
 )
 from app.auth.deps import require_platform_admin
 from app.core.database import get_db
+from app.marketing import service as marketing_service
+from app.marketing.schemas import (
+    ContactListOut,
+    ContactOut,
+    ContactStatus,
+    ContactStatusUpdate,
+    MarketingAnalyticsOut,
+)
 from app.plans import service as plans_service
 from app.plans.schemas import PlanOut, PlanUpdateRequest
 
@@ -48,6 +56,33 @@ def get_admin_overview(db: Database = Depends(get_db)) -> AdminOverviewOut:
 @router.get("/analytics", response_model=AdminAnalyticsOut)
 def get_admin_analytics(db: Database = Depends(get_db)) -> AdminAnalyticsOut:
     return service.admin_analytics(db)
+
+
+@router.get("/contacts", response_model=ContactListOut)
+def list_admin_contacts(
+    search: str | None = Query(default=None, max_length=200),
+    status: ContactStatus | None = Query(default=None),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    pageSize: int = Query(default=20, ge=1, le=200),
+    db: Database = Depends(get_db),
+) -> ContactListOut:
+    return marketing_service.list_contacts(
+        db, search=search, status_filter=status, page=page, page_size=pageSize
+    )
+
+
+@router.patch("/contacts/{contact_id}", response_model=ContactOut)
+def update_admin_contact(
+    contact_id: uuid.UUID,
+    payload: ContactStatusUpdate,
+    db: Database = Depends(get_db),
+) -> ContactOut:
+    return marketing_service.update_contact_status(db, contact_id, payload.status)
+
+
+@router.get("/marketing-analytics", response_model=MarketingAnalyticsOut)
+def get_marketing_analytics(db: Database = Depends(get_db)) -> MarketingAnalyticsOut:
+    return marketing_service.marketing_analytics(db)
 
 
 @router.get("/users", response_model=AdminUserListOut)
@@ -79,10 +114,11 @@ def create_admin_user(payload: AdminUserCreateRequest, db: Database = Depends(ge
 
 @router.post("/users/{user_id}/suspend", response_model=AdminUserListItem)
 def suspend_admin_user(
-    user_id: uuid.UUID, payload: AdminUserSuspendRequest | None = None, db: Database = Depends(get_db)
+    user_id: uuid.UUID, payload: AdminUserSuspendRequest | None = None, db: Database = Depends(get_db),
+    actor: dict = Depends(require_platform_admin),
 ) -> AdminUserListItem:
     suspended = payload.suspended if payload is not None else None
-    return service.set_admin_user_suspended(db, user_id, suspended)
+    return service.set_admin_user_suspended(db, user_id, suspended, actor_user_id=actor["id"])
 
 
 @router.post("/users/{user_id}/plan", response_model=AdminUserListItem)
@@ -123,9 +159,10 @@ def get_user(user_id: uuid.UUID, db: Database = Depends(get_db)) -> AdminUserOut
 
 @router.patch("/users/{user_id}", response_model=AdminUserOut)
 def update_user(
-    user_id: uuid.UUID, payload: AdminUserUpdateRequest, db: Database = Depends(get_db)
+    user_id: uuid.UUID, payload: AdminUserUpdateRequest, db: Database = Depends(get_db),
+    actor: dict = Depends(require_platform_admin),
 ) -> AdminUserOut:
-    user = service.update_user(db, user_id, payload.model_dump(exclude_unset=True))
+    user = service.update_user(db, user_id, payload.model_dump(exclude_unset=True), actor_user_id=actor["id"])
     counts = service.count_workspaces_for_users(db, [user["id"]])
     return AdminUserOut(
         id=user["id"],
@@ -143,7 +180,7 @@ def update_user(
 @router.get("/workspaces", response_model=list[AdminWorkspaceOut])
 def list_workspaces(
     search: Optional[str] = Query(default=None),
-    limit: int = Query(default=100, le=500),
+    limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Database = Depends(get_db),
 ) -> list[AdminWorkspaceOut]:
@@ -174,7 +211,7 @@ def set_workspace_plan(
         plan=workspace.get("plan", "starter"),
         is_active=workspace.get("is_active", True),
         owner_email=owner["email"] if owner else "",
-        member_count=0,
+        member_count=db["workspace_members"].count_documents({"workspace_id": str(workspace_id)}),
         created_at=workspace["created_at"],
     )
 
@@ -191,7 +228,7 @@ def set_workspace_status(
         plan=workspace.get("plan", "starter"),
         is_active=workspace.get("is_active", True),
         owner_email=owner["email"] if owner else "",
-        member_count=0,
+        member_count=db["workspace_members"].count_documents({"workspace_id": str(workspace_id)}),
         created_at=workspace["created_at"],
     )
 

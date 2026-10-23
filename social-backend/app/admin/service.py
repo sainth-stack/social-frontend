@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+import re
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
@@ -19,6 +21,7 @@ from app.admin.schemas import (
     PricingPlanOut,
 )
 from app.core.mongo_utils import new_id, utcnow
+from app.billing import pricing as billing_pricing
 from app.core.security import hash_password
 from app.plans import service as plans_service
 from app.plans.catalog import PLAN_CATALOG, PLAN_ORDER
@@ -39,7 +42,7 @@ def list_users(
 ) -> list[dict]:
     query: dict = {}
     if search:
-        like = search.lower()
+        like = re.escape(search)
         query["$or"] = [
             {"email": {"$regex": like, "$options": "i"}},
             {"full_name": {"$regex": like, "$options": "i"}},
@@ -66,8 +69,10 @@ def get_user_or_404(db: Database, user_id: str) -> dict:
     return user
 
 
-def update_user(db: Database, user_id: str, data: dict) -> dict:
+def update_user(db: Database, user_id: str, data: dict, *, actor_user_id: str | None = None) -> dict:
     user = get_user_or_404(db, user_id)
+    if data.get("is_active") is False:
+        _prevent_self_suspension(user_id, actor_user_id)
     allowed = {"full_name", "is_active", "is_platform_admin"}
     updates = {k: v for k, v in data.items() if k in allowed and v is not None}
     if updates:
@@ -97,16 +102,27 @@ def list_workspaces(
 ):
     query: dict = {}
     if search:
-        query["name"] = {"$regex": search.lower(), "$options": "i"}
+        query["name"] = {"$regex": re.escape(search), "$options": "i"}
     workspaces = list(
-        db["workspaces"].find(query).sort("created_at", -1).skip(offset).limit(limit)
+        db["workspaces"].find(query).sort([("created_at", -1), ("id", 1)]).skip(offset).limit(limit)
     )
-    results = []
-    for w in workspaces:
-        owner = db["users"].find_one({"id": w.get("owner_user_id")})
-        member_count = db["workspace_members"].count_documents({"workspace_id": w["id"]})
-        results.append((w, owner, member_count))
-    return results
+    if not workspaces:
+        return []
+    owners = {
+        owner["id"]: owner
+        for owner in db["users"].find(
+            {"id": {"$in": list({w.get("owner_user_id") for w in workspaces})}},
+            {"id": 1, "email": 1},
+        )
+    }
+    counts = {
+        row["_id"]: row["count"]
+        for row in db["workspace_members"].aggregate([
+            {"$match": {"workspace_id": {"$in": [w["id"] for w in workspaces]}}},
+            {"$group": {"_id": "$workspace_id", "count": {"$sum": 1}}},
+        ])
+    }
+    return [(w, owners.get(w.get("owner_user_id")), counts.get(w["id"], 0)) for w in workspaces]
 
 
 def get_workspace_or_404(db: Database, workspace_id: str) -> dict:
@@ -151,7 +167,7 @@ def analytics_overview(db: Database) -> AnalyticsOverviewOut:
     )
 
     failed_publishes_30d = db["social_post_platforms"].count_documents(
-        {"status": SocialPlatformPostStatus.FAILED.value}
+        {"status": SocialPlatformPostStatus.FAILED.value, "updated_at": {"$gte": since_30d}}
     )
 
     def _ai_count(kind: str) -> int:
@@ -224,7 +240,7 @@ def admin_overview(db: Database) -> AdminOverviewOut:
     )
 
     failed_publishes_30d = db["social_post_platforms"].count_documents(
-        {"status": SocialPlatformPostStatus.FAILED.value}
+        {"status": SocialPlatformPostStatus.FAILED.value, "updated_at": {"$gte": since_30d}}
     )
 
     ai_usage_30d = _ai_usage_sum(db, since_30d)
@@ -288,12 +304,13 @@ def admin_analytics(db: Database) -> AdminAnalyticsOut:
 
     # Platform mix
     pipeline2 = [
-        {"$match": {"status": SocialPlatformPostStatus.PUBLISHED.value}},
+        {"$match": {"is_active": True}},
         {"$group": {"_id": "$platform", "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
     ]
     platform_mix = [
         PlatformMixRow(platform=row["_id"], count=row["count"])
-        for row in db["social_post_platforms"].aggregate(pipeline2)
+        for row in db["social_accounts"].aggregate(pipeline2)
     ]
 
     return AdminAnalyticsOut(
@@ -306,7 +323,7 @@ def admin_analytics(db: Database) -> AdminAnalyticsOut:
 def _get_primary_workspace_for_user(db: Database, user_id: str) -> dict | None:
     return db["workspaces"].find_one(
         {"owner_user_id": str(user_id)},
-        sort=[("created_at", 1)],
+        sort=[("created_at", 1), ("id", 1)],
     )
 
 
@@ -358,32 +375,59 @@ def list_admin_users(
     page_size = max(1, min(page_size, 200))
 
     query: dict = {}
-    if search:
-        like = search.strip().lower()
-        query["$or"] = [
-            {"email": {"$regex": like, "$options": "i"}},
-            {"full_name": {"$regex": like, "$options": "i"}},
-        ]
     if status_filter in ("active", "suspended"):
         query["is_active"] = status_filter == "active"
 
-    total = db["users"].count_documents(query)
-
-    users = list(
-        db["users"]
-        .find(query)
-        .sort("created_at", -1)
-        .skip((page - 1) * page_size)
-        .limit(page_size)
-    )
+    pipeline = [
+        {"$match": query},
+        {"$project": {
+            "id": 1, "email": 1, "full_name": 1, "is_active": 1,
+            "is_platform_admin": 1, "created_at": 1,
+        }},
+        {"$lookup": {
+            "from": "workspaces", "localField": "id",
+            "foreignField": "owner_user_id", "as": "_workspace",
+        }},
+        {"$unwind": {"path": "$_workspace", "preserveNullAndEmptyArrays": True}},
+        {"$sort": {"id": 1, "_workspace.created_at": 1, "_workspace.id": 1}},
+        {"$group": {"_id": "$id", "user": {"$first": "$$ROOT"}}},
+        {"$replaceRoot": {"newRoot": "$user"}},
+    ]
+    filters: dict = {}
+    if plan:
+        filters["_workspace.plan"] = plan
+    if search and search.strip():
+        like = {"$regex": re.escape(search.strip()), "$options": "i"}
+        filters["$or"] = [{field: like} for field in ("email", "full_name", "_workspace.name")]
+    pipeline.extend([
+        {"$match": filters},
+        {"$facet": {
+            "count": [{"$count": "total"}],
+            "items": [
+                {"$sort": {"created_at": -1, "id": 1}},
+                {"$skip": (page - 1) * page_size},
+                {"$limit": page_size},
+            ],
+        }},
+    ])
+    result = next(iter(db["users"].aggregate(pipeline, allowDiskUse=True)))
+    total = result["count"][0]["total"] if result["count"] else 0
+    users = result["items"]
+    pairs = [
+        {"user_id": user["id"], "workspace_id": user["_workspace"]["id"]}
+        for user in users if user.get("_workspace")
+    ]
+    memberships = {
+        (member["user_id"], member["workspace_id"]): member
+        for member in db["workspace_members"].find(
+            {"$or": pairs}, {"user_id": 1, "workspace_id": 1, "social_level": 1}
+        )
+    } if pairs else {}
 
     items = []
     for user in users:
-        workspace = _get_primary_workspace_for_user(db, user["id"])
-        # Filter by plan if requested
-        if plan and (workspace is None or workspace.get("plan") != plan):
-            continue
-        membership = _get_membership(db, user["id"], workspace["id"]) if workspace else None
+        workspace = user.get("_workspace")
+        membership = memberships.get((user["id"], workspace["id"])) if workspace else None
         items.append(
             _to_admin_user_list_item(
                 user,
@@ -471,9 +515,18 @@ def create_admin_user(
     return _admin_user_item_for(db, user)
 
 
-def set_admin_user_suspended(db: Database, user_id: str, suspended: bool | None) -> AdminUserListItem:
+def _prevent_self_suspension(user_id: str, actor_user_id: str | None) -> None:
+    if actor_user_id is not None and str(user_id) == str(actor_user_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot suspend your own account")
+
+
+def set_admin_user_suspended(
+    db: Database, user_id: str, suspended: bool | None, *, actor_user_id: str | None = None
+) -> AdminUserListItem:
     user = get_user_or_404(db, user_id)
     new_active = not suspended if suspended is not None else not user.get("is_active", True)
+    if not new_active:
+        _prevent_self_suspension(user_id, actor_user_id)
     db["users"].update_one(
         {"id": str(user_id)}, {"$set": {"is_active": new_active, "updated_at": utcnow()}}
     )
@@ -523,7 +576,19 @@ def _unlimited_if_none(value: int | None) -> int:
     return -1 if value is None else value
 
 
-def _plan_out_to_pricing_plan(plan_out) -> PricingPlanOut:
+def _monthly_price_inr(db: Database, plan_key: str) -> float | None:
+    if plan_key == WorkspacePlan.STARTER.value:
+        return 0.0
+    try:
+        paise = billing_pricing.monthly_price_paise(db, plan_key)
+        if paise is None or paise < 0 or not math.isfinite(paise):
+            return None
+        return paise / 100
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _plan_out_to_pricing_plan(db: Database, plan_out) -> PricingPlanOut:
     limits = plan_out.limits
     return PricingPlanOut(
         id=plan_out.key,
@@ -531,8 +596,9 @@ def _plan_out_to_pricing_plan(plan_out) -> PricingPlanOut:
         tagline=plan_out.description,
         price_monthly_usd=plan_out.monthly_price_usd,
         price_annual_usd=plan_out.annual_price_usd,
+        price_monthly_inr=_monthly_price_inr(db, plan_out.key),
         is_custom=plan_out.monthly_price_usd is None,
-        recommended=plan_out.key == WorkspacePlan.GROWTH.value,
+        recommended=plan_out.key == WorkspacePlan.ENTERPRISE.value,
         limits=PricingPlanLimits(
             accounts=_none_if_unlimited(limits.connected_accounts),
             posts_per_month=_none_if_unlimited(limits.posts_per_month),
@@ -547,7 +613,7 @@ def _plan_out_to_pricing_plan(plan_out) -> PricingPlanOut:
 
 
 def list_pricing_plans(db: Database) -> list[PricingPlanOut]:
-    return [_plan_out_to_pricing_plan(plans_service.to_plan_out(db, key)) for key in PLAN_CATALOG]
+    return [_plan_out_to_pricing_plan(db, plans_service.to_plan_out(db, key)) for key in PLAN_CATALOG]
 
 
 def update_pricing_plan(db: Database, plan_key: str, payload) -> PricingPlanOut:
@@ -573,4 +639,4 @@ def update_pricing_plan(db: Database, plan_key: str, payload) -> PricingPlanOut:
     if override_data:
         plans_service.upsert_override(db, plan_key, override_data)
 
-    return _plan_out_to_pricing_plan(plans_service.to_plan_out(db, plan_key))
+    return _plan_out_to_pricing_plan(db, plans_service.to_plan_out(db, plan_key))

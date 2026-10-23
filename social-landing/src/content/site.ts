@@ -11,16 +11,16 @@ export const SITE_URL = publicUrl(process.env.NEXT_PUBLIC_SITE_URL, "https://ops
 export const APP_URL = publicUrl(process.env.NEXT_PUBLIC_APP_URL, "https://app.opsbrainai.com");
 export const SIGNUP_URL = `${APP_URL}/register`;
 export const LOGIN_URL = `${APP_URL}/login`;
-export const CONTACT_SALES_URL = "mailto:founder@opsbrainai.com";
+export const CONTACT_SALES_URL = "#contact";
 
 export const seo = {
-  title: "OpsBrain AI — Social Media Planning, Publishing & Analytics",
-  description: "Create on-brand content, plan your week and schedule posts on Instagram, Facebook and LinkedIn. More integrations coming soon. Start free with OpsBrain AI.",
+  title: "EarnedVoice — Social Content for Product-Focused Teams",
+  description: "Plan product campaigns, create on-brand content and schedule posts on Instagram, Facebook and LinkedIn. More integrations coming soon. Start free with EarnedVoice.",
 };
 
 export const brand = {
-  name: "OpsBrain AI",
-  tagline: "Content planning, publishing and analytics for creators, brands and marketing teams.",
+  name: "EarnedVoice",
+  tagline: "Social content planning, publishing and analytics for startups, software teams and growing businesses.",
 };
 
 export type PlatformStatus = "available" | "coming-soon";
@@ -49,9 +49,8 @@ export const featureLinks = [
 
 export const navLinks = [
   { label: "How it works", href: "#how-it-works" },
-  { label: "Platforms", href: "#platforms" },
   { label: "Pricing", href: "#pricing" },
-  { label: "FAQ", href: "#faq" },
+  { label: "Contact", href: CONTACT_SALES_URL },
 ];
 
 export type Plan = {
@@ -71,16 +70,16 @@ export type Plan = {
 };
 
 export const plans: Plan[] = [
-  { id: "free", name: "Free", price: 0, audience: "Try the essentials", accounts: "Unlimited", posts: "10", textGen: "30", images: "5", brandVoice: "Included", approvals: "Not included", cta: "Start free" },
-  { id: "pro", name: "Pro", price: 499, audience: "Creators and solo businesses", accounts: "Unlimited", posts: "100", textGen: "300", images: "50", brandVoice: "Included", approvals: "Included", cta: "Choose Pro" },
-  { id: "growth", name: "Growth", price: 999, audience: "Growing brands and small teams", accounts: "Unlimited", posts: "500", textGen: "1,500", images: "200", brandVoice: "Included", approvals: "Included", cta: "Choose Growth", recommended: true },
-  { id: "scale", name: "Scale", price: 4999, audience: "Larger teams and multi-brand operations", accounts: "Unlimited", posts: "Tailored to your team", textGen: "Tailored to your team", images: "Tailored to your team", brandVoice: "Included", approvals: "Included", cta: "Contact sales", custom: true },
+  { id: "free", name: "Free", price: 0, audience: "Get started with the essentials.", accounts: "Unlimited", posts: "10", textGen: "30", images: "5", brandVoice: "Included", approvals: "Not included", cta: "Start free" },
+  { id: "pro", name: "Pro", price: 499, audience: "Build a consistent social presence.", accounts: "Unlimited", posts: "100", textGen: "300", images: "50", brandVoice: "Included", approvals: "Included", cta: "Choose Pro" },
+  { id: "growth", name: "Growth", price: 999, audience: "More content for a growing brand.", accounts: "Unlimited", posts: "500", textGen: "1,500", images: "200", brandVoice: "Included", approvals: "Included", cta: "Choose Growth", recommended: true },
+  { id: "scale", name: "Scale", price: 4999, audience: "Higher capacity for bigger ambitions.", accounts: "Unlimited", posts: "Tailored to your team", textGen: "Tailored to your team", images: "Tailored to your team", brandVoice: "Included", approvals: "Included", cta: "Contact sales", custom: true },
 ];
 
 export const formatINR = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
 export const faqs = [
-  { q: "What is OpsBrain AI?", a: "OpsBrain AI helps you create on-brand social content, organize ideas into a weekly plan, and manage publishing from one workspace." },
+  { q: "What is EarnedVoice?", a: "EarnedVoice helps startups, software teams and businesses turn product updates and campaign briefs into on-brand social content, a weekly plan and a coordinated publishing workflow." },
   { q: "Can it help me decide what to post?", a: "Yes. Start with your business, audience and goal to generate content ideas and a seven-day starting plan. Review and edit the drafts before you schedule them." },
   { q: "Does it generate a full week of content?", a: "Yes. Set your business, audience and goal to create a seven-day content plan with topics, captions and suggested formats. Edit each draft and choose when it goes live. Generation allowances depend on your plan." },
   { q: "Which platforms can I use?", a: "Instagram, Facebook and LinkedIn are available now. X, Threads, YouTube, TikTok, Pinterest and Bluesky are coming soon and cannot be connected yet. Supported post formats and analytics vary by platform and account permissions." },
@@ -91,5 +90,5 @@ export const faqs = [
   { q: "How do I get the Scale plan?", a: "Scale is ₹4,999 per month and is available through sales, not self-service checkout. Use Contact sales to discuss your team's tailored post, AI text and image allowances. Social accounts are unlimited." },
   { q: "How do AI allowances work?", a: "Plans include separate monthly allowances for AI text generations and AI images. Check your usage in the app before creating more content." },
   { q: "Can my team review posts?", a: "Yes. Pro, Growth and Scale include approval workflows so your team can review content before it is scheduled or published." },
-  { q: "Does OpsBrain AI guarantee reach or engagement?", a: "No. AI can help with planning and drafting, but audience response depends on your content, platform and business." },
+  { q: "Does EarnedVoice guarantee reach or engagement?", a: "No. AI can help with planning and drafting, but audience response depends on your content, platform and business." },
 ];

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import HomePage from "@/app/page";
 import { WeeklyPlannerDemo } from "@/components/landing/WeeklyPlannerDemo";
 import { buildPlan } from "@/content/planner";
@@ -7,11 +7,14 @@ import { CONTACT_SALES_URL, faqs, plans, platforms, seo, SIGNUP_URL, SITE_URL } 
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 
+vi.mock("@/components/landing/MarketingAnalytics", () => ({ MarketingAnalytics: () => null }));
+
 describe("Landing page structure and search content", () => {
   it("renders one useful H1, all section destinations and four INR plans", () => {
     const { container } = render(<HomePage />);
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Your next week of social content");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Your ideas deserve");
+    expect(screen.queryByText("AI-powered social media. Human-led.")).not.toBeInTheDocument();
     for (const link of container.querySelectorAll<HTMLAnchorElement>('a[href^="#"]')) {
       expect(container.querySelector(link.getAttribute("href")!)).not.toBeNull();
     }
@@ -41,7 +44,7 @@ describe("Landing page structure and search content", () => {
     expect(container.querySelector("table caption")?.textContent).toContain("monthly plan comparison");
   });
 
-  it("distinguishes the three live integrations from six non-interactive coming-soon platforms", () => {
+  it("shows all platform logos without availability badges in the social strip", () => {
     expect(platforms).toHaveLength(9);
     expect(platforms.filter(platform => platform.status === "available").map(platform => platform.name)).toEqual(["Instagram", "Facebook", "LinkedIn"]);
     expect(platforms.filter(platform => platform.status === "coming-soon").map(platform => platform.name)).toEqual(["X", "Threads", "YouTube", "TikTok", "Pinterest", "Bluesky"]);
@@ -49,9 +52,12 @@ describe("Landing page structure and search content", () => {
     const integrationSection = document.getElementById("platforms")!;
     for (const platform of platforms) {
       const item = within(integrationSection).getByText(platform.name).closest("li")!;
-      expect(item).toHaveTextContent(platform.status === "available" ? "Available now" : "Coming soon");
       expect(item.querySelector("a, button")).toBeNull();
     }
+    expect(within(integrationSection).getAllByRole("listitem")).toHaveLength(9);
+    expect(within(integrationSection).queryByText("Available now")).toBeNull();
+    expect(within(integrationSection).queryByText("Coming soon")).toBeNull();
+    expect(within(integrationSection).queryByText("More integrations on the way.")).toBeNull();
     const answer = faqs.find(faq => faq.q === "Which platforms can I use?")!.a;
     expect(answer).toContain("Instagram, Facebook and LinkedIn are available now");
     expect(answer).toContain("X, Threads, YouTube, TikTok, Pinterest and Bluesky are coming soon and cannot be connected yet");
@@ -62,17 +68,20 @@ describe("Landing page structure and search content", () => {
     const { container } = render(<HomePage />);
     expect(plans.map(plan => plan.name)).toEqual(["Free", "Pro", "Growth", "Scale"]);
     expect(plans.map(plan => plan.price)).toEqual([0, 499, 999, 4999]);
-    expect(CONTACT_SALES_URL).toBe("mailto:founder@opsbrainai.com");
+    expect(CONTACT_SALES_URL).toBe("#contact");
+    expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Contact" })).toHaveAttribute("href", "#contact");
+    expect(screen.getByRole("region", { name: "Let’s talk about your workflow." })).toBeInTheDocument();
     const scale = screen.getByRole("heading", { name: "Scale", level: 3 }).closest("article")!;
     expect(within(scale).getByRole("link", { name: "Contact sales" })).toHaveAttribute("href", CONTACT_SALES_URL);
     expect(scale.querySelectorAll("a")).toHaveLength(1);
-    expect(scale).toHaveTextContent("no self-service checkout");
+    expect(scale).toHaveTextContent("Talk to us about your plan");
     expect(scale).toHaveTextContent("Unlimited social accounts");
-    for (const allowance of ["Content allowance for your workflow", "Tailored text generation allowance", "Tailored image generation allowance"]) expect(scale).toHaveTextContent(allowance);
+    for (const allowance of ["Custom monthly post allowance", "Custom AI text allowance", "Custom AI image allowance"]) expect(scale).toHaveTextContent(allowance);
     expect(plans[3]).toMatchObject({ posts: "Tailored to your team", textGen: "Tailored to your team", images: "Tailored to your team" });
     const pricing = container.querySelector("#pricing")! as HTMLElement;
     for (const name of ["Start free", "Choose Pro", "Choose Growth"]) expect(within(pricing).getByRole("link", { name })).toHaveAttribute("href", SIGNUP_URL);
-    expect(container.textContent).not.toMatch(/Agency|planned package|proposed package/i);
+    expect(pricing.textContent).not.toMatch(/Agency|planned package|proposed package/i);
+    expect(pricing.textContent).not.toMatch(/workflow|approval/i);
     expect(container.querySelectorAll('.lucide-sparkles, .lucide-wand, .lucide-wand-sparkles')).toHaveLength(0);
   });
 
@@ -90,23 +99,70 @@ describe("Landing page structure and search content", () => {
     expect(faqs.find(faq => faq.q === "How many social accounts can I connect?")!.a).toContain("Every plan includes unlimited social accounts, including Free and Scale");
   });
 
-  it("renders local photographic previews with descriptive alternatives", () => {
+  it("renders original professional workspace previews without lifestyle imagery", () => {
     render(<HomePage />);
-    for (const name of ["Friends sharing freshly prepared coffee", "Fresh coffee prepared for a café's product post"]) {
-      const image = screen.getByRole("img", { name });
-      expect(image).toHaveAttribute("width", "320");
-      expect(image).toHaveAttribute("height", "400");
-      expect(image.getAttribute("src")).toContain("images");
-    }
+    expect(screen.getByLabelText("Illustrative EarnedVoice campaign workspace")).toBeInTheDocument();
+    expect(screen.getByText("A good week starts with a plan.")).toBeInTheDocument();
+    expect(document.querySelector('img[src*="coffee"], img[src*="brand-interior"]')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/OpsBrain|Corner Café|Form & Field/);
+    expect(screen.getAllByRole("link", { name: "EarnedVoice home" })).toHaveLength(2);
   });
 
   it("generates canonical sitemap and robots URLs", () => {
     expect(sitemap()[0]?.url).toBe(SITE_URL);
     expect(robots().sitemap).toBe(`${SITE_URL}/sitemap.xml`);
   });
+
+  it("keeps the Content Studio interactive within the complete landing page", () => {
+    render(<HomePage />);
+    fireEvent.click(screen.getByText("Explore an interactive sample"));
+    fireEvent.click(screen.getByRole("button", { name: "Practical tip" }));
+    expect(screen.getByText("Every task needs an owner.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Brand story" }));
+    expect(screen.getByText("Built around the handoff.")).toBeInTheDocument();
+  });
+
+  it("connects the original illustrated journey to dedicated feature sections", () => {
+    const { container } = render(<HomePage />);
+    const journey = container.querySelector("#how-it-works")! as HTMLElement;
+    expect(within(journey).getAllByRole("listitem")).toHaveLength(4);
+    for (const id of ["ai-content-studio", "publishing-calendar", "weekly-planner", "brand-voice", "analytics", "teams-approvals"]) {
+      expect(container.querySelector(`section#${id}`)).not.toBeNull();
+    }
+    expect(screen.getByRole("heading", { name: "See the response. Find your next direction." })).toBeInTheDocument();
+    expect(screen.getByText("Export a CSV report to review or share.")).toBeInTheDocument();
+    expect(container.querySelectorAll('img[src*="gethyvo"], image[href^="http"]')).toHaveLength(0);
+  });
 });
 
 describe("Weekly planner behavior", () => {
+  it("supports keyboard day navigation and shows per-day time edits", () => {
+    render(<WeeklyPlannerDemo />);
+    const days = screen.getByRole("group", { name: "Days of the week" });
+    const wednesday = within(days).getByRole("button", { name: /Wednesday Product spotlight/ });
+    fireEvent.keyDown(wednesday, { key: "ArrowRight" });
+    expect(screen.getByRole("region", { name: "Thursday sample post" })).toBeInTheDocument();
+    const thursday = within(days).getByRole("button", { name: /Thursday Behind the scenes/ });
+    expect(thursday).toHaveFocus();
+    fireEvent.change(screen.getByLabelText("Example time"), { target: { value: "2:00 PM" } });
+    expect(thursday).toHaveTextContent("2:00 PM");
+    expect(thursday).toHaveTextContent("Edited");
+    fireEvent.keyDown(thursday, { key: "Home" });
+    expect(screen.getByRole("region", { name: "Monday sample post" })).toBeInTheDocument();
+    fireEvent.keyDown(within(days).getByRole("button", { name: /Monday Brand story/ }), { key: "End" });
+    expect(screen.getByRole("region", { name: "Sunday sample post" })).toBeInTheDocument();
+  });
+
+  it("distinguishes pending settings from the applied sample", () => {
+    render(<WeeklyPlannerDemo />);
+    fireEvent.change(screen.getByLabelText("Your business"), { target: { value: "consultancy" } });
+    expect(screen.getByText("Settings changed. Preview your week to apply them.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Caption (editable)")).toHaveValue(buildPlan("software", "awareness")[2]!.caption);
+    fireEvent.click(screen.getByRole("button", { name: "Preview my week" }));
+    expect(screen.queryByText("Settings changed. Preview your week to apply them.")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Caption (editable)")).toHaveValue(buildPlan("consultancy", "awareness")[2]!.caption);
+  });
+
   it("only offers available integrations as selectable sample channels", () => {
     const { container } = render(<WeeklyPlannerDemo />);
     const channels = container.querySelector("fieldset")!;
@@ -120,11 +176,11 @@ describe("Weekly planner behavior", () => {
 
   it("changes the business and goal and renders the new seven-day plan", () => {
     render(<WeeklyPlannerDemo />);
-    fireEvent.change(screen.getByLabelText("Your business"), { target: { value: "store" } });
+    fireEvent.change(screen.getByLabelText("Your business"), { target: { value: "agency" } });
     fireEvent.change(screen.getByLabelText("Your goal"), { target: { value: "conversations" } });
     fireEvent.click(screen.getByRole("button", { name: "Preview my week" }));
-    expect(screen.getByLabelText("Caption (editable)")).toHaveValue(buildPlan("store", "conversations")[2]!.caption);
-    expect(screen.getByRole("status")).toHaveTextContent("Online store");
+    expect(screen.getByLabelText("Caption (editable)")).toHaveValue(buildPlan("agency", "conversations")[2]!.caption);
+    expect(screen.getByRole("status")).toHaveTextContent("Marketing agency");
     expect(screen.getByRole("group", { name: "Days of the week" }).querySelectorAll("button")).toHaveLength(7);
   });
 
@@ -149,6 +205,6 @@ describe("Weekly planner behavior", () => {
     expect(screen.getByLabelText("Caption (editable)")).toHaveValue("My own caption");
     fireEvent.click(screen.getByRole("button", { name: "Preview my week" }));
     fireEvent.click(screen.getByRole("button", { name: "Discard edits" }));
-    expect(screen.getByLabelText("Caption (editable)")).toHaveValue(buildPlan("cafe", "awareness")[2]!.caption);
+    expect(screen.getByLabelText("Caption (editable)")).toHaveValue(buildPlan("software", "awareness")[2]!.caption);
   });
 });

@@ -102,7 +102,7 @@ export default function RegisterForm() {
               password: values.password,
             }),
           ).unwrap();
-          toast.success("Workspace created — welcome to OpsBrain");
+          toast.success("Workspace created — welcome to EarnedVoice");
           router.replace("/dashboard/onboarding");
         } catch {}
       })(event);

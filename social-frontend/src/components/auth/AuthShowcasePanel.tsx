@@ -4,7 +4,7 @@ import { ArrowUpRight, CalendarDays, Check, CheckCheck, ImageIcon, Layers3, Mous
 import { cn } from "@/lib/utils";
 
 function ProductArtwork() {
-  return <div role="img" aria-label="Illustration of an OpsBrain workspace: an idea becomes a draft, a scheduled post, and a published update." className="relative mx-auto w-full max-w-xl py-8">
+  return <div role="img" aria-label="Illustration of an EarnedVoice workspace: an idea becomes a draft, a scheduled post, and a published update." className="relative mx-auto w-full max-w-xl py-8">
     <div className="relative rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-elevated xl:p-6">
       <div className="mb-6 flex items-center justify-between border-b border-border pb-4"><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary"><Layers3 aria-hidden="true" className="h-4 w-4" /></span><span className="text-sm font-semibold">The creative workspace</span></div><span className="flex gap-1.5" aria-hidden="true"><span className="h-2 w-2 rounded-full bg-border" /><span className="h-2 w-2 rounded-full bg-border" /><span className="h-2 w-2 rounded-full bg-primary/40" /></span></div>
       <div className="flex items-center justify-between gap-3"><div><p className="text-xs text-muted-foreground">A little inspiration. A clear plan.</p><p className="mt-1 font-display text-lg font-semibold">Make room for your next idea.</p></div><span className="rounded-lg bg-primary p-2 text-primary-foreground"><Plus aria-hidden="true" className="h-4 w-4" /></span></div>
@@ -18,7 +18,7 @@ function ProductArtwork() {
 }
 
 export default function AuthShowcasePanel() {
-  return <aside aria-label="The OpsBrain workspace" className="relative m-4 ml-0 hidden overflow-hidden rounded-3xl border border-primary/10 bg-primary/5 lg:flex lg:flex-col lg:justify-center lg:p-8 xl:p-12">
+  return <aside aria-label="The EarnedVoice workspace" className="relative m-4 ml-0 hidden overflow-hidden rounded-3xl border border-primary/10 bg-primary/5 lg:flex lg:flex-col lg:justify-center lg:p-8 xl:p-12">
     <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full border border-primary/10" /><div aria-hidden="true" className="pointer-events-none absolute -bottom-40 -left-40 h-96 w-96 rounded-full border border-primary/10" />
     <div className="relative mx-auto w-full max-w-xl"><div className="mb-5 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-primary"><Sparkles aria-hidden="true" className="h-4 w-4" />Built for your creative rhythm</div><h2 className="max-w-lg font-display text-4xl font-semibold leading-tight tracking-tight xl:text-5xl">Less busywork.<br /><span className="text-primary">More worth sharing.</span></h2><p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">Bring your ideas, brand voice, and publishing plan together. Create with intention. Keep every channel moving.</p>
       <ProductArtwork />

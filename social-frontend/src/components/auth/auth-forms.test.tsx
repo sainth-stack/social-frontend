@@ -91,10 +91,10 @@ describe("authentication shell", () => {
     expect(screen.getByRole("main").className).toContain("items-center");
     expect(screen.getByRole("main").className).toContain("justify-center");
     expect(screen.getByRole("region", { name: "Account access" }).className).toContain("max-w-md");
-    expect(screen.getByRole("link", { name: "OpsBrain AI home" }).getAttribute("href")).toBe(platformBrand.marketingUrl);
+    expect(screen.getByRole("link", { name: "EarnedVoice" }).getAttribute("href")).toBe(platformBrand.marketingUrl);
     expect(screen.getAllByRole("img")).toHaveLength(1);
-    expect(screen.getByRole("img", { name: "OpsBrain AI" })).toBeTruthy();
-    expect(screen.queryByRole("img", { name: /Illustration of an OpsBrain workspace/ })).toBeNull();
+    expect(screen.getByRole("img", { name: "EarnedVoice" })).toBeTruthy();
+    expect(screen.queryByRole("img", { name: /Illustration of an EarnedVoice workspace/ })).toBeNull();
     expect(screen.queryByText(/Your next great idea starts here|One workspace\. Every channel\.|Visit website/)).toBeNull();
     expect(container.querySelector("svg")).toBeNull();
     expect(screen.queryByRole("tablist")).toBeNull();
@@ -230,7 +230,7 @@ describe("register form", () => {
     fireEvent.submit(form);
     await waitFor(() => expect(store.getState().auth.isAuthenticated).toBe(true));
     expect(mocks.register).toHaveBeenCalledExactlyOnceWith({ name: "Ava Chen", workspaceName: "Northstar", email: "ava@example.com", password: "abc12345" });
-    expect(mocks.success).toHaveBeenCalledWith("Workspace created — welcome to OpsBrain");
+    expect(mocks.success).toHaveBeenCalledWith("Workspace created — welcome to EarnedVoice");
     expect(mocks.router.replace).toHaveBeenCalledWith("/dashboard/onboarding");
   });
 

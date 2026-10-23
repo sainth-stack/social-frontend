@@ -411,7 +411,7 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
                   ) : (
                     <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border p-5">
                       <p className="text-sm text-muted-foreground">
-                        Connect {name} to schedule, publish, and track engagement from OpsBrain.
+                        Connect {name} to schedule, publish, and track engagement from EarnedVoice.
                       </p>
                       <Button
                         size="sm"

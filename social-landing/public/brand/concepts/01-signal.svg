@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="144" viewBox="0 0 660 144" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">EarnedVoice — Signal</title>
+  <desc id="desc">An open geometric E with three expanding rounded strokes, paired with an EarnedVoice wordmark.</desc>
+  <g transform="translate(12 12)">
+    <rect width="120" height="120" rx="32" fill="#4F46E5"/>
+    <path d="M37 30V90" stroke="white" stroke-width="12" stroke-linecap="round"/>
+    <path d="M37 30H84M37 60H70M37 90H84" stroke="white" stroke-width="12" stroke-linecap="round"/>
+    <rect x="84" y="51" width="12" height="18" rx="6" fill="#C7D2FE"/>
+  </g>
+  <text x="158" y="94" fill="#171B2D" font-family="Inter, Arial, sans-serif" font-size="69" font-weight="650" letter-spacing="-3.2">Earned<tspan fill="#4F46E5">Voice</tspan></text>
+</svg>

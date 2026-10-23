@@ -17,6 +17,7 @@ from app.core.database import init_db
 from app.core.exceptions import register_exception_handlers
 from app.core.logging_config import configure_logging
 from app.core.request_logging import RequestLoggingMiddleware
+from app.marketing.router import router as marketing_router
 from app.plans.router import router as plans_router
 from app.social.router import oauth_callback_router as social_oauth_callback_router
 from app.social.router import router as social_router
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(billing_webhooks_router, prefix=settings.api_v1_prefix)
     app.include_router(admin_coupons_router, prefix=settings.api_v1_prefix)
     app.include_router(admin_router, prefix=settings.api_v1_prefix)
+    app.include_router(marketing_router, prefix=settings.api_v1_prefix)
     app.include_router(social_router, prefix=settings.api_v1_prefix)
     app.include_router(social_oauth_callback_router)
 

@@ -75,6 +75,7 @@ describe("BillingOverview", () => {
     const popular = screen.getByText("Popular").parentElement!;
     expect(within(popular).getByRole("heading", { name: "Growth" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Contact sales" }).getAttribute("href")).toContain("mailto:founder@opsbrainai.com");
+    expect(screen.getByRole("link", { name: "Contact sales" }).getAttribute("href")).toContain("subject=EarnedVoice%20Scale%20plan");
     expect(screen.queryByRole("button", { name: "Upgrade to Scale" })).toBeNull();
     expect(billingApi.createCheckout).not.toHaveBeenCalled();
   });

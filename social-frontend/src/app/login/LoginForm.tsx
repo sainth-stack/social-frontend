@@ -107,7 +107,7 @@ export default function LoginForm() {
       subtitle="Sign in to plan, publish, and measure social content across your channels."
       footer={
         <>
-          New to OpsBrain?{" "}
+          New to EarnedVoice?{" "}
           <Link href="/register" className="rounded-sm font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             Create an account
           </Link>

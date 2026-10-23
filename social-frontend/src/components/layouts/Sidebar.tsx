@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type MouseEvent } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ChevronDown, CreditCard, Sparkle, X, Zap } from "lucide-react";
 
 import type { NavItem, NavSection } from "@/components/layouts/nav-config";
+import { EarnedVoiceLogo } from "@/components/brand/EarnedVoiceLogo";
 import { useDashboardUsage } from "@/hooks/useDashboardUsage";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -216,24 +216,14 @@ function SidebarHeader({
       <Link
         href={homeHref}
         onClick={(event) => navigate(event, onNavigate)}
-        aria-label="OpsBrain AI · Admin console"
-        title={collapsed ? "OpsBrain AI" : undefined}
+        aria-label="EarnedVoice"
+        title={collapsed ? "EarnedVoice" : undefined}
         className={cn("flex h-20 shrink-0 items-center gap-3 border-b border-sidebar-border px-4", focusClass, collapsed && "justify-center px-2")}
       >
-        <Image
-          src="/brand/mark.png"
-          alt=""
-          width={36}
-          height={36}
-          className="size-9 shrink-0 rounded-lg object-cover"
-          aria-hidden
-        />
-        {!collapsed ? <div className="min-w-0 flex flex-col">
-          <span className="truncate text-sm font-semibold text-foreground">
-            OpsBrain <span className="text-primary">AI</span>
-          </span>
-          <span className="truncate text-xs text-muted-foreground">Admin console</span>
-        </div> : null}
+        <div className="min-w-0 flex flex-col gap-1">
+          <EarnedVoiceLogo size={36} compact={collapsed} className="text-sm" />
+          {!collapsed ? <span className="truncate text-xs text-muted-foreground">Admin console</span> : null}
+        </div>
       </Link>
     );
   }

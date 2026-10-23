@@ -123,7 +123,7 @@ describe("openSocialCheckoutSession", () => {
     const onSuccess = vi.fn();
     const response = { razorpay_order_id: "order-1", razorpay_payment_id: "rzp-payment-1", razorpay_signature: "signature-1" };
     window.Razorpay = class {
-      constructor(private config: Record<string, unknown>) {}
+      constructor(private config: Record<string, unknown>) { expect(config.name).toBe("EarnedVoice"); }
       open() { void (this.config.handler as (value: typeof response) => Promise<void>)(response); }
     };
     await openSocialCheckoutSession(session, { ...options, onSuccess });

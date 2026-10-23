@@ -31,13 +31,12 @@ export function PlatformGrid() {
   return (
     <section id="platforms" aria-labelledby="platforms-heading" className="border-y bg-background py-10 md:py-12">
       <div className="container-page">
-        <h2 id="platforms-heading" className="text-center text-xl font-semibold tracking-tight md:text-2xl">Three integrations live. More coming soon.</h2>
+        <h2 id="platforms-heading" className="text-center text-sm font-medium text-muted-foreground">Your social world. One bigger picture.</h2>
         <ul className="platform-ribbon mt-8">
           {platforms.map((platform) => (
-            <li key={platform.id} className="flex min-w-0 flex-col items-center justify-center gap-3 px-2 py-4">
-              <PlatformIcon name={platform.name} color={platform.color} size={40} />
-              <span className="text-sm font-medium">{platform.name}</span>
-              <span className={`rounded-full px-2 py-1 text-center text-xs font-medium ${platform.status === "available" ? "bg-mint-soft text-mint-foreground" : "bg-muted text-muted-foreground"}`}>{platform.status === "available" ? "Available now" : "Coming soon"}</span>
+            <li key={platform.id} className="platform-ribbon-item">
+              <PlatformIcon name={platform.name} color="var(--foreground)" size={46} />
+              <span>{platform.name}</span>
             </li>
           ))}
         </ul>
@@ -48,26 +47,36 @@ export function PlatformGrid() {
 
 export function Bridge() {
   const outcomes = [
-    { number: "01", title: "Create from a clear brief.", body: "Draft captions and content ideas around your audience, brand and campaign goals." },
-    { number: "02", title: "Manage publishing in one place.", body: "Review drafts, coordinate approvals and schedule posts across your channels." },
-    { number: "03", title: "Use results to plan ahead.", body: "Review post performance and use it to guide your next content plan." },
+    { number: "01", title: "Start with product context.", body: "Bring your launch brief, audience and brand voice into the same content workflow." },
+    { number: "02", title: "Make the campaign ready.", body: "Shape channel-specific drafts, review the details and choose a publishing schedule." },
+    { number: "03", title: "Inform the next brief.", body: "Review available post metrics to decide what to explore in your next campaign." },
   ];
   return (
     <section className="section-y">
       <div className="container-page">
-        <div className="grid gap-6 lg:grid-cols-2 lg:gap-16">
-          <p className="eyebrow pt-2">One connected workflow</p>
-          <h2 className="section-heading max-w-xl text-balance">Plan, publish and measure. Without switching tools.</h2>
+        <div className="overflow-hidden rounded-3xl border border-ink bg-ink text-ink-foreground">
+          <div className="grid gap-8 p-6 sm:p-10 lg:grid-cols-2 lg:gap-16 lg:p-12">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-ink-muted">One connected workflow</p>
+              <h2 className="section-heading mt-5 max-w-xl text-balance">Your product moves forward. Keep your story moving with it.</h2>
+              <p className="mt-5 max-w-lg leading-relaxed text-ink-muted">Turn release notes, useful ideas and campaign goals into a weekly publishing rhythm. Less scattered context. A clearer next step for the team.</p>
+              <a href="#weekly-planner" className="btn btn-primary mt-7">Explore the planner <ArrowRight className="h-4 w-4" aria-hidden="true" /></a>
+            </div>
+            <div className="rounded-2xl border border-ink-foreground/15 bg-primary/15 p-5 sm:p-6">
+              <p className="text-xs font-medium text-ink-muted">Fictional campaign · Northstar</p>
+              <h3 className="mt-3 text-xl font-semibold">Product workspaces launch</h3>
+              <ol className="mt-6 space-y-5">
+                {outcomes.map((outcome) => (
+                  <li key={outcome.number} className="flex gap-4 border-t border-ink-foreground/15 pt-5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-semibold text-primary-foreground">{outcome.number}</span>
+                    <div><h4 className="text-sm font-semibold">{outcome.title}</h4><p className="mt-2 text-sm leading-relaxed text-ink-muted">{outcome.body}</p></div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+          <p className="border-t border-ink-foreground/15 px-6 py-4 text-xs leading-relaxed text-ink-muted sm:px-10 lg:px-12">AI helps with the draft. Your team decides what is ready to publish.</p>
         </div>
-        <ol className="mt-12 grid gap-8 md:grid-cols-3 md:gap-10">
-          {outcomes.map((outcome) => (
-            <li key={outcome.number} className="border-t pt-6">
-              <span className="font-display text-sm font-semibold text-primary">{outcome.number} /</span>
-              <h3 className="mt-5 text-xl font-semibold">{outcome.title}</h3>
-              <p className="mt-3 max-w-sm leading-relaxed text-muted-foreground">{outcome.body}</p>
-            </li>
-          ))}
-        </ol>
       </div>
     </section>
   );
@@ -106,7 +115,7 @@ export function ContentStudio() {
     <section id="ai-content-studio" className="section-y overflow-hidden">
       <div className="container-page grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
         <div>
-          <SectionHead eyebrow="AI Content Studio" title="From brief to publish-ready draft." body="Turn a campaign brief into captions, hashtags and visuals. Edit the output and review each post before publishing." />
+          <SectionHead eyebrow="AI Content Studio" title="Give your next launch a clear starting point." body="Turn a product brief into captions, hashtags and visuals. Refine the technical details, adapt the message and review each post before publishing." />
           <Bullets items={["Generate hooks, captions and hashtags from one brief.", "Adapt drafts for each channel’s format.", "Create AI images within your plan’s allowance."]} />
           <a href={SIGNUP_URL} className="mt-7 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary">Create your first draft <ArrowRight className="h-4 w-4" aria-hidden="true" /></a>
         </div>
@@ -126,7 +135,7 @@ export function BrandVoice() {
           <SectionHead eyebrow="Brand voice & visual identity" title="Your brand standards, built into every draft." body="Save your audience, tone and visual identity in one brand profile. Use those standards to guide content generation." />
           <Bullets items={["Set your tone, audience and writing preferences.", "Store brand colors and logos in one place.", "Review generated copy against your brand guidelines."]} />
         </div>
-        <figure className="rounded-3xl border bg-amber-soft p-4 sm:p-7 lg:order-1">
+        <figure className="rounded-3xl border bg-primary-soft p-4 sm:p-7 lg:order-1">
           <div className="preview-window bg-background">
             <div className="window-heading flex items-center justify-between gap-3 border-b px-5 py-4">
               <span className="text-sm font-semibold">Brand profile</span>
@@ -134,21 +143,21 @@ export function BrandVoice() {
             </div>
             <div className="p-5 sm:p-6">
               <div className="border-b pb-5">
-                <p className="text-xl font-semibold tracking-tight">Form & Field</p>
-                <p className="mt-1 text-xs text-muted-foreground">Home furnishings & interior accessories</p>
+                <p className="text-xl font-semibold tracking-tight">Northstar</p>
+                <p className="mt-1 text-xs text-muted-foreground">Product workspaces for software teams</p>
               </div>
               <dl className="divide-y text-sm">
-                <div className="grid gap-1 py-4 sm:grid-cols-3 sm:gap-4"><dt className="text-muted-foreground">Audience</dt><dd className="sm:col-span-2">Design-conscious homeowners</dd></div>
-                <div className="grid gap-1 py-4 sm:grid-cols-3 sm:gap-4"><dt className="text-muted-foreground">Tone</dt><dd className="sm:col-span-2">Warm, considered, direct</dd></div>
-                <div className="grid gap-1 py-4 sm:grid-cols-3 sm:gap-4"><dt className="text-muted-foreground">Writing style</dt><dd className="sm:col-span-2">Clear descriptions. Practical detail. No jargon.</dd></div>
+                <div className="grid gap-1 py-4 sm:grid-cols-3 sm:gap-4"><dt className="text-muted-foreground">Audience</dt><dd className="sm:col-span-2">Product leads, engineers and startup teams</dd></div>
+                <div className="grid gap-1 py-4 sm:grid-cols-3 sm:gap-4"><dt className="text-muted-foreground">Tone</dt><dd className="sm:col-span-2">Clear, knowledgeable, approachable</dd></div>
+                <div className="grid gap-1 py-4 sm:grid-cols-3 sm:gap-4"><dt className="text-muted-foreground">Writing style</dt><dd className="sm:col-span-2">Lead with the use case. Explain the detail. Avoid hype.</dd></div>
               </dl>
               <div className="border-t pt-4">
                 <p className="text-xs font-semibold text-muted-foreground">Brand colors</p>
                 <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
                 {[
-                  { name: "Forest", color: "bg-mint-foreground" },
-                  { name: "Oat", color: "bg-amber-soft" },
-                  { name: "Clay", color: "bg-peach" },
+                  { name: "Indigo", color: "bg-primary" },
+                  { name: "Cloud", color: "bg-primary-soft" },
+                  { name: "Slate", color: "bg-muted-foreground" },
                   { name: "Ink", color: "bg-ink" },
                 ].map((swatch) => (
                   <li key={swatch.name} className="flex items-center gap-2">
@@ -160,11 +169,11 @@ export function BrandVoice() {
               </div>
               <div className="mt-5 rounded-xl border bg-surface p-4">
                 <p className="text-xs font-semibold text-muted-foreground">Example draft</p>
-                <p className="mt-2 text-sm leading-relaxed">“Natural textures. Practical details. Explore home essentials designed for everyday use.”</p>
+                <p className="mt-2 text-sm leading-relaxed">“Your next release has a lot of moving parts. Keep the notes, decisions and launch tasks together in a Northstar product workspace.”</p>
               </div>
             </div>
           </div>
-          <figcaption className="mt-4 text-center text-xs text-amber-foreground">Example brand profile · Form & Field</figcaption>
+          <figcaption className="mt-4 text-center text-xs text-muted-foreground">Fictional brand profile · Northstar software launch</figcaption>
         </figure>
       </div>
     </section>
@@ -173,9 +182,9 @@ export function BrandVoice() {
 
 export function Calendar() {
   const posts = [
-    { day: "Mon", date: "12", time: "9:00 AM", title: "Everyday collection launch", platform: platforms[0], status: "Scheduled", color: "bg-mint-soft" },
-    { day: "Tue", date: "13", time: "12:30 PM", title: "Meet the design team", platform: platforms[2], status: "Needs review", color: "bg-amber-soft" },
-    { day: "Wed", date: "14", time: "Not set", title: "Small-space styling guide", platform: platforms[1], status: "Draft", color: "bg-lilac" },
+    { day: "Mon", date: "12", time: "9:00 AM", title: "Introducing product workspaces", platform: platforms[2], status: "Scheduled", color: "bg-primary-soft" },
+    { day: "Tue", date: "13", time: "12:30 PM", title: "Inside the release planning workflow", platform: platforms[0], status: "Needs review", color: "bg-amber-soft" },
+    { day: "Wed", date: "14", time: "Not set", title: "Product workspace walkthrough", platform: platforms[1], status: "Draft", color: "bg-lilac" },
   ];
   return (
     <section id="publishing-calendar" className="section-y">
@@ -187,7 +196,7 @@ export function Calendar() {
         <figure className="rounded-3xl bg-sky-soft p-3 sm:p-6">
           <div className="preview-window overflow-hidden bg-background">
             <div className="window-heading flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
-              <div><p className="text-sm font-semibold">Your publishing week</p><p className="mt-1 text-xs text-muted-foreground">October 12–18</p></div>
+              <div><p className="text-sm font-semibold">Northstar launch week</p><p className="mt-1 text-xs text-muted-foreground">October 12–18 · Product workspaces</p></div>
               <span className="rounded-lg border bg-surface px-3 py-1.5 text-xs font-medium">Agenda view</span>
             </div>
             <ul className="divide-y">
@@ -204,7 +213,7 @@ export function Calendar() {
             </ul>
             <div className="flex items-center gap-2 border-t bg-surface px-5 py-3 text-xs text-muted-foreground"><CircleDashed className="h-3.5 w-3.5" aria-hidden="true" /> Drafts stay unpublished until you schedule or publish them.</div>
           </div>
-          <figcaption className="mt-4 text-center text-xs text-muted-foreground">Example publishing calendar</figcaption>
+          <figcaption className="mt-4 text-center text-xs text-muted-foreground">Fictional Northstar campaign · Example publishing calendar</figcaption>
         </figure>
       </div>
     </section>
@@ -220,7 +229,7 @@ export function AnalyticsTeam() {
           <h2 className="mt-4 max-w-sm text-balance text-3xl font-semibold leading-tight">Understand what earns attention.</h2>
           <p className="mt-4 max-w-md leading-relaxed text-muted-foreground">Compare post performance and engagement across connected accounts. Use the results to guide your next campaign.</p>
           <figure className="mt-8 rounded-2xl border bg-surface p-4 sm:p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold">Engagements this week · Example</p><span className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />Daily total</span></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold">Northstar launch week · Example</p><span className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />Daily engagements</span></div>
             <svg viewBox="0 0 400 180" role="img" aria-label="Example daily engagements: Monday 42, Tuesday 58, Wednesday 74, Thursday 51, Friday 66, Saturday 80, Sunday 47. Illustrative data, not customer results." className="mt-5 h-auto w-full overflow-visible">
               <g stroke="currentColor" className="text-border" strokeDasharray="3 5"><path d="M24 28H378 M24 76H378 M24 124H378" /></g>
               <path d="M24 103L83 77L142 52L201 89L260 65L319 42L378 95V144H24Z" fill="currentColor" className="text-primary-soft" />
@@ -235,13 +244,13 @@ export function AnalyticsTeam() {
           <p className="eyebrow">Teams & approvals</p>
           <h2 className="mt-4 max-w-sm text-balance text-3xl font-semibold leading-tight">Keep feedback and approvals in one place.</h2>
           <p className="mt-4 max-w-md leading-relaxed text-muted-foreground">Share drafts with reviewers, collect feedback and track approval status before scheduling.</p>
-          <div className="mt-8 flex-1 rounded-2xl bg-peach p-4 sm:p-5">
+          <div className="mt-8 flex-1 rounded-2xl bg-primary-soft p-4 sm:p-5">
             <div className="rounded-xl border bg-background p-4">
-              <p className="text-xs text-muted-foreground">Campaign / The everyday collection</p>
-              <p className="mt-2 text-sm font-semibold">Introducing the everyday collection.</p>
+              <p className="text-xs text-muted-foreground">Northstar / Product workspaces launch</p>
+              <p className="mt-2 text-sm font-semibold">Introducing product workspaces.</p>
               <div className="mt-4 flex items-start gap-2.5 border-t pt-4">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-lilac text-xs font-semibold" aria-hidden="true">J</span>
-                <div><p className="text-xs font-semibold">Jules · Reviewer</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Please use the detail shot as the first image.</p></div>
+                <div><p className="text-xs font-semibold">Jules · Product reviewer</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Lead with the release planning use case. Please check the feature names against the launch brief.</p></div>
                 <MessageSquare className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               </div>
             </div>
@@ -259,7 +268,7 @@ export function AnalyticsTeam() {
               ))}
             </ol>
           </div>
-          <p className="mt-4 text-xs text-muted-foreground">Example workflow · Team reviews are included on eligible plans.</p>
+          <p className="mt-4 text-xs text-muted-foreground">Fictional review workflow · Approvals included on Pro, Growth and Scale.</p>
         </article>
       </div>
     </section>
@@ -268,14 +277,14 @@ export function AnalyticsTeam() {
 
 export function Audience() {
   const audiences = [
-    { label: "Creators", title: "Build a consistent publishing routine.", body: "Draft content, adapt it for each channel and schedule posts from one workspace.", color: "bg-lilac", detail: "Independent creators & solo businesses" },
-    { label: "Brands", title: "Keep every channel on brand.", body: "Apply shared writing preferences and visual standards to your content plan.", color: "bg-mint-soft", detail: "Small businesses & growing brands" },
-    { label: "Marketing teams", title: "Coordinate content and reviews.", body: "Keep campaign drafts, feedback and publishing schedules organized by workspace.", color: "bg-peach", detail: "Agencies & in-house teams" },
+    { label: "Startups", title: "Make room for a publishing rhythm.", body: "Turn founder insights, product updates and launch ideas into drafts you can review and schedule.", color: "bg-lilac", detail: "Founders & lean marketing teams" },
+    { label: "Software teams", title: "Translate product detail into a clear story.", body: "Build a campaign around a release, explain practical use cases and keep technical reviews organized.", color: "bg-primary-soft", detail: "SaaS & product-led businesses" },
+    { label: "Growing businesses", title: "Keep campaigns and teams aligned.", body: "Use shared brand context, campaign drafts and approval workflows to coordinate your social presence.", color: "bg-sky-soft", detail: "In-house marketing & multi-brand teams" },
   ];
   return (
     <section className="section-y">
       <div className="container-page">
-        <SectionHead center eyebrow="Who it’s for" title="For creators, brands and marketing teams." body="Manage your own channels or coordinate content with a team." />
+        <SectionHead center eyebrow="Who it’s for" title="For teams building something worth explaining." body="A focused social content workflow for startups, software teams and growing businesses." />
         <ul className="mt-12 grid gap-5 md:grid-cols-3">
           {audiences.map((audience) => (
             <li key={audience.label} className={`flex flex-col rounded-3xl p-6 md:p-7 ${audience.color}`}>

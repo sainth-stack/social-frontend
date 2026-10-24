@@ -65,8 +65,8 @@ _TEXT_GROUPS = (
     (CuratedModel("amazon.nova-lite-v1:0", "Nova Lite", "Amazon", ("us", "ca", "eu", "apac")),),
 )
 _IMAGE_MODELS = (
-    CuratedModel("stability.sd3-5-large-v1:0", "Stable Diffusion 3.5 Large", "Stability AI"),
     CuratedModel("stability.stable-image-ultra-v1:1", "Stable Image Ultra", "Stability AI"),
+    CuratedModel("stability.sd3-5-large-v1:0", "Stable Diffusion 3.5 Large", "Stability AI"),
     CuratedModel("stability.stable-image-core-v1:1", "Stable Image Core", "Stability AI"),
 )
 SUPPORTED_IMAGE_MODEL_IDS = frozenset(model.id for model in _IMAGE_MODELS)
@@ -201,7 +201,7 @@ def get_model_catalog() -> dict[str, Any]:
         "textModels": text,
         "imageModels": images,
         "defaultTextModelId": settings.bedrock_model_id or None,
-        "defaultImageModelId": (settings.bedrock_image_model_id or "stability.sd3-5-large-v1:0").strip(),
+        "defaultImageModelId": (settings.bedrock_image_model_id or "stability.stable-image-ultra-v1:1").strip(),
         "discovery": [{"region": region, "foundationModels": data["foundationModels"], "inferenceProfiles": data["inferenceProfiles"]} for region, data in discovery.items()],
         "cacheTtlSeconds": CATALOG_TTL_SECONDS,
         "invokeAccessVerified": False,

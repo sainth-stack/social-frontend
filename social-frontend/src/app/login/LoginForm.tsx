@@ -22,7 +22,7 @@ import {
   selectUser,
 } from "@/features/auth/authSlice";
 import { login } from "@/features/auth/authThunks";
-import { getHomeRoute } from "@/lib/auth/users";
+import { resolvePostLoginPath } from "@/lib/auth/users";
 import { prefetchDashboardHome } from "@/lib/dashboard-cache";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
@@ -77,7 +77,7 @@ export default function LoginForm() {
     if (!isHydrated || !isAuthenticated || !user) return;
     if (!user.isPlatformAdmin && user.workspaceId) prefetchDashboardHome(user.workspaceId);
     const redirect = searchParams.get("redirect");
-    router.replace(redirect ?? getHomeRoute(user));
+    router.replace(resolvePostLoginPath(user, redirect));
   }, [isAuthenticated, isHydrated, router, searchParams, user]);
 
   const busy = isSubmitting || authLoading;

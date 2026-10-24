@@ -1,2 +1,3 @@
 export const AUTH_STORAGE_KEY = "opsbrain_auth";
-export const SUPER_ADMIN_EMAIL = "superadmin@opsbrain.ai";
+/** Default seeded platform admin (see `social-backend/scripts/seed_superadmin.sh`). */
+export const SUPER_ADMIN_EMAIL = "superadmin@gmail.com";

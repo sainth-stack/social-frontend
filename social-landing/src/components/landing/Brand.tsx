@@ -1,12 +1,34 @@
 import Image from "next/image";
 import { Facebook, Instagram, Linkedin, Youtube } from "lucide-react";
 
+const LOCKUP_ASPECT = 660 / 144;
+
 export function BrandMark({ size = 36 }: { size?: number }) {
-  return <Image src="/brand/earnedvoice-mark.svg" alt="" width={size} height={size} loading="eager" className="brand-mark shrink-0" />;
+  return (
+    <Image
+      src="/brand/earnedvoice-mark.svg"
+      alt="EarnedVoice"
+      width={size}
+      height={size}
+      loading="eager"
+      className="brand-mark shrink-0 object-contain"
+    />
+  );
 }
 
-export function BrandLockup() {
-  return <span className="flex items-center gap-2.5 whitespace-nowrap"><BrandMark /><span className="font-display text-xl font-bold tracking-tight">Earned<span className="text-primary">Voice</span></span></span>;
+export function BrandLockup({ height = 36 }: { height?: number }) {
+  const width = Math.round(height * LOCKUP_ASPECT);
+  return (
+    <Image
+      src="/brand/earnedvoice-lockup.svg"
+      alt="EarnedVoice"
+      width={width}
+      height={height}
+      loading="eager"
+      className="h-auto w-auto max-h-9 shrink-0 object-contain object-left"
+      style={{ maxWidth: width }}
+    />
+  );
 }
 
 export function PlatformIcon({ name, color, size = 40 }: { name: string; color: string; size?: number }) {

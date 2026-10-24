@@ -16,27 +16,32 @@ export function EarnedVoiceLogo({
   compact = false,
   priority = false,
 }: EarnedVoiceLogoProps) {
-  return (
-    <span
-      className={cn("inline-flex items-center gap-2.5", className)}
-      role="img"
-      aria-label="EarnedVoice"
-    >
+  if (compact) {
+    return (
       <Image
         src={platformBrand.mark}
-        alt=""
+        alt="EarnedVoice"
         width={size}
         height={size}
         priority={priority}
-        aria-hidden="true"
-        className="shrink-0 object-contain"
+        className={cn("shrink-0 object-contain", className)}
         style={{ width: size, height: size }}
       />
-      {!compact ? (
-        <span className="font-display font-bold leading-none tracking-tight">
-          Earned<span className="text-primary">Voice</span>
-        </span>
-      ) : null}
-    </span>
+    );
+  }
+
+  const height = size;
+  const width = Math.round(size * platformBrand.lockupAspect);
+
+  return (
+    <Image
+      src={platformBrand.lockup}
+      alt="EarnedVoice"
+      width={width}
+      height={height}
+      priority={priority}
+      className={cn("h-auto w-auto max-h-[var(--ev-logo-h)] shrink-0 object-contain object-left", className)}
+      style={{ ["--ev-logo-h" as string]: `${height}px`, maxWidth: width }}
+    />
   );
 }

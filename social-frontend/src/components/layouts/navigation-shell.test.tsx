@@ -117,7 +117,7 @@ describe("Sidebar navigation", () => {
     const { wrapper } = wrapperFor({ isPlatformAdmin: true });
     render(<Sidebar sections={adminNavSections} brand={{ type: "platform" }} />, { wrapper });
     expect(screen.getByRole("link", { name: "EarnedVoice" }).getAttribute("href")).toBe("/admin");
-    expect(screen.getByRole("img", { name: "EarnedVoice" }).querySelector("img")?.getAttribute("src")).toBe("/brand/earnedvoice-mark.svg");
+    expect(screen.getByRole("img", { name: "EarnedVoice" }).getAttribute("src")).toBe("/brand/earnedvoice-lockup.svg");
     expect(screen.getByRole("link", { name: "Back to workspace app" }).getAttribute("href")).toBe("/dashboard");
     expect(screen.getByRole("link", { name: "Users" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Workspaces" }).getAttribute("href")).toBe("/admin/workspaces");

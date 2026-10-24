@@ -191,8 +191,8 @@ describe("login form", () => {
     [false, "", "/dashboard"],
     [true, "", "/admin"],
     [false, "?redirect=%2Fdashboard%2Fposts", "/dashboard/posts"],
-    [true, "?redirect=%2Fdashboard%2Fposts", "/dashboard/posts"],
-    [false, "?redirect=", ""],
+    [true, "?redirect=%2Fdashboard%2Fposts", "/admin"],
+    [false, "?redirect=", "/dashboard"],
     [false, "?redirect=https%3A%2F%2Fexample.com", "https://example.com"],
   ])("preserves authenticated routing for admin=%s and %s", (admin, query, route) => {
     mocks.params = new URLSearchParams(query as string);

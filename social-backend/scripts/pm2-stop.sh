@@ -9,6 +9,7 @@ pm2 delete \
   social-media-worker \
   social-media-beat \
   social-media-frontend \
+  social-media-landing \
   2>/dev/null || true
 
 echo "PM2 apps stopped."

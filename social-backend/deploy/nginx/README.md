@@ -10,6 +10,17 @@
 
 Add an **A record** (or CNAME) for `earnedvoice.opsbrainai.com` → your EC2 public IP (same as `peers` if co-hosted).
 
+## Nginx error: `duplicate listen options for [::]:443`
+
+Only **one** site file may use `listen [::]:443 ssl ipv6only=on`. Additional HTTPS vhosts must use `listen [::]:443 ssl;` only (see `earnedvoice.opsbrainai.com` in this folder).
+
+On the server, fix `earnedvoice` and reload:
+
+```bash
+sudo sed -i 's/listen \[::\]:443 ssl ipv6only=on;/listen [::]:443 ssl;/' /etc/nginx/sites-available/earnedvoice.opsbrainai.com
+sudo nginx -t && sudo systemctl reload nginx
+```
+
 ## First-time TLS for landing
 
 ```bash
@@ -23,11 +34,12 @@ sudo certbot --nginx -d earnedvoice.opsbrainai.com
 sudo bash deploy/nginx/install-nginx.sh --landing-only
 ```
 
-If certbot already manages `peers.opsbrainai.com`, you can instead:
+If the certificate is already issued but certbot could not install it (no `server_name` yet):
 
 ```bash
-sudo certbot certonly --nginx -d earnedvoice.opsbrainai.com
-sudo bash deploy/nginx/install-nginx.sh --landing-only
+# Install vhost first (HTTP or SSL template from this repo), fix ipv6 listen as above, then:
+sudo certbot install --cert-name earnedvoice.opsbrainai.com
+# or rely on ssl_certificate paths already in earnedvoice.opsbrainai.com and reload nginx
 ```
 
 ## Update both vhosts from git

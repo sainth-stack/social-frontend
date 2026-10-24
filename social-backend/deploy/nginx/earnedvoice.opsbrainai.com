@@ -19,8 +19,9 @@ server {
         proxy_read_timeout 120s;
     }
 
+    # Do not use ipv6only=on here — only one vhost on the host may set it (peers keeps it).
     listen 443 ssl;
-    listen [::]:443 ssl ipv6only=on;
+    listen [::]:443 ssl;
     ssl_certificate /etc/letsencrypt/live/earnedvoice.opsbrainai.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/earnedvoice.opsbrainai.com/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;

@@ -57,6 +57,22 @@ export function sanitizeCaptionAndHashtags(
   return { caption: cleanCaption, hashtags: merged };
 }
 
+export function normalizeGeneratedText(value: string, includeEmojis = false): string {
+  let text = value
+    .replace(/^\s*```[^\n]*\n?/gm, "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*(?:[-*_]\s*){3,}$/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(?<!\w)([*_])([^\n]+?)\1(?!\w)/g, "$2")
+    .replace(/`([^`]+)`/g, "$1");
+  if (!includeEmojis) {
+    text = text.replace(/(?:\p{Regional_Indicator}{2}|[0-9#*]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)/gu, "");
+  }
+  return text.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** Caption + hashtags as shown on LinkedIn/Facebook (one blank line between). */
 export function formatPostBody(caption: string, hashtags: string[]): string {
   const { caption: body, hashtags: tags } = sanitizeCaptionAndHashtags(caption, hashtags);

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
+from urllib.parse import urlparse
 
 from app.social.models import SocialPlatform
 
@@ -30,9 +31,25 @@ class BasePublisher(ABC):
         caption: str,
         hashtags: list[str],
         image_url: Optional[str] = None,
+        image_urls: Optional[list[str]] = None,
         first_comment: Optional[str] = None,
     ) -> PublishResult:
         """Publish content to the platform and return the result."""
+
+    def set_publish_context(self, state: dict, save: Callable[[dict], None]) -> None:
+        self._publish_state = dict(state)
+        self._save_publish_state = save
+
+    def checkpoint(self, **values) -> None:
+        state = dict(getattr(self, "_publish_state", {}))
+        state.update(values)
+        save = getattr(self, "_save_publish_state", None)
+        if save:
+            save(state)
+        self._publish_state = state
+
+    def publish_state(self) -> dict:
+        return dict(getattr(self, "_publish_state", {}))
 
     def delete_remote(
         self,
@@ -77,6 +94,8 @@ NON_RETRYABLE_ERROR_CODES = frozenset(
         "PERMISSION_DENIED",
         "UNSUPPORTED_PLATFORM",
         "INVALID_CONTENT",
+        "AMBIGUOUS_PUBLISH",
+        "MEDIA_NOT_READY",
     }
 )
 
@@ -115,3 +134,23 @@ def format_caption(caption: str, hashtags: list[str]) -> str:
     if not tags:
         return (caption or "").strip()
     return f"{(caption or '').strip()}\n\n{tags}".strip()
+
+
+def validate_image_urls(image_urls: list[str]) -> Optional[PublishResult]:
+    if not 1 <= len(image_urls) <= 8 or any(
+        not isinstance(url, str) or urlparse(url).scheme not in ("http", "https") or not urlparse(url).netloc
+        for url in image_urls
+    ):
+        return PublishResult(
+            success=False, error_code="INVALID_IMAGE",
+            error_message="Provide 1–8 ordered public HTTP(S) image URLs", retryable=False,
+        )
+    return None
+
+
+def ambiguous_publish() -> PublishResult:
+    return PublishResult(
+        success=False, error_code="AMBIGUOUS_PUBLISH",
+        error_message="Provider submission may have succeeded; reconcile before retrying",
+        retryable=False,
+    )

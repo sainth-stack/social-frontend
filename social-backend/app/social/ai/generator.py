@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 
 from app.social.ai.caption_sanitize import sanitize_caption_and_hashtags
 from app.social.ai.prompts import (
+    GenerationPolicy,
     GENERIC_FILLER_PHRASES,
     PLATFORM_HASHTAG_LIMITS,
     PLATFORM_LIMITS,
@@ -19,10 +20,12 @@ from app.social.ai.prompts import (
     brief_fidelity_score,
     build_brand_context,
     build_fidelity_revision_prompt,
+    build_generation_policy_prompt,
     build_system_prompt,
     build_user_prompt,
     extract_significant_terms,
     is_substantive_brief,
+    resolve_generation_policy,
 )
 from app.social.models import SocialPlatform
 from app.social.publishers.base import format_caption
@@ -136,6 +139,19 @@ def _normalize_hashtags(raw: Any, limit: int) -> list[str]:
         if len(tags) >= limit:
             break
     return tags
+
+
+def _policy_caption(caption: str, hashtags: Any, policy: GenerationPolicy, limit: int) -> tuple[str, list[str]]:
+    tags = hashtags if isinstance(hashtags, list) else []
+    return sanitize_caption_and_hashtags(
+        caption, [str(tag) for tag in tags],
+        hashtag_limit=limit if policy.include_hashtags else 0,
+        include_emojis=policy.include_emojis,
+    )
+
+
+def _policy_text(text: Any, policy: GenerationPolicy) -> str:
+    return _policy_caption(str(text or ""), [], policy, 0)[0]
 
 
 def _extract_fields(parsed: dict[str, Any]) -> tuple[str, list[Any], str]:
@@ -323,9 +339,13 @@ def _generate_one_platform(
     content_series_mode: bool = False,
     content_type: Optional[str] = None,
     length_hint: Optional[str] = None,
-    include_emojis: bool = True,
+    include_emojis: bool = False,
     media_note: Optional[str] = None,
 ) -> tuple[str, dict[str, Any]]:
+    policy = resolve_generation_policy(
+        brand_voice, include_emojis=include_emojis,
+        include_hashtags=include_hashtags, length_hint=length_hint,
+    )
     limit = PLATFORM_LIMITS.get(platform_key, 2200)
     hashtag_limit = PLATFORM_HASHTAG_LIMITS.get(platform_key, 5)
     caption_budget = limit
@@ -347,6 +367,8 @@ def _generate_one_platform(
         caption_budget=caption_budget,
         content_series_mode=series_mode,
         substantive_brief=substantive,
+        include_emojis=policy.include_emojis,
+        include_hashtags=policy.include_hashtags,
     )
     user_prompt = build_user_prompt(
         topic=topic,
@@ -361,7 +383,7 @@ def _generate_one_platform(
         content_series_mode=series_mode,
         content_type=content_type,
         length_hint=length_hint,
-        include_emojis=include_emojis,
+        include_emojis=policy.include_emojis,
         media_note=media_note,
     )
 
@@ -388,16 +410,10 @@ def _generate_one_platform(
 
     parsed = _parse_json_content(raw)
     caption_raw, hashtags_raw, first_comment_raw = _extract_fields(parsed)
-    hashtags = (
-        _normalize_hashtags(hashtags_raw, hashtag_limit) if include_hashtags else []
-    )
-    first_comment = first_comment_raw.strip() if include_comment else ""
+    first_comment = _policy_text(first_comment_raw, policy) if include_comment else ""
+    image_prompt = _policy_text(parsed.get("imagePrompt"), policy) if "imagePrompt" in parsed else None
 
-    caption_raw, hashtags = sanitize_caption_and_hashtags(
-        caption_raw,
-        hashtags,
-        hashtag_limit=hashtag_limit if include_hashtags else 0,
-    )
+    caption_raw, hashtags = _policy_caption(caption_raw, hashtags_raw, policy, hashtag_limit)
     caption, hashtags = _fit_caption_and_hashtags(caption_raw, hashtags, limit)
 
     fidelity_low = substantive and brief_fidelity_score(topic, caption) < 0.22
@@ -421,14 +437,7 @@ def _generate_one_platform(
             raw2 = _run(polish_user)
             parsed2 = _parse_json_content(raw2)
             cap2, tags2, fc2 = _extract_fields(parsed2)
-            hashtags2 = (
-                _normalize_hashtags(tags2, hashtag_limit) if include_hashtags else []
-            )
-            cap2, hashtags2 = sanitize_caption_and_hashtags(
-                cap2,
-                hashtags2,
-                hashtag_limit=hashtag_limit if include_hashtags else 0,
-            )
+            cap2, hashtags2 = _policy_caption(cap2, tags2, policy, hashtag_limit)
             caption2, hashtags2 = _fit_caption_and_hashtags(cap2, hashtags2, limit)
             score2 = brief_fidelity_score(topic, caption2)
             better = caption2 and (
@@ -438,7 +447,9 @@ def _generate_one_platform(
             if better:
                 caption = caption2
                 hashtags = hashtags2
-                first_comment = fc2.strip() if include_comment else first_comment
+                first_comment = _policy_text(fc2, policy) if include_comment else first_comment
+                if "imagePrompt" in parsed2:
+                    image_prompt = _policy_text(parsed2["imagePrompt"], policy)
         except Exception:
             logger.warning("Social generate polish failed for %s; retaining original draft", platform_key, exc_info=True)
 
@@ -457,12 +468,15 @@ def _generate_one_platform(
         )
 
     full_text = format_caption(caption, hashtags)
-    return platform_key, {
+    result = {
         "caption": caption,
         "hashtags": hashtags,
         "firstComment": first_comment,
         "characterCount": len(full_text),
     }
+    if image_prompt is not None:
+        result["imagePrompt"] = image_prompt
+    return platform_key, result
 
 
 def generate_platform_content(
@@ -478,7 +492,7 @@ def generate_platform_content(
     content_series_mode: bool = False,
     content_type: Optional[str] = None,
     length_hint: Optional[str] = None,
-    include_emojis: bool = True,
+    include_emojis: bool = False,
     media_note: Optional[str] = None,
 ) -> dict[str, dict[str, Any]]:
     """Return { platform: { caption, hashtags, firstComment, characterCount } }.
@@ -618,13 +632,23 @@ def generate_carousel_content(
     audience: Optional[str],
     cta: Optional[str],
     brand_voice: Optional[dict[str, Any]],
-    num_slides: int = 6,
+    num_slides: int = 3,
+    include_emojis: bool = False,
+    include_hashtags: bool = True,
+    length_hint: Optional[str] = None,
 ) -> dict[str, Any]:
     """Return { slides: [{headline, body, imagePrompt}], caption, hashtags }.
 
     The carousel format generates an intro caption + individual slide copy.
-    Each slide has a cinematic imagePrompt for AI image generation.
+    Each slide has a brief-relevant imagePrompt for AI image generation.
     """
+    if isinstance(num_slides, bool) or not isinstance(num_slides, int) or not 2 <= num_slides <= 8:
+        raise HTTPException(status_code=422, detail="Carousel slide count must be an integer from 2 to 8.")
+    policy = resolve_generation_policy(
+        brand_voice, include_emojis=include_emojis,
+        include_hashtags=include_hashtags, length_hint=length_hint,
+    )
+    body_limit = {"short": 160, "medium": 360, "long": 600}.get(policy.length_hint, 360)
     client, model = _get_llm()
 
     brand_note = ""
@@ -637,19 +661,21 @@ def generate_carousel_content(
 
     audience_note = f"\nTarget audience: {audience}." if audience else ""
     cta_note = f"\nCall to action: {cta}." if cta else ""
+    middle_rule = f"- Slides 2-{num_slides - 1}: one concrete insight, tip, or step (specific, useful)\n" if num_slides > 2 else ""
 
     system_prompt = (
         f"{QUALITY_BAR}\n{build_brand_context(brand_voice, SocialPlatform.LINKEDIN.value)}\n"
+        f"{build_generation_policy_prompt(policy)}\n"
         "Design an educational LinkedIn/Instagram carousel with one useful idea per slide. "
         "Use an intro hook and a logical slide narrative grounded in the brief. "
         "Use at most one CTA across the caption and slides, on the final slide if appropriate. "
-        f"Use up to {PLATFORM_HASHTAG_LIMITS[SocialPlatform.LINKEDIN.value]} relevant hashtags, not a quota. "
+        f"Use up to {PLATFORM_HASHTAG_LIMITS[SocialPlatform.LINKEDIN.value] if policy.include_hashtags else 0} relevant hashtags, not a quota. "
         "Return ONLY a JSON object with no extra text.\n"
         "Schema:\n"
         '{"caption":"<intro caption, max 300 chars>",'
         '"hashtags":["tag1","tag2"],'
         '"slides":[\n'
-        '  {"headline":"<bold 6-word max headline>","body":"<2-3 sentence supporting copy>","imagePrompt":"<vivid premium image prompt>"}\n'
+        '  {"headline":"<plain-text 6-word max headline>","body":"<specific supporting copy>","imagePrompt":"<relevant visual direction>"}\n'
         "]}"
     )
     user_prompt = (
@@ -659,47 +685,83 @@ def generate_carousel_content(
         f"Every slide must reflect the brief — do not replace with generic marketing.\n"
         f"Rules:\n"
         f"- Slide 1: scroll-stopping hook / painful problem\n"
-        f"- Slides 2-{num_slides - 1}: one concrete insight, tip, or step (specific, useful)\n"
+        f"{middle_rule}"
         f"- Last slide: one natural next step aligned with the brief; no forced sales CTA\n"
-        f"- Headlines must be punchy; body must sound human and expert\n"
-        f"- imagePrompt: cinematic, commercial, photorealistic, no text overlays\n"
+        f"- Headlines must be distinct and specific; body must sound human and expert, 8–{body_limit} characters\n"
+        f"- Every slide needs nonempty headline, useful body, and imagePrompt; never return placeholders\n"
+        f"- imagePrompt: choose diagrams, illustration, editorial graphics, or photography relevant to the brief; no text overlays\n"
+        f"{build_generation_policy_prompt(policy)}"
         f"Return exactly {num_slides} slides."
     )
 
-    raw = _complete_json(
-        client=client,
-        model=model,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        platform_key="carousel",
+    problems: list[str] = []
+    for attempt in range(2):
+        try:
+            raw = _complete_json(
+                client=client, model=model, system_prompt=system_prompt,
+                user_prompt=user_prompt, platform_key="carousel",
+            )
+        except Exception as exc:
+            if not attempt:
+                raise
+            raise HTTPException(
+                status_code=502,
+                detail=f"AI could not repair the carousel: {'; '.join(problems)}. Try again with a clearer brief or fewer slides.",
+            ) from exc
+        parsed = _parse_json_content(raw)
+        slides_raw = parsed.get("slides")
+        problems = []
+        if not isinstance(slides_raw, list) or len(slides_raw) != num_slides:
+            problems.append(f"Expected exactly {num_slides} slides")
+        slides = []
+        seen_headlines: set[str] = set()
+        seen_bodies: set[str] = set()
+        for index, item in enumerate(slides_raw if isinstance(slides_raw, list) else []):
+            if not isinstance(item, dict):
+                problems.append(f"Slide {index + 1} must contain headline, body and imagePrompt")
+                continue
+            slide = {key: _policy_text(item.get(key), policy) for key in ("headline", "body", "imagePrompt")}
+            headline_key = re.sub(r"\W+", "", slide["headline"]).casefold()
+            body_key = re.sub(r"\W+", "", slide["body"]).casefold()
+            if (
+                any(not isinstance(item.get(key), str) for key in slide)
+                or not headline_key or len(slide["headline"]) > 100
+                or re.fullmatch(r"(?:slide|headline|title)\s*\d*", slide["headline"], re.IGNORECASE)
+                or not 8 <= len(slide["body"]) <= body_limit or not slide["imagePrompt"]
+                or len(body_key) < 4
+                or re.fullmatch(r"(?:body|supporting copy|placeholder|lorem ipsum)[.!]?", slide["body"], re.IGNORECASE)
+            ):
+                problems.append(f"Slide {index + 1} needs a specific headline, useful body (8–{body_limit} characters) and visual prompt")
+            if headline_key in seen_headlines or body_key in seen_bodies:
+                problems.append(f"Slide {index + 1} repeats another slide")
+            seen_headlines.add(headline_key)
+            seen_bodies.add(body_key)
+            slides.append(slide)
+        caption, hashtags = _policy_caption(
+            str(parsed.get("caption") or ""), parsed.get("hashtags"), policy,
+            PLATFORM_HASHTAG_LIMITS[SocialPlatform.LINKEDIN.value],
+        )
+        if not caption or not isinstance(parsed.get("caption"), str):
+            problems.append("A useful introductory caption is required")
+        if not problems:
+            caption, hashtags = _fit_caption_and_hashtags(
+                _trim_caption(caption, 160 if policy.length_hint == "short" else 300),
+                hashtags, PLATFORM_LIMITS[SocialPlatform.INSTAGRAM.value],
+            )
+            result = {"slides": slides, "caption": caption, "hashtags": hashtags}
+            for key in ("firstComment", "first_comment", "imagePrompt"):
+                if key in parsed:
+                    result[key] = _policy_text(parsed[key], policy)
+            return result
+        if not attempt:
+            user_prompt += (
+                "\nREPAIR REQUIRED: " + "; ".join(problems)
+                + ". Return a complete corrected JSON object grounded in the same brief. Do not fabricate placeholder slides."
+            )
+    raise HTTPException(
+        status_code=502,
+        detail=f"AI returned an invalid carousel after one repair: {'; '.join(problems)}. Try again with a clearer brief or fewer slides.",
     )
-    parsed = _parse_json_content(raw)
-
-    slides_raw = parsed.get("slides") or []
-    slides = []
-    for i, s in enumerate(slides_raw):
-        if not isinstance(s, dict):
-            continue
-        slides.append({
-            "headline": str(s.get("headline") or f"Slide {i + 1}"),
-            "body": str(s.get("body") or ""),
-            "imagePrompt": str(s.get("imagePrompt") or topic),
-        })
-
-    # Ensure we always have at least 2 slides
-    while len(slides) < 2:
-        slides.append({"headline": f"Slide {len(slides) + 1}", "body": "", "imagePrompt": topic})
-
-    hashtag_limit = PLATFORM_HASHTAG_LIMITS[SocialPlatform.LINKEDIN.value]
-    hashtags = _normalize_hashtags(parsed.get("hashtags") or [], hashtag_limit)
-    caption, hashtags = sanitize_caption_and_hashtags(
-        str(parsed.get("caption") or topic), hashtags, hashtag_limit=hashtag_limit,
-    )
-    caption, hashtags = _fit_caption_and_hashtags(
-        _trim_caption(caption, 300), hashtags, PLATFORM_LIMITS[SocialPlatform.INSTAGRAM.value],
-    )
-
-    return {"slides": slides, "caption": caption, "hashtags": hashtags}
 
 
 def generate_thread_content(
@@ -710,11 +772,18 @@ def generate_thread_content(
     cta: Optional[str],
     brand_voice: Optional[dict[str, Any]],
     num_tweets: int = 5,
+    include_emojis: bool = False,
+    include_hashtags: bool = True,
+    length_hint: Optional[str] = None,
 ) -> dict[str, Any]:
     """Return { tweets: [{text}], hashtags }.
 
     Generates a connected X/Twitter thread — hook + insights + CTA.
     """
+    policy = resolve_generation_policy(
+        brand_voice, include_emojis=include_emojis,
+        include_hashtags=include_hashtags, length_hint=length_hint,
+    )
     client, model = _get_llm()
 
     brand_note = ""
@@ -724,14 +793,16 @@ def generate_thread_content(
             brand_note = f"\nBrand: {name}."
     audience_note = f"\nTarget audience: {audience}." if audience else ""
     cta_note = f"\nThread CTA (last tweet): {cta}." if cta else ""
+    short_rule = "- Keep each tweet under 160 characters for the requested short length\n" if policy.length_hint == "short" else ""
 
     system_prompt = (
         f"{QUALITY_BAR}\n{build_brand_context(brand_voice, SocialPlatform.X.value)}\n"
+        f"{build_generation_policy_prompt(policy)}\n"
         "Write a connected X thread: one clear idea per tweet with a logical progression. "
         "Use only one CTA, in the last tweet, if appropriate to the brief. "
         "Each tweet including numbering must fit 270 characters; the last tweet plus "
         "hashtags and the two-newline separator must fit 280 characters. "
-        f"Use up to {PLATFORM_HASHTAG_LIMITS[SocialPlatform.X.value]} relevant hashtags in the array only. "
+        f"Use up to {PLATFORM_HASHTAG_LIMITS[SocialPlatform.X.value] if policy.include_hashtags else 0} relevant hashtags in the array only. "
         "No empty hype. Return ONLY a JSON object.\n"
         'Schema: {"tweets":[{"text":"<tweet text, max 270 chars>"}],"hashtags":["tag1","tag2"]}'
     )
@@ -739,12 +810,14 @@ def generate_thread_content(
         f"=== USER BRIEF (primary source) ===\n{topic.strip()}\n=== END BRIEF ===\n\n"
         f"Write a {num_tweets}-tweet thread from this brief.\n"
         f"Tone: {tone}.{brand_note}{audience_note}{cta_note}\n"
+        f"{build_generation_policy_prompt(policy)}"
         "Rules:\n"
         "- Tweet 1: specific hook grounded in provided facts, without clickbait\n"
         "- Middle tweets: one clear, useful point each, numbered (2/, 3/ etc.)\n"
         "- Last tweet: one natural next step aligned with the brief, not a forced sales CTA\n"
         "- Expand only for clarity; do not invent supporting claims\n"
         f"- Each tweet MUST be under 270 characters\n"
+        f"{short_rule}"
         f"Return exactly {num_tweets} tweets."
     )
 
@@ -758,24 +831,29 @@ def generate_thread_content(
     parsed = _parse_json_content(raw)
 
     tweets_raw = parsed.get("tweets") or []
+    tweets_raw = tweets_raw if isinstance(tweets_raw, list) else []
     tweets = []
     for t in tweets_raw:
         if isinstance(t, dict):
             text = str(t.get("text") or "").strip()
         else:
             text = str(t).strip()
+        text = _policy_text(text, policy)
         if text:
-            text, _ = sanitize_caption_and_hashtags(text, [], hashtag_limit=0)
-            tweets.append({"text": _trim_caption(text, 270)})
+            tweets.append({"text": _trim_caption(text, 160 if policy.length_hint == "short" else 270)})
 
-    while len(tweets) < 2:
-        tweets.append({"text": ""})
+    if len(tweets) < 2:
+        raise HTTPException(status_code=502, detail="AI returned fewer than two useful tweets. Try again with a clearer thread brief.")
 
-    hashtags = _normalize_hashtags(parsed.get("hashtags") or [], PLATFORM_HASHTAG_LIMITS[SocialPlatform.X.value])
+    _, hashtags = _policy_caption("", parsed.get("hashtags"), policy, PLATFORM_HASHTAG_LIMITS[SocialPlatform.X.value])
     tweets[-1]["text"], hashtags = _fit_caption_and_hashtags(
         tweets[-1]["text"], hashtags, PLATFORM_LIMITS[SocialPlatform.X.value],
     )
-    return {"tweets": tweets, "hashtags": hashtags}
+    result = {"tweets": tweets, "hashtags": hashtags}
+    for key in ("caption", "firstComment", "first_comment", "imagePrompt"):
+        if key in parsed:
+            result[key] = _policy_text(parsed[key], policy)
+    return result
 
 
 def generate_poll_content(
@@ -784,11 +862,18 @@ def generate_poll_content(
     tone: str,
     audience: Optional[str],
     brand_voice: Optional[dict[str, Any]],
+    include_emojis: bool = False,
+    include_hashtags: bool = True,
+    length_hint: Optional[str] = None,
 ) -> dict[str, Any]:
     """Return { question, options: [str, str, str, str], caption, hashtags }.
 
     Generates a compelling poll with 4 options and an intro caption.
     """
+    policy = resolve_generation_policy(
+        brand_voice, include_emojis=include_emojis,
+        include_hashtags=include_hashtags, length_hint=length_hint,
+    )
     client, model = _get_llm()
 
     brand_note = ""
@@ -800,10 +885,11 @@ def generate_poll_content(
 
     system_prompt = (
         f"{QUALITY_BAR}\n{build_brand_context(brand_voice, SocialPlatform.LINKEDIN.value)}\n"
+        f"{build_generation_policy_prompt(policy)}\n"
         "Design a relevant, neutral poll with balanced, mutually exclusive options. "
         "Avoid loaded questions, assumed audience traits, and manufactured controversy. "
         "Voting is the single CTA; do not add a competing sales request. "
-        f"Use up to {PLATFORM_HASHTAG_LIMITS[SocialPlatform.LINKEDIN.value]} relevant hashtags, not a quota. "
+        f"Use up to {PLATFORM_HASHTAG_LIMITS[SocialPlatform.LINKEDIN.value] if policy.include_hashtags else 0} relevant hashtags, not a quota. "
         "Return ONLY a JSON object.\n"
         'Schema: {"question":"<poll question, max 140 chars>","options":["<opt1>","<opt2>","<opt3>","<opt4>"],'
         '"caption":"<intro text to post above poll, max 300 chars>","hashtags":["tag1","tag2"]}'
@@ -812,6 +898,7 @@ def generate_poll_content(
         f"=== USER BRIEF (primary source) ===\n{topic.strip()}\n=== END BRIEF ===\n\n"
         f"Create an engaging poll from this brief.\n"
         f"Tone: {tone}.{brand_note}{audience_note}\n"
+        f"{build_generation_policy_prompt(policy)}"
         "Rules:\n"
         "- Question must invite useful feedback relevant to the brief, without leading voters\n"
         "- Options: mutually exclusive, no 'other' catch-all, max 25 chars each\n"
@@ -830,22 +917,26 @@ def generate_poll_content(
     parsed = _parse_json_content(raw)
 
     options_raw = parsed.get("options") or []
-    options = [str(o)[:25] for o in options_raw if o][:4]
+    options = [_policy_text(o, policy)[:25] for o in options_raw if o][:4] if isinstance(options_raw, list) else []
+    options = [option for option in options if option]
     while len(options) < 4:
         options.append(f"Option {len(options) + 1}")
 
     hashtag_limit = PLATFORM_HASHTAG_LIMITS[SocialPlatform.LINKEDIN.value]
-    caption, hashtags = sanitize_caption_and_hashtags(
+    caption, hashtags = _policy_caption(
         str(parsed.get("caption") or ""),
-        _normalize_hashtags(parsed.get("hashtags") or [], hashtag_limit),
-        hashtag_limit=hashtag_limit,
+        parsed.get("hashtags"), policy, hashtag_limit,
     )
     caption, hashtags = _fit_caption_and_hashtags(
-        _trim_caption(caption, 300), hashtags, PLATFORM_LIMITS[SocialPlatform.LINKEDIN.value],
+        _trim_caption(caption, 160 if policy.length_hint == "short" else 300), hashtags, PLATFORM_LIMITS[SocialPlatform.LINKEDIN.value],
     )
-    return {
-        "question": _trim_caption(str(parsed.get("question") or topic), 140),
+    result = {
+        "question": _trim_caption(_policy_text(parsed.get("question") or topic, policy), 140),
         "options": options,
         "caption": caption,
         "hashtags": hashtags,
     }
+    for key in ("firstComment", "first_comment", "imagePrompt"):
+        if key in parsed:
+            result[key] = _policy_text(parsed[key], policy)
+    return result

@@ -274,6 +274,7 @@ def test_native_formats_preserve_brand_truthfulness_schema_and_model_override(ll
         "carousel": {"caption": "Reliable releases.", "slides": [
             {"headline": "Plan the release", "body": "Check rollback readiness.", "imagePrompt": "A release checklist"},
             {"headline": "Review the guide", "body": "Read the guide.", "imagePrompt": "A calm workspace"},
+            {"headline": "Verify the rollout", "body": "Monitor deployment health before expanding the rollout.", "imagePrompt": "A staged deployment diagram"},
         ], "hashtags": [f"Tag{i}" for i in range(20)]},
         "thread": {"tweets": [{"text": "1/ Reliable releases."}, {"text": "2/ Read the guide."}], "hashtags": [f"Tag{i}" for i in range(20)]},
         "poll": {"question": "Which release step needs attention?", "options": ["Planning", "Checks", "Rollbacks", "Review"], "caption": "Vote for your priority.", "hashtags": [f"Tag{i}" for i in range(20)]},
@@ -346,7 +347,11 @@ def test_optional_parameter_fallback_keeps_brand_and_model(llm):
 
 
 @pytest.mark.parametrize("format_name,payload", [
-    ("carousel", {"caption": "Release checklist.", "slides": [{"headline": "Plan"}, {"headline": "Review"}]}),
+    ("carousel", {"caption": "Release checklist.", "slides": [
+        {"headline": "Plan the release", "body": "Document rollback steps before deploying.", "imagePrompt": "A release planning checklist"},
+        {"headline": "Check deployment health", "body": "Review readiness checks before expanding traffic.", "imagePrompt": "A deployment health diagram"},
+        {"headline": "Review the rollout", "body": "Compare production signals against the release criteria.", "imagePrompt": "A rollout review workspace"},
+    ]}),
     ("thread", {"tweets": [{"text": "Plan carefully."}, {"text": "Review readiness."}]}),
     ("poll", {"question": "Which step?", "options": ["Plan", "Review", "Check", "Deploy"]}),
 ])

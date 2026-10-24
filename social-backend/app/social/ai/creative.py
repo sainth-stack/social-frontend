@@ -4,10 +4,11 @@ import colorsys
 import logging
 from math import gcd
 import re
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass, field, replace
+from typing import Any, Callable, Optional, Sequence
 
-from app.social.ai.compositor import OverlayCopy, compose_creative, load_logo, parse_hex
+from app.social.ai.caption_sanitize import normalize_generated_text as clean_generated_text
+from app.social.ai.compositor import OverlayCopy, compose_creative, decode_image, load_logo, parse_hex
 from app.social.ai.image_generator import generate_post_image
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ _SIZES: dict[str, dict[str, tuple[int, int]]] = {
     "post": {"instagram": (1080, 1350), "facebook": (1080, 1350), "linkedin": (1200, 1200), "twitter": (1600, 900), "x": (1600, 900), "pinterest": (1000, 1500), "threads": (1080, 1350)},
     "banner": {"linkedin": (1200, 627), "facebook": (1200, 630), "twitter": (1600, 900), "x": (1600, 900), "youtube": (1280, 720)},
     "story": {},
-    "carousel": {"linkedin": (1080, 1080)},
+    "carousel": {"instagram": (1080, 1350), "facebook": (1080, 1350), "linkedin": (1080, 1080)},
     "quote": {},
     "product": {"instagram": (1080, 1350), "facebook": (1080, 1350), "linkedin": (1200, 1200), "twitter": (1600, 900), "x": (1600, 900), "pinterest": (1000, 1500)},
 }
@@ -40,7 +41,7 @@ _COMPOSITION = {
     "product": "Studio product hero shot on a styled surface, soft shadows, premium commercial lighting, subject centered with breathing room below.",
 }
 
-_DEFAULT_STYLE = "premium commercial photography, soft cinematic lighting, refined color grade, crisp focus, high detail"
+_DEFAULT_STYLE = "purposeful editorial visual design, a clear subject, restrained palette, refined lighting or graphic shading, crisp detail; choose illustration, diagrammatic art, product still life or photography to suit the brief"
 
 
 @dataclass
@@ -59,6 +60,7 @@ class CreativeSpec:
     caption: str = ""
     slide_index: Optional[int] = None
     slide_count: Optional[int] = None
+    include_emojis: bool = False
 
 
 @dataclass
@@ -118,6 +120,14 @@ def _clean(text: Optional[str], limit: Optional[int] = None) -> str:
     return value[:limit]
 
 
+def _sanitize_copy(copy: OverlayCopy, spec: CreativeSpec, brand: dict) -> OverlayCopy:
+    allowed = spec.include_emojis and str(brand.get("emoji_usage") or "").strip().casefold() != "never"
+    return OverlayCopy(**{
+        key: clean_generated_text(getattr(copy, key), include_emojis=allowed)
+        for key in ("headline", "subtext", "cta")
+    })
+
+
 def _composition(spec: CreativeSpec) -> str:
     width, height = target_size(spec.format, spec.platform)
     divisor = gcd(width, height)
@@ -168,7 +178,9 @@ def build_visual_prompt(subject: str, spec: CreativeSpec, brand: dict, style: Op
     if spec.caption:
         parts.append(f"Post caption (context only, not text to render): {_clean(spec.caption)}")
     parts.extend(_brand_lines(brand))
-    parts.append(f"Style: {_clean(style, 160) if style else _DEFAULT_STYLE}.")
+    parts.append(f"Style: {_clean(style) if style else _DEFAULT_STYLE}.")
+    if spec.format == "carousel":
+        parts.append("Maintain the supplied series palette, medium, subject treatment and lighting across slides; vary only this slide's subject. Keep essential visual content in the central safe region for square and portrait exports.")
     palette = _palette_phrase(brand)
     if palette:
         parts.append(palette)
@@ -179,18 +191,19 @@ def _fallback_copy(topic: str, spec: CreativeSpec, brand: dict) -> OverlayCopy:
     source = spec.headline or topic
     first = re.split(r"(?<=[.!?])\s+|\n", source.strip(), maxsplit=1)[0]
     words = re.sub(r"[#@]\S+", "", first).split()
-    limit = 22 if spec.format == "quote" else 8
-    headline = " ".join(words[:limit]).rstrip(",;:-")
+    headline = spec.headline or " ".join(words).rstrip(",;:-")
     cta = spec.cta or ((brand.get("cta_phrases") or [""])[0] if spec.format in ("banner", "product") else "")
     subtext = spec.subtext
     if spec.format == "quote" and not subtext and brand.get("brand_name"):
         subtext = f"— {brand['brand_name']}"
-    return OverlayCopy(headline=headline, subtext=_clean(subtext, 140), cta=_clean(cta, 28))
+    return _sanitize_copy(OverlayCopy(headline=headline, subtext=subtext, cta=cta), spec, brand)
 
 
 def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]) -> tuple[str, OverlayCopy]:
     from app.social.ai.generator import _chat_completion, _get_llm, _message_text, _parse_json_content
 
+    policy_brand = brand
+    include_emojis = spec.include_emojis and str(brand.get("emoji_usage") or "").strip().casefold() != "never"
     brand = brand if spec.use_brand else {}
     width, height = target_size(spec.format, spec.platform)
     language = brand.get("primary_language") or "en"
@@ -212,7 +225,8 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
         "visual constraints, and reflect the caption's message. Brand context guides tone, audience and palette only. "
         "Do not invent product features, results, statistics, offers, endorsements or brand assets. "
         "visual: 45-90 words describing one clear subject, setting, composition, lighting, lens or medium, mood and palette. "
-        "Photorealistic commercial quality unless the brief implies illustration. "
+        "Choose a medium grounded in the brief: editorial illustration or diagrammatic artwork for educational concepts, "
+        "product still life for physical products, photography only when appropriate. Preserve any supplied series style and palette. "
         "Never request text, letters, numbers, logos, watermarks, UI or screenshots in the visual. "
         f"Composition requirement: {_composition(spec)} "
     )
@@ -220,7 +234,8 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
         system_prompt += (
             f"{headline_rule}. subtext: optional supporting line under 14 words or empty. "
             "cta: 1-3 words only when the brief implies an action, else empty. "
-            f"Preserve supplied manual copy. No hashtags, emojis or quotation marks in generated copy. Copy language: {language}."
+            f"Preserve supplied manual copy. No Markdown, hashtags or quotation marks in generated copy. Copy language: {language}. "
+            + ("Emojis are allowed sparingly." if include_emojis else "No emojis in generated copy.")
         )
     else:
         system_prompt += "Text overlays are disabled. Return only visual; do not generate headline, subtext or CTA copy."
@@ -231,13 +246,13 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
     if spec.caption:
         user_lines.append(f"Post caption: {_clean(spec.caption)}")
     if wants_copy and spec.headline:
-        user_lines.append(f"Preferred headline: {_clean(spec.headline, 120)}")
+        user_lines.append(f"Preferred headline: {spec.headline}")
     if wants_copy and spec.subtext:
-        user_lines.append(f"Supporting line: {_clean(spec.subtext, 140)}")
+        user_lines.append(f"Supporting line: {spec.subtext}")
     if wants_copy and spec.cta:
-        user_lines.append(f"Call to action: {_clean(spec.cta, 40)}")
+        user_lines.append(f"Call to action: {spec.cta}")
     if style:
-        user_lines.append(f"Visual style: {_clean(style, 160)}")
+        user_lines.append(f"Visual style: {_clean(style)}")
     user_lines.extend(_brand_lines(brand))
     palette = _palette_phrase(brand)
     if palette:
@@ -256,15 +271,15 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
         max_completion_tokens=1500,
     )
     data: dict[str, Any] = _parse_json_content(_message_text(response.choices[0].message))
-    visual = _clean(str(data.get("visual") or ""))
+    visual = clean_generated_text(str(data.get("visual") or ""), include_emojis=False)
     if not wants_copy:
         return visual, OverlayCopy()
     copy = OverlayCopy(
-        headline=_clean(spec.headline or str(data.get("headline") or ""), 160 if is_quote else 80).strip("\"'“”"),
-        subtext=_clean(spec.subtext or str(data.get("subtext") or ""), 140),
-        cta=_clean(spec.cta or str(data.get("cta") or ""), 28),
+        headline=(spec.headline or str(data.get("headline") or "")).strip("\"'“”"),
+        subtext=spec.subtext or str(data.get("subtext") or ""),
+        cta=spec.cta or str(data.get("cta") or ""),
     )
-    return visual, copy
+    return visual, _sanitize_copy(copy, spec, policy_brand)
 
 
 def render_creative(
@@ -275,8 +290,31 @@ def render_creative(
     brand: dict,
     logo_bytes: Optional[bytes] = None,
 ) -> CreativeResult:
+    platform = spec.platform or ""
+    return render_creative_variants(
+        topic=topic, style=style, spec=spec, platforms=[platform], brand=brand, logo_bytes=logo_bytes,
+    )[platform]
+
+
+def render_creative_variants(
+    *,
+    topic: str,
+    style: Optional[str],
+    spec: CreativeSpec,
+    platforms: Sequence[str],
+    brand: dict,
+    logo_bytes: Optional[bytes],
+    base_image: Optional[bytes] = None,
+    on_base_ready: Optional[Callable[[bytes], None]] = None,
+) -> dict[str, CreativeResult]:
+    platforms = list(dict.fromkeys(platforms))
+    if not platforms:
+        raise ValueError("At least one export platform is required")
+    if base_image is not None and (not isinstance(base_image, bytes) or not base_image):
+        raise ValueError("base_image must contain nonempty image bytes")
     fmt = spec.format if spec.format in FORMATS else "post"
-    spec.format = fmt
+    policy_brand = brand
+    spec = replace(spec, format=fmt, platform=(platforms[0] or None) if len(platforms) == 1 else None)
     brand = brand if spec.use_brand else {}
     width, height = target_size(fmt, spec.platform)
 
@@ -285,51 +323,57 @@ def render_creative(
     wants_copy = spec.text_overlay or fmt == "quote"
     if spec.auto_copy:
         try:
-            visual, directed = art_direct(topic, spec, brand, style)
+            visual, directed = art_direct(topic, spec, policy_brand, style)
             if wants_copy:
                 copy = directed
         except Exception as exc:
             logger.warning("Creative art direction failed, using fallback: %s", exc)
     if wants_copy and not copy.headline:
         copy = _fallback_copy(topic, spec, brand)
+    copy = _sanitize_copy(copy, spec, policy_brand)
 
     prompt = build_visual_prompt(f"Original brief: {topic}", spec, brand, style)
     if visual:
         prompt += f" Art direction (subordinate to the brief and caption): {visual}"
 
-    data = generate_post_image(
-        topic=topic,
-        style=style,
-        size=generation_size(width, height),
-        mode="create",
-        prompt_override=prompt,
-    )
-    raw = data.get("imageB64")
-    if not isinstance(raw, (bytes, bytearray)) or not raw:
-        raise RuntimeError("Image provider returned no bytes")
+    if base_image is None:
+        data = generate_post_image(
+            topic=topic,
+            style=style,
+            size=generation_size(width, height),
+            mode="create",
+            prompt_override=prompt,
+        )
+        raw = data.get("imageB64")
+        if not isinstance(raw, (bytes, bytearray)) or not raw:
+            raise RuntimeError("Image provider returned no bytes")
+        base_image = bytes(raw)
+    decode_image(base_image)
+    if on_base_ready is not None:
+        on_base_ready(base_image)
 
     slide_label = None
     if fmt == "carousel" and spec.slide_index and spec.slide_count:
         slide_label = f"{spec.slide_index}/{spec.slide_count}"
 
     logo_ok = bool(spec.include_logo and logo_bytes and load_logo(logo_bytes, 64, 64) is not None)
-    image = compose_creative(
-        bytes(raw),
-        width=width,
-        height=height,
-        layout=fmt,
-        copy=copy if wants_copy else None,
-        logo_bytes=logo_bytes if logo_ok else None,
-        logo_position=spec.logo_position,
-        primary_color=brand.get("primary_color"),
-        accent_color=brand.get("accent_color"),
-        slide_label=slide_label,
-    )
-    return CreativeResult(
-        image=image,
-        width=width,
-        height=height,
-        copy=copy if wants_copy else OverlayCopy(),
-        prompt=prompt,
-        logo_applied=logo_ok,
-    )
+    results: dict[str, CreativeResult] = {}
+    for platform in platforms:
+        width, height = target_size(fmt, platform)
+        image = compose_creative(
+            base_image,
+            width=width,
+            height=height,
+            layout=fmt,
+            copy=copy if wants_copy else None,
+            logo_bytes=logo_bytes if logo_ok else None,
+            logo_position=spec.logo_position,
+            primary_color=brand.get("primary_color"),
+            accent_color=brand.get("accent_color"),
+            slide_label=slide_label,
+        )
+        results[platform] = CreativeResult(
+            image=image, width=width, height=height,
+            copy=copy if wants_copy else OverlayCopy(), prompt=prompt, logo_applied=logo_ok,
+        )
+    return results

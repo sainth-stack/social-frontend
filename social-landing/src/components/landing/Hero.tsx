@@ -1,6 +1,6 @@
-import { ArrowDown, ArrowRight, Check, CheckCheck, Circle, ImageIcon } from "lucide-react";
+import { ArrowDown, ArrowRight, CalendarDays, Check, CheckCheck, Circle, ImageIcon } from "lucide-react";
 import { SIGNUP_URL } from "@/content/site";
-import { ProductIllustration } from "./ProductIllustration";
+import { BrandMark, PlatformIcon } from "./Brand";
 
 export function StatusBadge({ s }: { s: string }) {
   const scheduled = s === "Scheduled";
@@ -10,7 +10,23 @@ export function StatusBadge({ s }: { s: string }) {
 }
 
 function ProductPreview() {
-  return <figure className="hero-campaign" aria-label="Illustrative EarnedVoice campaign workspace"><ProductIllustration kind="campaign" /><figcaption>EarnedVoice example workspace · Illustrative content</figcaption></figure>;
+  return <figure className="hero-campaign" aria-label="Illustrative EarnedVoice campaign workspace">
+    <div className="hero-product-stage">
+      <div className="hero-product-window">
+        <div className="hero-product-topbar"><span className="hero-product-brand"><BrandMark size={25} />Content Studio</span><span className="hero-product-draft"><span />Draft saved</span></div>
+        <div className="hero-product-heading"><span>Your next big idea, ready to share.</span><span className="hero-product-preview-label">POST PREVIEW</span></div>
+        <div className="hero-social-post">
+          <div className="hero-social-author"><BrandMark size={32} /><div><strong>EarnedVoice</strong><span>Product updates, with a little more purpose.</span></div><span aria-hidden="true">•••</span></div>
+          <div className="hero-launch-art"><span className="hero-launch-wordmark">EarnedVoice / Product stories</span><strong>Good ideas.<br />A bigger voice.</strong><span className="hero-launch-subline">Make your next launch worth sharing.</span><div className="hero-launch-orbit" aria-hidden="true"><span /><i /></div><div className="hero-launch-tag"><Check className="size-3.5" />Made for your brand</div></div>
+          <p className="hero-social-caption">Less time staring at a blank page.<br />More space for the ideas that move your business forward.</p>
+          <div className="hero-social-channels"><span>Tailored for</span>{["Instagram", "Facebook", "LinkedIn"].map(name => <span key={name} title={name}><PlatformIcon name={name} color="var(--primary)" size={28} /><span className="sr-only">{name}</span></span>)}<span className="hero-social-ready"><Check className="size-3.5" />Ready to review</span></div>
+        </div>
+        <div className="hero-week-summary"><span className="hero-week-icon"><CalendarDays className="size-5" /></span><div><strong>A good week starts with a plan.</strong><span>Ideas, drafts and scheduled posts. Together.</span></div><div className="hero-mini-week" aria-hidden="true">{["M", "T", "W", "T", "F"].map((day, i) => <span key={i} className={i === 2 ? "is-selected" : ""}>{day}</span>)}</div></div>
+      </div>
+      <div className="hero-product-footnote"><CheckCheck className="size-4" /><span>Your voice. Your timing. Your final say.</span></div>
+    </div>
+    <figcaption>EarnedVoice example workspace · Illustrative content</figcaption>
+  </figure>;
 }
 
 export function Hero() {
@@ -18,7 +34,7 @@ export function Hero() {
     <div className="container-page hero-layout">
       <div className="hero-copy">
         <h1>Your ideas deserve<br /><span className="hero-title-accent">to be heard.</span></h1>
-        <p className="hero-description">Turn product updates and useful ideas into content worth sharing. Plan your week, create with AI and publish with confidence—all in one workspace.</p>
+        <p className="hero-description">Turn product updates and useful ideas into content worth sharing. Plan your week, create with AI and publish with confidence. All in one workspace.</p>
         <div className="hero-actions"><a href={SIGNUP_URL} className="btn btn-primary">Get started free <ArrowRight className="size-4" aria-hidden="true" /></a><a href="#weekly-planner" className="btn btn-outline">See how it works <ArrowDown className="size-4" aria-hidden="true" /></a></div>
         <p className="hero-microcopy"><Check className="size-3.5 text-mint-foreground" />Free to start <span aria-hidden="true">·</span>No credit card <span aria-hidden="true">·</span>You approve what goes live</p>
       </div>

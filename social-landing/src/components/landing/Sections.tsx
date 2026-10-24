@@ -196,7 +196,7 @@ export function Calendar() {
         <figure className="rounded-3xl bg-sky-soft p-3 sm:p-6">
           <div className="preview-window overflow-hidden bg-background">
             <div className="window-heading flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
-              <div><p className="text-sm font-semibold">Northstar launch week</p><p className="mt-1 text-xs text-muted-foreground">October 12–18 · Product workspaces</p></div>
+              <div><p className="text-sm font-semibold">Northstar launch week</p><p className="mt-1 text-xs text-muted-foreground">October 12 to 18 · Product workspaces</p></div>
               <span className="rounded-lg border bg-surface px-3 py-1.5 text-xs font-medium">Agenda view</span>
             </div>
             <ul className="divide-y">

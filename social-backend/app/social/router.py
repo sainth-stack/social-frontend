@@ -56,6 +56,8 @@ from app.social.schemas import (
     CreateSocialPostRequest,
     GenerateImageRequest,
     GenerateImageResponse,
+    GenerateCreativeSetRequest,
+    GenerateCreativeSetResponse,
     GeneratePostRequest,
     GeneratePostResponse,
     GenerateVideoRequest,
@@ -662,6 +664,18 @@ def generate_post(
         return SocialMediaService(db).generate_post(workspace, payload, user)
 
 
+@router.post("/generate-creative-set", response_model=GenerateCreativeSetResponse)
+def generate_creative_set(
+    payload: GenerateCreativeSetRequest,
+    workspace: dict = Depends(require_workspace_access),
+    db: Database = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    models: ModelSelection = Depends(validate_model_selection),
+) -> GenerateCreativeSetResponse:
+    with selected_models(models):
+        return SocialMediaService(db).generate_creative_set(workspace, user, payload)
+
+
 @router.post("/generate-image", response_model=GenerateImageResponse)
 def generate_image(
     payload: GenerateImageRequest,
@@ -681,6 +695,7 @@ def generate_image(
             subtext=payload.subtext or "",
             cta=payload.cta or "",
             text_overlay=payload.textOverlay,
+            include_emojis=payload.includeEmojis,
             auto_copy=payload.autoCopy,
             include_logo=payload.includeLogo,
             logo_id=payload.logoId or None,

@@ -23,6 +23,7 @@ export const DEFAULT_SLIDE_STYLE: CarouselSlideStyle = {
 };
 
 export type CarouselSlide = {
+  renderedAsset?: boolean;
   id: string;
   headline: string;
   body: string;
@@ -93,6 +94,7 @@ export type SocialAccountListResponse = {
 };
 
 export type SocialPostPlatform = {
+  media?: SocialPostMedia[];
   id: string;
   platform: SocialPlatform;
   socialAccountId: string | null;
@@ -117,6 +119,10 @@ export type SocialPostPlatform = {
 };
 
 export type SocialPost = {
+  format?: "single" | "carousel" | "thread" | "poll";
+  generationOptions?: GenerationOptions;
+  slides?: StoredSlide[];
+  tweets?: StoredTweet[];
   id: string;
   orgId: string;
   createdBy: string;
@@ -144,6 +150,10 @@ export type SocialPostListResponse = {
 };
 
 export type CreateSocialPostPayload = {
+  format?: "single" | "carousel" | "thread" | "poll";
+  generationOptions?: GenerationOptions;
+  slides?: StoredSlide[];
+  tweets?: StoredTweet[];
   title?: string;
   status?: SocialPostStatus;
   scheduledAt?: string | null;
@@ -157,7 +167,31 @@ export type CreateSocialPostPayload = {
     caption?: string;
     hashtags?: string[];
     firstComment?: string | null;
+    media?: SocialPostMedia[];
   }>;
+};
+
+export type SocialPostMedia = {
+  assetId?: string | null;
+  blobKey?: string | null;
+  url: string;
+  width?: number | null;
+  height?: number | null;
+  slideId?: string | null;
+  mimeType?: string | null;
+};
+
+export type StoredSlide = GeneratedSlide & { id: string };
+export type StoredTweet = { text: string };
+export type GenerationOptions = {
+  tone?: string;
+  includeEmojis?: boolean;
+  includeHashtags?: boolean;
+  length?: string;
+  slideCount?: number;
+  contentType?: string;
+  visualsStale?: boolean;
+  creativeRequest?: GenerateCreativeSetPayload;
 };
 
 export type SentenceLength = "short" | "medium" | "long";
@@ -213,6 +247,7 @@ export type GenerateImagePayload = {
   cta?: string;
   caption?: string;
   textOverlay?: boolean;
+  includeEmojis?: boolean;
   autoCopy?: boolean;
   includeLogo?: boolean;
   logoId?: string | null;
@@ -235,6 +270,32 @@ export type GenerateImageResult = {
   logoApplied?: boolean;
 };
 
+export type GenerateCreativeSetPayload = Omit<GenerateImagePayload, "platform"> & {
+  brief?: string;
+  platforms: SocialPlatform[];
+  slides?: StoredSlide[];
+  requestId: string;
+};
+
+export type CreativeSetItem = {
+  slideId: string;
+  platform: SocialPlatform;
+  imageUrl: string;
+  assetId: string;
+  blobKey: string;
+  width: number;
+  height: number;
+  mimeType: string;
+};
+
+export type GenerateCreativeSetResult = {
+  creativeSetId: string;
+  status: string;
+  items: CreativeSetItem[];
+  errors: Array<Record<string, string>>;
+  warnings: string[];
+};
+
 export type GeneratedPlatformContent = {
   caption: string;
   hashtags: string[];
@@ -243,6 +304,7 @@ export type GeneratedPlatformContent = {
 };
 
 export type GeneratedSlide = {
+  id?: string;
   headline: string;
   body: string;
   imagePrompt: string;
@@ -271,6 +333,7 @@ export type GeneratedContent = {
 };
 
 export type GeneratePostPayload = {
+  slideCount?: number;
   topic: string;
   tone: string;
   platforms: SocialPlatform[];

@@ -24,7 +24,9 @@ import { Avatar, Box, Divider, Stack, Typography } from "@mui/material";
 
 import CarouselSlideRenderer from "@/components/social-media/content-studio/CarouselSlideRenderer";
 import { formatPostBody, formatTagsForDisplay, sanitizeCaptionAndHashtags } from "@/lib/socialCaption";
-import type { CarouselSlide, SocialPlatform } from "@/types/social-media.types";
+import type { CarouselSlide, SocialPlatform, SocialPostMedia, StoredTweet } from "@/types/social-media.types";
+import { PLATFORM_LABELS } from "@/types/social-media.types";
+import { Button } from "@/components/ui/button";
 export type PreviewAccount = {
   accountName?: string | null;
   accountPictureUrl?: string | null;
@@ -41,6 +43,8 @@ type PlatformPreviewProps = {
   account?: PreviewAccount | null;
   slides?: CarouselSlide[];
   pollOptions?: string[];
+  media?: SocialPostMedia[];
+  tweets?: StoredTweet[];
 };
 
 function resolveIdentity(platform: SocialPlatform, brandName: string, account?: PreviewAccount | null) {
@@ -807,9 +811,13 @@ function FacebookPreview({ caption, hashtags, imageUrl, videoUrl, displayName, h
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
-export default function PlatformPreview({ platform, caption, hashtags, imageUrl, videoUrl, brandName = "Your Brand", account, slides, pollOptions }: PlatformPreviewProps) {
+export default function PlatformPreview({ platform, caption, hashtags, imageUrl, videoUrl, brandName = "Your Brand", account, slides, pollOptions, media, tweets }: PlatformPreviewProps) {
   const { displayName, handle, pictureUrl, initial } = resolveIdentity(platform, brandName, account);
   const clean = sanitizeCaptionAndHashtags(caption, hashtags);
+
+  if (media || slides?.some((slide) => slide.renderedAsset) || tweets?.length) {
+    return <ExportPreview key={platform} platform={platform} displayName={displayName} pictureUrl={pictureUrl} caption={clean.caption} hashtags={clean.hashtags} slides={slides} media={media} tweets={tweets} />;
+  }
 
   switch (platform) {
     case "linkedin":
@@ -822,4 +830,29 @@ export default function PlatformPreview({ platform, caption, hashtags, imageUrl,
     default:
       return <FacebookPreview key="facebook" caption={clean.caption} hashtags={clean.hashtags} imageUrl={imageUrl} videoUrl={videoUrl} displayName={displayName} handle={handle} pictureUrl={pictureUrl} initial={initial} pollOptions={pollOptions} slides={slides} />;
   }
+}
+
+function ExportPreview({ platform, displayName, pictureUrl, caption, hashtags, slides, media, tweets }: {
+  platform: SocialPlatform; displayName: string; pictureUrl: string | null; caption: string; hashtags: string[];
+  slides?: CarouselSlide[]; media?: SocialPostMedia[]; tweets?: StoredTweet[];
+}) {
+  const [index, setIndex] = useState(0);
+  const count = slides?.length || media?.length || 0;
+  const activeIndex = Math.min(index, Math.max(0, count - 1));
+  const slide = slides?.[activeIndex];
+  const asset = slide ? media?.find((item) => item.slideId === slide.id) : media?.[activeIndex];
+  const url = asset?.url || slide?.imageUrl;
+  return <article aria-label={`${PLATFORM_LABELS[platform]} post preview`} className="min-h-full bg-card text-card-foreground">
+    <header className="flex items-center gap-3 border-b border-border p-4">
+      {pictureUrl ? <img src={pictureUrl} alt="" className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">{displayName[0]}</span>}
+      <div><p className="text-sm font-semibold">{displayName}</p><p className="text-xs text-muted-foreground">{PLATFORM_LABELS[platform]} · Preview</p></div>
+    </header>
+    {tweets?.length ? <ol aria-label="Thread preview" className="divide-y divide-border">{tweets.map((tweet, i) => <li key={i} className="space-y-2 p-4"><span className="text-xs text-muted-foreground">Tweet {i + 1} of {tweets.length}</span><p className="whitespace-pre-wrap break-words text-sm">{tweet.text}</p></li>)}</ol> : <>
+      <p className="whitespace-pre-wrap break-words p-4 text-sm">{formatPostBody(caption, hashtags)}</p>
+      {count > 0 && <div className="bg-muted/30">
+        {url ? <img src={url} alt={slide?.headline || `${PLATFORM_LABELS[platform]} artwork ${activeIndex + 1}`} width={asset?.width ?? undefined} height={asset?.height ?? undefined} className="h-auto w-full object-contain" /> : <p className="p-8 text-center text-sm text-muted-foreground">Slide {activeIndex + 1} artwork not generated</p>}
+        {count > 1 && <nav aria-label="Preview slides" className="flex flex-wrap items-center justify-center gap-2 p-3">{Array.from({ length: count }, (_, i) => <Button key={i} type="button" size="sm" variant={activeIndex === i ? "default" : "outline"} aria-label={`Show slide ${i + 1}`} aria-pressed={activeIndex === i} onClick={() => setIndex(i)}>{i + 1}</Button>)}</nav>}
+      </div>}
+    </>}
+  </article>;
 }

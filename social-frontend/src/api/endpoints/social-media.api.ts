@@ -18,6 +18,8 @@ import type {
   GeneratedSlide,
   GeneratedTweet,
   GenerateImagePayload,
+  GenerateCreativeSetPayload,
+  GenerateCreativeSetResult,
   BrandLogo,
   GenerateImageResult,
   GeneratePostPayload,
@@ -466,6 +468,15 @@ export const socialMediaApi = {
       `${base(orgId)}/generate-image`,
       payload.format ? { mode: "create", ...payload } : { size: "1024x1024", mode: "create", ...payload },
       modelConfig(150_000, modelSelection),
+    );
+    return data;
+  },
+
+  async generateCreativeSet(orgId: string, payload: GenerateCreativeSetPayload): Promise<GenerateCreativeSetResult> {
+    const { data } = await apiClient.post<GenerateCreativeSetResult>(
+      `${base(orgId)}/generate-creative-set`,
+      payload,
+      { timeout: 600_000 },
     );
     return data;
   },

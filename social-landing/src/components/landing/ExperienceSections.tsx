@@ -14,7 +14,7 @@ const journey = [
 export function ProductJourney() {
   return <section id="how-it-works" className="section-y journey-section" aria-labelledby="journey-heading"><div className="container-page">
     <div className="section-lead"><p className="eyebrow">A more connected content rhythm</p><h2 id="journey-heading" className="section-heading mt-4">Less starting over.<br />More moving forward.</h2><p className="section-intro mt-4">From the first idea to the next campaign, keep your content, team and decisions in one place.</p></div>
-    <ol className="journey-grid">{journey.map(item => <li key={item.step} className="journey-item"><div className="journey-art"><ProductIllustration kind={item.kind} /></div><div className="journey-step"><span>{item.step}</span>{item.label}</div><h3>{item.title}</h3><p>{item.body}</p></li>)}</ol>
+    <ol className="journey-grid">{journey.map(item => <li key={item.step} className="journey-item"><div className="journey-art"><ProductIllustration kind={item.kind} detail="compact" /></div><div className="journey-step"><span>{item.step}</span>{item.label}</div><h3>{item.title}</h3><p>{item.body}</p></li>)}</ol>
     <a href="#weekly-planner" className="journey-link">Try the interactive planner <ArrowRight className="size-4" aria-hidden="true" /></a>
   </div></section>;
 }

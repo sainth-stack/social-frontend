@@ -14,7 +14,7 @@ export const LOGIN_URL = `${APP_URL}/login`;
 export const CONTACT_SALES_URL = "#contact";
 
 export const seo = {
-  title: "EarnedVoice — Social Content for Product-Focused Teams",
+  title: "EarnedVoice: Social Content for Product-Focused Teams",
   description: "Plan product campaigns, create on-brand content and schedule posts on Instagram, Facebook and LinkedIn. More integrations coming soon. Start free with EarnedVoice.",
 };
 

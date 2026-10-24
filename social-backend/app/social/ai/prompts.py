@@ -7,6 +7,7 @@ it must not replace specific product, technical, or campaign context from the br
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
@@ -152,6 +153,38 @@ def _normalize_length_hint(raw: Optional[str]) -> Optional[str]:
     return None
 
 
+@dataclass(frozen=True)
+class GenerationPolicy:
+    include_emojis: bool
+    include_hashtags: bool
+    length_hint: Optional[str]
+
+
+def resolve_generation_policy(
+    brand_voice: Optional[dict[str, Any]] = None,
+    *,
+    include_emojis: bool = False,
+    include_hashtags: bool = True,
+    length_hint: Optional[str] = None,
+) -> GenerationPolicy:
+    forbidden = str((brand_voice or {}).get("emoji_usage") or "").strip().casefold() == "never"
+    return GenerationPolicy(
+        include_emojis=bool(include_emojis) and not forbidden,
+        include_hashtags=bool(include_hashtags),
+        length_hint=_normalize_length_hint(length_hint),
+    )
+
+
+def build_generation_policy_prompt(policy: GenerationPolicy) -> str:
+    return (
+        "Resolved generation policy overrides any conflicting brief or brand instructions.\n"
+        + ("Emojis: allowed per brand policy.\n" if policy.include_emojis else "Emojis: do not use any emojis in any generated field.\n")
+        + ("Hashtags: relevant tags in the hashtags array only.\n" if policy.include_hashtags else "Hashtags: no hashtags in any field; return an empty hashtags array.\n")
+        + "All string fields must be plain text: no Markdown headings, fences, emphasis, or separators.\n"
+        + (f"Requested length: {policy.length_hint}. Respect native field limits first.\n" if policy.length_hint else "")
+    )
+
+
 def is_substantive_brief(topic: str) -> bool:
     """True when the user gave enough context that we must not replace it with generic copy."""
     text = (topic or "").strip()
@@ -195,6 +228,7 @@ QUALITY_BAR = """
 You write social posts that are ready to publish.
 
 Priority order:
+0) RESOLVED GENERATION POLICY — emoji/hashtag controls and plain-text requirements
 1) USER BRIEF — specific facts, product names, features, and angle the user provided
 2) BRAND VOICE — tone, audience, words to use/avoid, CTA style
 3) PLATFORM — format and character limits
@@ -205,6 +239,9 @@ Use at most one natural CTA, aligned with the brief; do not stack competing requ
 Be respectful and relevant, without manipulative urgency, engagement bait, or stereotypes.
 Hashtag counts are maxima, not quotas; use fewer or none when they do not add relevance.
 Never ignore a detailed brief in favor of generic brand marketing.
+Every generated string is plain text: no Markdown headings, emphasis, code fences, or decorative separators.
+Preserve meaningful punctuation, technical names, provided URLs, and the requested language.
+For image prompts, choose relevant diagrams, illustration, editorial graphics, or photography to serve the brief; never force cinematic photorealism.
 """
 
 
@@ -251,9 +288,12 @@ def build_system_prompt(
     *,
     content_series_mode: bool = False,
     substantive_brief: bool = False,
+    include_emojis: bool = False,
+    include_hashtags: bool = True,
 ) -> str:
     limit = caption_budget or PLATFORM_LIMITS.get(platform, 2200)
-    hashtag_limit = PLATFORM_HASHTAG_LIMITS.get(platform, 5)
+    policy = resolve_generation_policy(brand_voice, include_emojis=include_emojis, include_hashtags=include_hashtags)
+    hashtag_limit = PLATFORM_HASHTAG_LIMITS.get(platform, 5) if policy.include_hashtags else 0
     label = PLATFORM_LABELS.get(platform, platform)
     voice_hint = PLATFORM_VOICE_HINTS.get(platform, "")
 
@@ -274,6 +314,7 @@ def build_system_prompt(
         f"{QUALITY_BAR}\n"
         f"{series_block}"
         f"{base}\n"
+        f"{build_generation_policy_prompt(policy)}\n"
         f"Fidelity: {fidelity_rule}\n"
         f"Platform: {label}. Style: {voice_hint}\n"
         f"Caption character limit (spaces included): {limit}. "
@@ -300,7 +341,7 @@ def build_user_prompt(
     content_series_mode: bool = False,
     content_type: Optional[str] = None,
     length_hint: Optional[str] = None,
-    include_emojis: bool = True,
+    include_emojis: bool = False,
     media_note: Optional[str] = None,
 ) -> str:
     hashtag_count = PLATFORM_HASHTAG_LIMITS.get(platform, 5) if include_hashtags else 0
@@ -344,10 +385,11 @@ def build_user_prompt(
             f"Optional: you may reference that it is {day} only if it fits the brief.\n"
         )
 
-    emoji_line = (
-        "Emojis: allowed per brand policy.\n"
-        if include_emojis and str((brand_voice or {}).get("emoji_usage") or '').strip().lower() != "never"
-        else "Emojis: do not use any emojis in any generated field.\n"
+    emoji_line = build_generation_policy_prompt(
+        resolve_generation_policy(
+            brand_voice, include_emojis=include_emojis,
+            include_hashtags=include_hashtags, length_hint=length_hint,
+        )
     )
 
     tone_lower = (tone or "").strip().lower()

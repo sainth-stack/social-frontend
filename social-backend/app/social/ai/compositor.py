@@ -93,17 +93,27 @@ def _line_height(font) -> int:
 
 
 def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> list[str]:
-    words = text.split()
     lines: list[str] = []
-    current = ""
-    for word in words:
-        trial = f"{current} {word}".strip()
-        if _text_width(draw, trial, font) <= max_width or not current:
-            current = trial
-        else:
-            lines.append(current)
-            current = word
-    if current:
+    for paragraph in text.splitlines():
+        current = ""
+        for word in paragraph.split():
+            trial = f"{current} {word}".strip()
+            if _text_width(draw, trial, font) <= max_width:
+                current = trial
+                continue
+            if current:
+                lines.append(current)
+            if _text_width(draw, word, font) <= max_width:
+                current = word
+                continue
+            current = ""
+            for char in word:
+                if current and _text_width(draw, current + char, font) > max_width:
+                    lines.append(current)
+                    current = ""
+                if _text_width(draw, char, font) > max_width:
+                    raise ValueError("Overlay text cannot fit within the safe width")
+                current += char
         lines.append(current)
     return lines
 
@@ -123,12 +133,6 @@ def _fit_text(
         font = _font(size, bold)
         lines = _wrap(draw, text, font, max_width)
         if len(lines) <= max_lines or size <= minimum:
-            if len(lines) > max_lines:
-                lines = lines[:max_lines]
-                last = lines[-1]
-                while last and _text_width(draw, f"{last}…", font) > max_width:
-                    last = last.rsplit(" ", 1)[0] if " " in last else last[:-1]
-                lines[-1] = f"{last}…"
             return lines, font
         size = max(minimum, int(size * 0.9))
 
@@ -152,13 +156,26 @@ def _gradient(size: tuple[int, int], color: tuple[int, int, int], *, side: str, 
     return layer
 
 
+def decode_image(image_bytes: bytes) -> Image.Image:
+    if not isinstance(image_bytes, bytes) or not image_bytes or len(image_bytes) > 30 * 1024 * 1024:
+        raise ValueError("Image must contain valid bytes no larger than 30 MiB")
+    try:
+        with Image.open(BytesIO(image_bytes)) as image:
+            if image.format not in ("PNG", "JPEG", "WEBP"):
+                raise ValueError("Image must be PNG, JPEG or WebP")
+            if min(image.size) < 1 or max(image.size) > 16384 or image.width * image.height > 40_000_000:
+                raise ValueError("Image dimensions exceed safe decoding limits")
+            image.load()
+            return ImageOps.exif_transpose(image).convert("RGBA")
+    except (OSError, SyntaxError, Image.DecompressionBombError) as exc:
+        raise ValueError("Image bytes could not be decoded safely") from exc
+
+
 def load_logo(logo_bytes: bytes, max_w: int, max_h: int) -> Optional[Image.Image]:
     try:
-        logo = Image.open(BytesIO(logo_bytes))
-        logo.load()
+        logo = decode_image(logo_bytes)
     except Exception:
         return None
-    logo = logo.convert("RGBA")
     logo.thumbnail((max_w, max_h), Image.LANCZOS)
     return logo
 
@@ -222,10 +239,13 @@ def compose_creative(
     accent_color: Optional[str] = None,
     slide_label: Optional[str] = None,
 ) -> bytes:
-    base = Image.open(BytesIO(image_bytes))
-    base.load()
-    base = ImageOps.fit(base.convert("RGB"), (width, height), Image.LANCZOS, centering=(0.5, 0.45))
-    canvas = base.convert("RGBA")
+    if not isinstance(width, int) or not isinstance(height, int) or min(width, height) < 64 or max(width, height) > 8192 or width * height > 32_000_000:
+        raise ValueError("Output dimensions must be between 64 and 8192 pixels within 32 megapixels")
+    if copy and sum(len(value) for value in (copy.headline, copy.subtext, copy.cta)) > 12000:
+        raise ValueError("Overlay copy cannot fit safely; provide no more than 12000 characters")
+    base = ImageOps.contain(decode_image(image_bytes), (width, height), Image.LANCZOS)
+    canvas = Image.new("RGBA", (width, height), parse_hex(primary_color, (17, 24, 39)) + (255,))
+    canvas.alpha_composite(base, ((width - base.width) // 2, (height - base.height) // 2))
     draw = ImageDraw.Draw(canvas)
 
     short = min(width, height)
@@ -238,8 +258,8 @@ def compose_creative(
     scrim_color = _mix(primary, (0, 0, 0), 0.72)
 
     copy = copy or OverlayCopy()
-    headline = " ".join(copy.headline.split())
-    subtext = " ".join(copy.subtext.split())
+    headline = "\n".join(" ".join(line.split()) for line in copy.headline.splitlines()).strip()
+    subtext = "\n".join(" ".join(line.split()) for line in copy.subtext.splitlines()).strip()
     cta = " ".join(copy.cta.split())
     has_text = bool(headline or subtext or cta)
 
@@ -259,6 +279,8 @@ def compose_creative(
 
     region_top = safe_top
     region_bottom = height - safe_bottom
+    if slide_label:
+        region_top += int(short * 0.08)
     if logo_box and not (layout == "banner" and position.endswith("right")):
         gap = int(short * 0.03)
         if position.startswith("top"):
@@ -308,7 +330,7 @@ def compose_creative(
             )
             head_size = getattr(head_font, "size", head_start)
             sub_font = _font(max(14, int(head_size * 0.42)), False)
-            sub_lines = _wrap(draw, subtext, sub_font, text_width)[:3] if subtext else []
+            sub_lines = _wrap(draw, subtext, sub_font, text_width) if subtext else []
             cta_font = _font(max(14, int(head_size * 0.36)), True)
 
             head_lh = int(_line_height(head_font) * 1.04)
@@ -324,8 +346,11 @@ def compose_creative(
                 + (gap + sub_lh * len(sub_lines) if sub_lines else 0)
                 + (gap + cta_h if cta else 0)
             )
-            if block_h <= avail or head_start <= 16:
+            cta_width = _text_width(draw, cta, cta_font) + int(_line_height(cta_font) * 0.9) * 2 if cta else 0
+            if block_h <= avail and cta_width <= text_width:
                 break
+            if head_start <= 16:
+                raise ValueError("Overlay copy cannot fit within safe areas; shorten the headline, body or CTA")
             head_start = max(16, int(head_start * 0.88))
             head_min = min(head_min, head_start)
 
@@ -333,6 +358,11 @@ def compose_creative(
             y = region_top + max(0, (region_bottom - region_top - block_h) // 2)
         else:
             y = max(region_top, region_bottom - block_h)
+
+        draw.rounded_rectangle(
+            (text_left - gap // 2, max(safe_top, y - gap // 2), text_left + text_width + gap // 2, min(height - safe_bottom, y + block_h + gap // 2)),
+            radius=max(2, gap // 2), fill=scrim_color + (240,),
+        )
 
         def x_for(line_width: int) -> int:
             if align == "center":

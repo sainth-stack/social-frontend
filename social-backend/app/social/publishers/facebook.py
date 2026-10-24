@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import json
 import re
 from typing import Optional
 from urllib.parse import urlparse
@@ -12,7 +13,7 @@ import httpx
 
 from app.core.config import settings
 from app.social.models import SocialPlatform
-from app.social.publishers.base import BasePublisher, PublishResult, format_caption
+from app.social.publishers.base import BasePublisher, PublishResult, ambiguous_publish, format_caption, validate_image_urls
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +32,17 @@ class FacebookPublisher(BasePublisher):
         caption: str,
         hashtags: list[str],
         image_url: Optional[str] = None,
+        image_urls: Optional[list[str]] = None,
         first_comment: Optional[str] = None,
     ) -> PublishResult:
         message = format_caption(caption, hashtags)
+        if image_urls is not None:
+            invalid = validate_image_urls(image_urls)
+            if invalid:
+                return invalid
+            if len(image_urls) > 1:
+                return self._publish_multi(platform_account_id, access_token, message, image_urls, first_comment)
+            image_url = image_urls[0]
         if not message and not image_url:
             return PublishResult(
                 success=False,
@@ -43,6 +52,7 @@ class FacebookPublisher(BasePublisher):
             )
 
         try:
+            self.checkpoint(submission_started=True)
             if image_url:
                 post_id = self._publish_photo(
                     platform_account_id, access_token, message, image_url
@@ -50,13 +60,21 @@ class FacebookPublisher(BasePublisher):
             else:
                 post_id = self._publish_feed(platform_account_id, access_token, message)
 
+            if not post_id:
+                return ambiguous_publish()
+            self.checkpoint(platform_post_id=post_id, submission_started=False)
             if first_comment and post_id:
                 self._post_comment(post_id, access_token, first_comment)
 
             return PublishResult(success=True, platform_post_id=post_id)
         except httpx.HTTPStatusError as exc:
+            if self.publish_state().get("submission_started") and exc.response.status_code >= 500:
+                return ambiguous_publish()
+            self.checkpoint(submission_started=False)
             return self._http_error(exc)
         except Exception as exc:
+            if self.publish_state().get("submission_started"):
+                return ambiguous_publish()
             logger.exception("Facebook publish failed: %s", exc)
             return PublishResult(
                 success=False,
@@ -64,6 +82,44 @@ class FacebookPublisher(BasePublisher):
                 error_message=str(exc),
                 retryable=True,
             )
+
+    def _publish_multi(self, page_id, token, message, image_urls, first_comment):
+        try:
+            photos = list(self.publish_state().get("facebook_photos") or [])
+            with httpx.Client(timeout=90.0) as client:
+                for image_url in image_urls[len(photos):]:
+                    response = client.post(
+                        f"https://graph.facebook.com/{self.api_version}/{page_id}/photos",
+                        data={"url": image_url, "published": "false", "access_token": token},
+                    )
+                    response.raise_for_status()
+                    photo_id = response.json().get("id")
+                    if not photo_id:
+                        raise ValueError("Facebook did not return an unpublished photo id")
+                    photos.append(str(photo_id))
+                    self.checkpoint(facebook_photos=photos)
+                self.checkpoint(submission_started=True)
+                response = client.post(
+                    f"https://graph.facebook.com/{self.api_version}/{page_id}/feed",
+                    data={"message": message, "access_token": token, "attached_media": json.dumps([{"media_fbid": photo} for photo in photos])},
+                )
+                response.raise_for_status()
+                post_id = response.json().get("id")
+                if not post_id:
+                    return ambiguous_publish()
+                self.checkpoint(platform_post_id=str(post_id), submission_started=False)
+            if first_comment:
+                self._post_comment(str(post_id), token, first_comment)
+            return PublishResult(success=True, platform_post_id=str(post_id))
+        except httpx.HTTPStatusError as exc:
+            if self.publish_state().get("submission_started") and exc.response.status_code >= 500:
+                return ambiguous_publish()
+            self.checkpoint(submission_started=False)
+            return self._http_error(exc)
+        except Exception:
+            if self.publish_state().get("submission_started"):
+                return ambiguous_publish()
+            return PublishResult(success=False, error_code="API_ERROR", error_message="Facebook photo upload failed", retryable=True)
 
     def _publish_feed(self, page_id: str, token: str, message: str) -> str:
         url = f"https://graph.facebook.com/{self.api_version}/{page_id}/feed"

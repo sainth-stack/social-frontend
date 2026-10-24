@@ -108,6 +108,21 @@ describe("Landing page structure and search content", () => {
     expect(screen.getAllByRole("link", { name: "EarnedVoice home" })).toHaveLength(2);
   });
 
+  it("uses readable product-first hero markup and simplified journey artwork", () => {
+    const { container } = render(<HomePage />);
+    const hero = container.querySelector("#top")! as HTMLElement;
+    expect(within(hero).getByText("Content Studio")).toBeInTheDocument();
+    expect(within(hero).getByText("Ready to review")).toBeInTheDocument();
+    expect(within(hero).getByRole("link", { name: /Get started free/ })).toHaveAttribute("href", SIGNUP_URL);
+    expect(hero.querySelector(".hero-social-post svg[role=img]")).toBeNull();
+    expect(container.querySelectorAll('#how-it-works svg[data-detail="compact"]')).toHaveLength(4);
+    expect(container.querySelectorAll('.feature-art svg[data-detail="full"]')).toHaveLength(5);
+    const content = container.cloneNode(true) as HTMLElement;
+    content.querySelectorAll("script, style").forEach(node => node.remove());
+    expect(content.textContent).not.toMatch(/[—–]|--/);
+    expect(seo.title).not.toMatch(/[—–]|--/);
+  });
+
   it("generates canonical sitemap and robots URLs", () => {
     expect(sitemap()[0]?.url).toBe(SITE_URL);
     expect(robots().sitemap).toBe(`${SITE_URL}/sitemap.xml`);

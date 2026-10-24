@@ -263,6 +263,11 @@ export default function CarouselSlideRenderer({
   compact?: boolean;
 }) {
   const style: CarouselSlideStyle = { ...DEFAULT_SLIDE_STYLE, ...(slide.style ?? {}) };
+  if (slide.renderedAsset || (slide.imageUrl && !slide.style)) {
+    return slide.imageUrl
+      ? <img src={slide.imageUrl} alt={slide.headline || `Slide ${slideNum}`} className="h-full w-full object-contain" />
+      : <div className="flex h-full items-center justify-center bg-muted p-4 text-center text-sm text-muted-foreground">Slide {slideNum} artwork not generated</div>;
+  }
 
   const props = { slide, slideNum, totalSlides, style, compact };
 

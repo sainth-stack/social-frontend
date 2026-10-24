@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Clock,
+  Copy,
   FileText,
   Loader2,
   Send,
@@ -16,6 +17,7 @@ import {
 import { toast } from "sonner";
 
 import socialMediaApi from "@/api/endpoints/social-media.api";
+import { ProductPublishIcon } from "@/components/icons/product-icons";
 import { PlatformIcon } from "@/components/platform-icon";
 import RetryButton from "@/components/social-media/posts/RetryButton";
 import ScheduleModal from "@/components/social-media/posts/ScheduleModal";
@@ -170,6 +172,16 @@ export default function PostDetail({ postId }: PostDetailProps) {
     );
   }
 
+  const publishLimitation = post.format === "thread"
+    ? "Threads are copy-only. Native X reply-chain publishing and scheduling are not supported. Copy each tweet to publish manually."
+    : post.generationOptions?.visualsStale
+      ? "Visuals are out of date or incomplete. Open Edit and regenerate visuals before publishing or scheduling."
+      : post.format === "carousel" && (!post.platforms.length || !(post.slides?.length && post.slides.length >= 2 && post.slides.length <= 8) || post.platforms.some((platform) => platform.platform === "x" || (platform.media?.length ?? 0) !== post.slides?.length || post.slides?.some((slide, index) => !platform.media?.[index]?.url || !(platform.media[index].assetId || platform.media[index].blobKey) || platform.media[index].slideId !== slide.id)))
+        ? "This carousel needs all ordered platform slide images. Open Edit to generate the missing visuals."
+        : post.generationOptions?.creativeRequest && (!post.platforms.length || post.platforms.some((platform) => platform.platform !== "x" && !platform.media?.some((media) => media.slideId === "single" && media.url && (media.assetId || media.blobKey))))
+          ? "Some platform visuals are missing. Open Edit and retry visuals before publishing or scheduling."
+          : null;
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -203,12 +215,12 @@ export default function PostDetail({ postId }: PostDetailProps) {
                 Edit
               </Link>
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setScheduleOpen(true)}>
+            <Button variant="outline" size="sm" disabled={!!publishLimitation} onClick={() => setScheduleOpen(true)}>
               Schedule
             </Button>
             <Button
               size="sm"
-              disabled={publishing}
+              disabled={publishing || !!publishLimitation}
               onClick={() =>
                 void run(
                   () =>
@@ -217,7 +229,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
                 )
               }
             >
-              {publishing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+              {publishing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <ProductPublishIcon className="mr-2 h-3.5 w-3.5" />}
               Publish now
             </Button>
           </>
@@ -226,7 +238,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
           <>
             <Button
               size="sm"
-              disabled={publishing}
+              disabled={publishing || !!publishLimitation}
               onClick={() =>
                 void run(
                   () =>
@@ -255,7 +267,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
         {post.status === "publishing" && (
           <Button
             size="sm"
-            disabled={publishing}
+            disabled={publishing || !!publishLimitation}
             onClick={() =>
               void run(
                 () =>
@@ -283,7 +295,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
             Archive
           </Button>
         )}
-        {post.status === "failed" && (
+        {post.status === "failed" && !publishLimitation && (
           <RetryButton
             post={post}
             loading={publishing}
@@ -372,6 +384,9 @@ export default function PostDetail({ postId }: PostDetailProps) {
         )}
       </div>
 
+      {publishLimitation && <p role="status" className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">{publishLimitation}</p>}
+      {post.format === "thread" && post.tweets?.length ? <Card><CardHeader><CardTitle className="text-base">Thread · copy only</CardTitle></CardHeader><CardContent><ol className="space-y-4">{post.tweets.map((tweet, index) => <li key={index} className="space-y-2 rounded-lg border border-border p-3"><p className="text-xs text-muted-foreground">Tweet {index + 1} of {post.tweets!.length} · {tweet.text.length} / 280</p><p className="whitespace-pre-wrap break-words text-sm">{tweet.text}</p><Button size="sm" variant="outline" onClick={() => { void navigator.clipboard.writeText(tweet.text); toast.success("Tweet copied"); }}><Copy className="h-3.5 w-3.5" />Copy tweet {index + 1}</Button></li>)}</ol></CardContent></Card> : null}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Timing</CardTitle>
@@ -390,7 +405,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={post.imageUrl}
-              alt=""
+              alt={post.title || "Post image"}
               className="mt-3 max-h-60 max-w-full rounded-lg border border-border object-cover"
             />
           ) : null}
@@ -418,6 +433,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
+              {pp.media?.length ? <section aria-label={`${PLATFORM_LABELS[pp.platform]} media`} className="space-y-3"><p className="text-xs text-muted-foreground">{pp.media.length} {pp.media.length === 1 ? "image" : "slides"} · publishing order</p><div className="flex gap-3 overflow-x-auto pb-2">{pp.media.map((asset, index) => <figure key={asset.slideId ?? index} className="w-48 shrink-0 space-y-1"><img src={asset.url} alt={post.slides?.find((slide) => slide.id === asset.slideId)?.headline || `${PLATFORM_LABELS[pp.platform]} image ${index + 1}`} width={asset.width ?? undefined} height={asset.height ?? undefined} className="h-auto w-full rounded-lg border border-border object-contain" /><figcaption className="text-xs text-muted-foreground">{index + 1}{asset.width && asset.height ? ` · ${asset.width} × ${asset.height}` : ""}</figcaption></figure>)}</div></section> : null}
               <p className="whitespace-pre-wrap text-sm">{pp.caption}</p>
               {pp.hashtags.length > 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -453,6 +469,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
         loading={publishing}
         onClose={() => setScheduleOpen(false)}
         onConfirm={(scheduledAt) => {
+          if (publishLimitation) { toast.error(publishLimitation); return; }
           void run(
             () =>
               dispatch(

@@ -69,6 +69,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("BrandTab", () => {
+  it("uses Professional/never for missing brand preferences without overwriting saved explicit choices", async () => {
+    const missing = { ...brand, id: null, tones: [], emojiUsage: undefined };
+    vi.mocked(socialMediaApi.getBrandVoice).mockResolvedValueOnce(missing as unknown as BrandVoice);
+    mount();
+    await ready();
+    change("Business name", "New brand");
+    submit();
+    await waitFor(() => expect(socialMediaApi.saveBrandVoice).toHaveBeenCalled());
+    expect(vi.mocked(socialMediaApi.saveBrandVoice).mock.calls[0][1]).toMatchObject({ tones: ["Professional"], emojiUsage: "never" });
+  });
+
   it("uses server defaults and omits the optional third preview argument", async () => {
     mount();
     await ready();

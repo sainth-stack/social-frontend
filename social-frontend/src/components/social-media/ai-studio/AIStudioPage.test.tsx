@@ -7,16 +7,16 @@ import type { AxiosResponse } from "axios";
 import { axe } from "vitest-axe";
 import apiClient from "@/api/client";
 import socialMediaApi from "@/api/endpoints/social-media.api";
-import type { BrandVoice, GeneratedContent, GenerateImageResult } from "@/types/social-media.types";
+import type { BrandVoice, GeneratedContent, GenerateImageResult, GenerateCreativeSetPayload, SocialPost, StoredSlide } from "@/types/social-media.types";
 import AIStudioPage from "./AIStudioPage";
 
 const context = vi.hoisted(() => ({ token: "studio-0", params: new URLSearchParams(), push: vi.fn(), replace: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ getStoredAccessToken: () => context.token }));
-vi.mock("@/api/client", () => ({ default: { get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
+vi.mock("@/api/client", () => ({ default: { get: vi.fn(), put: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() } }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: context.push, replace: context.replace }), useSearchParams: () => context.params }));
 vi.mock("next/dynamic", () => ({ default: () => () => <div>Planner workspace</div> }));
 vi.mock("@/components/social-media/content-studio/PhoneFrame", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock("@/components/social-media/content-studio/PlatformPreview", () => ({ default: ({ caption }: { caption: string }) => <div aria-label="Platform preview">{caption}</div> }));
+vi.mock("@/components/social-media/content-studio/PlatformPreview", () => ({ default: ({ caption, media }: { caption: string; media?: { url: string }[] }) => <div aria-label="Platform preview">{caption}{media?.map((asset) => <img key={asset.url} src={asset.url} alt="Platform artwork" />)}</div> }));
 vi.mock("@/components/social-media/posts/ScheduleModal", () => ({ default: () => null }));
 vi.mock("@/components/social-media/content-studio/TemplateUseModal", () => ({ templateApplyStorageKey: () => "studio-template" }));
 
@@ -34,6 +34,7 @@ const generated: GeneratedContent = {
   },
 };
 const generatedImage: GenerateImageResult = { imageUrl: "https://example.test/studio-image.jpg", source: "ai_generated", width: 1200, height: 1200, format: "post", logoApplied: false };
+const creativeSet = { creativeSetId: "set-1", status: "completed", items: ["linkedin", "facebook"].map((platform) => ({ platform, slideId: "single", imageUrl: generatedImage.imageUrl, assetId: `${platform}-asset`, blobKey: `social/studio/${platform}.jpg`, width: 1200, height: 1200, mimeType: "image/jpeg" })), errors: [], warnings: [] };
 const mediaPage = { items: [], total: 0, page: 1, pageSize: 24, totalPages: 0, stats: { images: 0, videos: 0, totalBytes: 0 } };
 const response = (data: unknown) => ({ data }) as AxiosResponse;
 let session = 0;
@@ -48,14 +49,15 @@ beforeEach(() => {
   context.params = new URLSearchParams();
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
   vi.mocked(apiClient.get).mockImplementation(async (url) => response(String(url).endsWith("/brand-voice") ? brand : String(url).endsWith("/brand-logos") ? { items: [] } : mediaPage));
-  vi.mocked(apiClient.post).mockImplementation(async (url) => response(String(url).endsWith("/generate-image") ? generatedImage : generated));
+  vi.mocked(apiClient.post).mockImplementation(async (url) => response(String(url).endsWith("/generate-creative-set") ? creativeSet : String(url).endsWith("/generate-image") ? generatedImage : generated));
   vi.mocked(apiClient.put).mockResolvedValue(response(brand));
+  vi.mocked(apiClient.patch).mockResolvedValue(response({ id: "draft-1", workspaceId: "studio", platforms: [] }));
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-function renderStudio(initialTab: "generate" | "brand" | "media" = "generate") {
+function renderStudio(initialTab: "generate" | "brand" | "media" = "generate", workspaceId = "studio") {
   const store = configureStore({ reducer: {
-    auth: () => ({ user: { id: "user", name: "Alex", workspaceId: "studio", plan: "growth" } }),
+    auth: () => ({ user: { id: "user", name: "Alex", workspaceId, plan: "growth" } }),
     socialAccounts: () => ({ accounts: [{ id: "account", platform: "linkedin", isActive: true, isDefault: true, accountName: "Acme" }] }),
     socialPosts: () => ({ publishing: false }),
   } });
@@ -69,6 +71,198 @@ async function createCopy(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("AIStudioPage", () => {
+  const carouselSlides: StoredSlide[] = ["a", "b", "c"].map((id) => ({ id, headline: `Headline ${id}`, body: `Body ${id}`, imagePrompt: `Artwork ${id}` }));
+  const carouselResponse: GeneratedContent = { format: "carousel", platforms: {}, prompt: "Useful carousel", caption: "## Intro\n**Useful** content 🚀", slides: carouselSlides, hashtags: ["Useful"] };
+  const exportsFor = (request: GenerateCreativeSetPayload) => (request.slides ?? [{ id: "single" }]).flatMap((slide) => request.platforms.map((platform) => ({ ...creativeSet.items[0], platform, slideId: slide.id, imageUrl: `https://example.test/${platform}/${slide.id}.jpg`, assetId: `${platform}-${slide.id}`, blobKey: `social/studio/${platform}/${slide.id}.jpg` })));
+
+  it.each([2, 3, 8])("sends the accessible %i-slide selection and Professional emoji-off defaults", async (count) => {
+    const user = userEvent.setup();
+    renderStudio();
+    expect(screen.getByRole("radio", { name: "Professional" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("switch", { name: "Emojis" }).getAttribute("aria-checked")).toBe("false");
+    await user.click(screen.getByRole("button", { name: "Carousel" }));
+    expect((screen.getByLabelText("Slide count") as HTMLSelectElement).value).toBe("3");
+    expect(Array.from((screen.getByLabelText("Slide count") as HTMLSelectElement).options).map((option) => option.value)).toEqual(["2", "3", "4", "5", "6", "7", "8"]);
+    fireEvent.change(screen.getByLabelText("Slide count"), { target: { value: String(count) } });
+    await user.click(screen.getByRole("switch", { name: "Add slide images" }));
+    fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Useful carousel for our customers" } });
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response(carouselResponse));
+    await user.click(screen.getByRole("button", { name: "Create post" }));
+    await screen.findByRole("textbox", { name: "LinkedIn caption" });
+    expect(apiClient.post).toHaveBeenCalledWith(expect.stringContaining("/generate"), expect.objectContaining({ format: "carousel", slideCount: count, tone: "Professional", includeEmojis: false }), { timeout: 120_000 });
+    expect((screen.getByRole("textbox", { name: "LinkedIn caption" }) as HTMLTextAreaElement).value).toBe("Intro\nUseful content");
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("saves coordinated carousel exports in platform/slide order and forces new artwork after text edits", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.post).mockImplementation(async (url, payload) => response(String(url).endsWith("/generate-creative-set") ? { ...creativeSet, items: exportsFor(payload as GenerateCreativeSetPayload) } : String(url).endsWith("/posts") ? { id: "saved", workspaceId: "studio", platforms: [] } : carouselResponse));
+    renderStudio();
+    await user.click(screen.getByRole("button", { name: "Carousel" }));
+    fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Useful carousel for customers" } });
+    await user.click(screen.getByRole("button", { name: "Create post + image" }));
+    await screen.findByRole("img", { name: "LinkedIn slide 1 artwork" });
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false);
+    const firstRequest = vi.mocked(apiClient.post).mock.calls.find(([url]) => String(url).endsWith("/generate-creative-set"))![1] as GenerateCreativeSetPayload;
+    expect(firstRequest.slides).toEqual(carouselSlides);
+    fireEvent.change(screen.getByLabelText("Slide 2 body"), { target: { value: "Edited slide body" } });
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Regenerate visuals" }));
+    await waitFor(() => expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false));
+    const requests = vi.mocked(apiClient.post).mock.calls.filter(([url]) => String(url).endsWith("/generate-creative-set")).map((call) => call[1] as GenerateCreativeSetPayload);
+    expect(requests[1].requestId).not.toBe(requests[0].requestId);
+    expect(requests[1].slides?.[1].body).toBe("Edited slide body");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(context.replace).toHaveBeenCalled());
+    const saved = vi.mocked(apiClient.post).mock.calls.find(([url]) => String(url).endsWith("/posts"))![1] as { format: string; slides: StoredSlide[]; platforms: { caption: string; media: { slideId: string; url: string; assetId: string; blobKey: string }[] }[]; generationOptions: unknown };
+    expect(saved.format).toBe("carousel");
+    expect(saved.slides[1].body).toBe("Edited slide body");
+    expect(saved.platforms.every((platform) => platform.caption === "Intro\nUseful content")).toBe(true);
+    expect(saved.platforms[0].media.map((asset) => asset.slideId)).toEqual(["a", "b", "c"]);
+    expect(saved.platforms[1].media[0].url).toContain("facebook/a");
+    expect(saved.generationOptions).toMatchObject({ tone: "Professional", includeEmojis: false, slideCount: 3, visualsStale: false });
+  });
+
+  it("retries a partial set with the identical request and preserves valid artwork on retry failure", async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    vi.mocked(apiClient.post).mockImplementation(async (url, payload) => {
+      if (!String(url).endsWith("/generate-creative-set")) return response(carouselResponse);
+      attempts += 1;
+      if (attempts === 2) throw new Error("Temporary export failure");
+      const items = exportsFor(payload as GenerateCreativeSetPayload);
+      return response({ ...creativeSet, status: attempts === 1 ? "partial" : "completed", items: attempts === 1 ? items.slice(0, 1) : items });
+    });
+    renderStudio();
+    await user.click(screen.getByRole("button", { name: "Carousel" }));
+    fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Useful carousel for customers" } });
+    await user.click(screen.getByRole("button", { name: "Create post + image" }));
+    await screen.findByRole("img", { name: "LinkedIn slide 1 artwork" });
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Retry visuals" }));
+    await screen.findByText("Temporary export failure");
+    expect(screen.getByRole("img", { name: "LinkedIn slide 1 artwork" }).getAttribute("src")).toContain("linkedin/a");
+    await user.click(screen.getByRole("button", { name: "Retry visuals" }));
+    await waitFor(() => expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false));
+    const requests = vi.mocked(apiClient.post).mock.calls.filter(([url]) => String(url).endsWith("/generate-creative-set")).map((call) => call[1]);
+    expect(requests).toHaveLength(3);
+    expect(requests[1]).toEqual(requests[0]);
+    expect(requests[2]).toEqual(requests[0]);
+  });
+
+  it.each(["partial", "failed"])("never saves old artwork into a changed request with a %s result, including after retry", async (status) => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    vi.mocked(apiClient.post).mockImplementation(async (url, payload) => {
+      if (String(url).endsWith("/posts")) return response({ id: "saved", platforms: [] });
+      if (!String(url).endsWith("/generate-creative-set")) return response(carouselResponse);
+      attempts += 1;
+      const items = exportsFor(payload as GenerateCreativeSetPayload).map((item) => ({ ...item, imageUrl: item.imageUrl.replace("example.test/", attempts === 1 ? "example.test/old/" : "example.test/new/") }));
+      return response({ ...creativeSet, status: attempts === 1 || attempts === 4 ? "completed" : status, items: attempts === 1 || attempts === 4 ? items : status === "failed" ? [] : items.slice(attempts === 2 ? 0 : 1, attempts === 2 ? 1 : 2) });
+    });
+    renderStudio();
+    await user.click(screen.getByRole("button", { name: "Carousel" }));
+    fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Useful carousel for customers" } });
+    await user.click(screen.getByRole("button", { name: "Create post + image" }));
+    await screen.findByRole("img", { name: "LinkedIn slide 1 artwork" });
+    fireEvent.change(screen.getByLabelText("Slide 1 body"), { target: { value: "Changed artwork copy" } });
+    await user.click(screen.getByRole("button", { name: "Regenerate visuals" }));
+    await screen.findByText(/Some visuals are missing/);
+    await user.click(screen.getByRole("button", { name: "Retry visuals" }));
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(4));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(context.replace).toHaveBeenCalled());
+    const saved = vi.mocked(apiClient.post).mock.calls.find(([url]) => String(url).endsWith("/posts"))![1] as { imageUrl: string | null; platforms: { media: { url: string }[] }[]; generationOptions: { visualsStale: boolean } };
+    const urls = saved.platforms.flatMap((platform) => platform.media.map((media) => media.url));
+    expect(urls).toHaveLength(status === "failed" ? 0 : 2);
+    expect(urls.every((url) => url.includes("/new/"))).toBe(true);
+    expect(saved.imageUrl === null || saved.imageUrl.includes("/new/")).toBe(true);
+    expect(saved.generationOptions.visualsStale).toBe(true);
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Retry visuals" }));
+    await waitFor(() => expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false));
+    const requests = vi.mocked(apiClient.post).mock.calls.filter(([url]) => String(url).endsWith("/generate-creative-set")).map((call) => call[1] as GenerateCreativeSetPayload);
+    expect(requests[1].requestId).not.toBe(requests[0].requestId);
+    expect(requests[2]).toEqual(requests[1]);
+    expect(requests[3]).toEqual(requests[1]);
+  });
+
+  it.each(["partial", "processing", "completed-missing-facebook"])("blocks every publishing entry point for a %s single-image set until a complete retry", async (status) => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    vi.mocked(apiClient.post).mockImplementation(async (url) => {
+      if (!String(url).endsWith("/generate-creative-set")) return response(generated);
+      attempts += 1;
+      return response({ ...creativeSet, status: attempts > 1 || status === "completed-missing-facebook" ? "completed" : status, items: attempts === 1 && status === "completed-missing-facebook" ? creativeSet.items.slice(0, 1) : creativeSet.items });
+    });
+    renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Share our latest business update" } });
+    await user.click(screen.getByRole("button", { name: "Create post + image" }));
+    await screen.findByRole("button", { name: "Retry visuals" });
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "More post actions" }));
+    expect(screen.getByRole("menuitem", { name: "Schedule" }).getAttribute("data-disabled")).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Publish now" }).getAttribute("data-disabled")).not.toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Retry visuals" }));
+    await waitFor(() => expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("restores incomplete carousel drafts with options, slide copy and partial platform exports", async () => {
+    context.params = new URLSearchParams({ draftId: "draft-1" });
+    const draft = { id: "draft-1", workspaceId: "studio", format: "carousel", slides: carouselSlides, generationOptions: { tone: "Luxury", includeEmojis: true, includeHashtags: false, length: "Short", slideCount: 8 }, platforms: [{ platform: "linkedin", caption: "Saved intro", hashtags: [], media: [{ ...creativeSet.items[0], url: "https://example.test/saved-a.jpg", slideId: "a" }] }] };
+    vi.spyOn(socialMediaApi, "getPost").mockResolvedValue(draft as unknown as SocialPost);
+    const user = userEvent.setup();
+    renderStudio();
+    await screen.findByLabelText("Slide 3 body");
+    expect((screen.getByLabelText("Slide count") as HTMLSelectElement).value).toBe("8");
+    expect(screen.getByRole("radio", { name: "Luxury" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("switch", { name: "Emojis" }).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("textbox", { name: "LinkedIn caption" }) as HTMLTextAreaElement).value).toBe("Saved intro");
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(apiClient.patch).toHaveBeenCalled());
+    expect(vi.mocked(apiClient.patch).mock.calls[0][1]).toMatchObject({ format: "carousel", slides: carouselSlides, generationOptions: { tone: "Luxury", slideCount: 8 }, platforms: [{ media: [expect.objectContaining({ slideId: "a", url: "https://example.test/saved-a.jpg" })] }] });
+  });
+
+  it("edits and copies individual structured tweets and blocks both publishing and scheduling", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ format: "thread", platforms: {}, tweets: [{ text: "1/2 **First** 🚀", characterCount: 16 }, { text: "2/2 Second", characterCount: 10 }] }));
+    renderStudio();
+    await user.click(screen.getByRole("button", { name: "Thread" }));
+    fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Useful thread for our audience" } });
+    await user.click(screen.getByRole("button", { name: "Create post" }));
+    const first = await screen.findByRole("textbox", { name: "Tweet 1 of 2" });
+    expect((first as HTMLTextAreaElement).value).toBe("First");
+    fireEvent.change(first, { target: { value: "Edited first tweet" } });
+    await user.click(screen.getByRole("button", { name: "Copy tweet 1" }));
+    expect(await navigator.clipboard.readText()).toBe("Edited first tweet");
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "More post actions" }));
+    expect(screen.getByRole("menuitem", { name: "Schedule" }).getAttribute("data-disabled")).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Publish now" }).getAttribute("data-disabled")).not.toBeNull();
+    await user.keyboard("{Escape}");
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ id: "thread", workspaceId: "studio", platforms: [] }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(context.replace).toHaveBeenCalled());
+    expect(vi.mocked(apiClient.post).mock.calls[1][1]).toMatchObject({ format: "thread", tweets: [{ text: "Edited first tweet" }, { text: "Second" }], platforms: [expect.objectContaining({ platform: "x", caption: "" })] });
+  });
+
+  it("ignores late generation after leaving a workspace", async () => {
+    let resolve!: (value: AxiosResponse) => void;
+    vi.mocked(apiClient.post).mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const user = userEvent.setup();
+    const old = renderStudio();
+    fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Old workspace business update" } });
+    await user.click(screen.getByRole("button", { name: "Create post" }));
+    old.unmount();
+    renderStudio("generate", "different-workspace");
+    await act(async () => resolve(response(generated)));
+    expect(screen.queryByRole("textbox", { name: "LinkedIn caption" })).toBeNull();
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
   it("navigates the single-page workspace explicitly and focuses the requested heading", async () => {
     const user = userEvent.setup();
     renderStudio();
@@ -134,7 +328,7 @@ describe("AIStudioPage", () => {
     expect((caption as HTMLTextAreaElement).value).toBe("Our edited update");
     const calls = vi.mocked(apiClient.post).mock.calls.filter(([url]) => String(url).endsWith("/generate"));
     expect(calls).toHaveLength(1);
-    expect(calls[0][1]).toMatchObject({ platforms: ["linkedin", "facebook"], tone: "Friendly" });
+    expect(calls[0][1]).toMatchObject({ platforms: ["linkedin", "facebook"], tone: "Professional", includeEmojis: false, slideCount: 3 });
     expect(calls[0][2]).toEqual({ timeout: 120_000 });
     await user.click(screen.getByRole("tab", { name: "Live preview" }));
     expect(screen.getByLabelText("Platform preview").textContent).toBe("Our edited update");
@@ -155,9 +349,9 @@ describe("AIStudioPage", () => {
       { timeout: 120_000 },
     );
     expect(apiClient.post).toHaveBeenNthCalledWith(2,
-      "/api/v1/workspaces/studio/social/generate-image",
-      expect.objectContaining({ mode: "create", format: "post", platform: "linkedin", caption: generated.platforms.linkedin!.caption, textOverlay: true }),
-      { timeout: 150_000 },
+      "/api/v1/workspaces/studio/social/generate-creative-set",
+      expect.objectContaining({ requestId: expect.any(String), mode: "create", format: "post", platforms: ["linkedin", "facebook"], caption: generated.platforms.linkedin!.caption, textOverlay: true }),
+      { timeout: 600_000 },
     );
     expect((await screen.findByRole("link", { name: "Download" })).getAttribute("href")).toBe(generatedImage.imageUrl);
     expect(vi.mocked(apiClient.get).mock.calls.some(([url]) => String(url).endsWith("/ai-models"))).toBe(false);
@@ -169,9 +363,9 @@ describe("AIStudioPage", () => {
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Share our latest business update" } });
     await user.click(screen.getByRole("button", { name: "Create image only" }));
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
-      "/api/v1/workspaces/studio/social/generate-image",
+      "/api/v1/workspaces/studio/social/generate-creative-set",
       expect.objectContaining({ format: "post" }),
-      { timeout: 150_000 },
+      { timeout: 600_000 },
     ));
     expect((await screen.findByRole("link", { name: "Download" })).getAttribute("href")).toBe(generatedImage.imageUrl);
   });

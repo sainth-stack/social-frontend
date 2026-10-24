@@ -49,10 +49,8 @@ export const ProductAIStudioIcon = icon("ProductAIStudioIcon", ({ className, ref
     aria-hidden
     {...props}
   >
-    <rect x="4" y="4" width="13" height="13" rx="2.25" {...stroke} />
-    <path d="M8 8.5h6M8 11.5h4" {...stroke} />
-    <path d="M14.5 17.5 20 12l1.5 1.5-5.5 5.5H13v-2.5Z" {...stroke} />
-    <path d="M18.2 10.8 19.5 9.5" {...stroke} />
+    <rect x="3" y="4" width="18" height="16" rx="2.5" {...stroke} />
+    <path d="M3 9h18M8 4v5M7 13h4M7 16h2m5 1 4-4m-4 0h4v4" {...stroke} />
   </svg>
 ));
 
@@ -69,5 +67,11 @@ export const ProductGenerateIcon = icon("ProductGenerateIcon", ({ className, ref
     <path d="M6 5.5h9a2 2 0 0 1 2 2v9.5" {...stroke} />
     <path d="M6 9.5h7M6 12.5h5" {...stroke} />
     <path d="m13.5 19.5 6-6 1.5 1.5-6 6H12v-1.5Z" {...stroke} />
+  </svg>
+));
+
+export const ProductPublishIcon = icon("ProductPublishIcon", ({ className, ref, ...props }) => (
+  <svg ref={ref} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className={className} aria-hidden {...props}>
+    <path d="M12 16V3m-5 5 5-5 5 5M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" {...stroke} />
   </svg>
 ));

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
+from uuid import uuid4
 
 from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -75,12 +76,35 @@ class OAuthCallbackRequest(BaseModel):
 # ── Posts ─────────────────────────────────────────────────────────────────────
 
 
+class SocialPostMedia(BaseModel):
+    assetId: Optional[str] = None
+    blobKey: Optional[str] = None
+    url: str = ""
+    width: Optional[int] = Field(default=None, gt=0)
+    height: Optional[int] = Field(default=None, gt=0)
+    slideId: Optional[str] = None
+    mimeType: Optional[str] = None
+
+
+class StoredSlide(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    headline: str = ""
+    body: str = ""
+    imagePrompt: str = ""
+    imageUrl: Optional[str] = None
+
+
+class StoredTweet(BaseModel):
+    text: str
+
+
 class SocialPostPlatformIn(BaseModel):
     platform: SocialPlatform
     socialAccountId: Optional[str] = None
     caption: str = ""
     hashtags: List[str] = Field(default_factory=list)
     firstComment: Optional[str] = None
+    media: Optional[List[SocialPostMedia]] = Field(default=None, max_length=8)
 
 
 class SocialPostPlatformOut(BaseModel):
@@ -90,6 +114,7 @@ class SocialPostPlatformOut(BaseModel):
     caption: str
     hashtags: List[Any] = Field(default_factory=list)
     firstComment: Optional[str] = None
+    media: List[SocialPostMedia] = Field(default_factory=list)
     characterCount: int
     status: SocialPlatformPostStatus
     platformPostId: Optional[str] = None
@@ -121,6 +146,10 @@ class SocialPostOut(BaseModel):
     aiPrompt: Optional[str] = None
     imageUrl: Optional[str] = None
     imageSource: SocialImageSource
+    format: str = "single"
+    generationOptions: Dict[str, Any] = Field(default_factory=dict)
+    slides: List[StoredSlide] = Field(default_factory=list)
+    tweets: List[StoredTweet] = Field(default_factory=list)
     platforms: List[SocialPostPlatformOut] = Field(default_factory=list)
     createdAt: str
     updatedAt: str
@@ -142,6 +171,10 @@ class CreateSocialPostRequest(BaseModel):
     imageSource: SocialImageSource = SocialImageSource.NONE
     aiPrompt: Optional[str] = None
     templateId: Optional[str] = None
+    format: Literal["single", "carousel", "thread", "poll"] = "single"
+    generationOptions: Dict[str, Any] = Field(default_factory=dict)
+    slides: List[StoredSlide] = Field(default_factory=list, max_length=8)
+    tweets: List[StoredTweet] = Field(default_factory=list, max_length=25)
     platforms: List[SocialPostPlatformIn] = Field(default_factory=list)
 
 
@@ -153,6 +186,10 @@ class UpdateSocialPostRequest(BaseModel):
     imageSource: Optional[SocialImageSource] = None
     aiPrompt: Optional[str] = None
     templateId: Optional[str] = None
+    format: Optional[Literal["single", "carousel", "thread", "poll"]] = None
+    generationOptions: Optional[Dict[str, Any]] = None
+    slides: Optional[List[StoredSlide]] = Field(default=None, max_length=8)
+    tweets: Optional[List[StoredTweet]] = Field(default=None, max_length=25)
     platforms: Optional[List[SocialPostPlatformIn]] = None
 
 
@@ -199,12 +236,12 @@ class BrandVoiceOut(BaseModel):
     industry: str = ""
     tagline: str = ""
     targetAudience: str = ""
-    tones: List[str] = Field(default_factory=list)
+    tones: List[str] = Field(default_factory=lambda: ["Professional"])
     wordsToUse: List[str] = Field(default_factory=list)
     wordsToAvoid: List[str] = Field(default_factory=list)
     ctaPhrases: List[str] = Field(default_factory=list)
     sentenceLength: SentenceLength = SentenceLength.MEDIUM
-    emojiUsage: EmojiUsage = EmojiUsage.SOMETIMES
+    emojiUsage: EmojiUsage = EmojiUsage.NEVER
     primaryLanguage: str = "en"
     systemPromptOverride: Optional[str] = None
     logoUrl: Optional[str] = None
@@ -218,12 +255,12 @@ class BrandVoiceUpdateRequest(BaseModel):
     industry: str = Field(default="", max_length=160)
     tagline: str = Field(default="", max_length=255)
     targetAudience: str = ""
-    tones: List[str] = Field(default_factory=list)
+    tones: List[str] = Field(default_factory=lambda: ["Professional"])
     wordsToUse: List[str] = Field(default_factory=list)
     wordsToAvoid: List[str] = Field(default_factory=list)
     ctaPhrases: List[str] = Field(default_factory=list)
     sentenceLength: SentenceLength = SentenceLength.MEDIUM
-    emojiUsage: EmojiUsage = EmojiUsage.SOMETIMES
+    emojiUsage: EmojiUsage = EmojiUsage.NEVER
     primaryLanguage: str = Field(default="en", max_length=16)
     systemPromptOverride: Optional[str] = None
     logoUrl: Optional[str] = Field(default=None, max_length=2048)
@@ -256,7 +293,8 @@ class GeneratePostRequest(BaseModel):
     cta: Optional[str] = None
     includeHashtags: bool = True
     includeComment: bool = False
-    includeEmojis: bool = True
+    includeEmojis: bool = False
+    slideCount: int = Field(default=3, ge=2, le=8)
     contentType: Optional[str] = Field(default=None, max_length=32)
     length: Optional[str] = Field(default=None, max_length=16)
     mediaNote: Optional[str] = Field(default=None, max_length=500)
@@ -271,6 +309,7 @@ class GeneratedPlatformContent(BaseModel):
 
 
 class GeneratedSlide(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
     headline: str
     body: str
     imagePrompt: str = ""
@@ -311,6 +350,7 @@ class GenerateImageRequest(BaseModel):
     cta: Optional[str] = Field(default=None, max_length=40)
     caption: Optional[str] = Field(default=None, max_length=3000)
     textOverlay: bool = False
+    includeEmojis: bool = False
     autoCopy: bool = True
     includeLogo: bool = True
     logoId: Optional[str] = Field(default=None, max_length=64)
@@ -331,6 +371,34 @@ class GenerateImageResponse(BaseModel):
     subtext: Optional[str] = None
     cta: Optional[str] = None
     logoApplied: bool = False
+
+
+class GenerateCreativeSetRequest(GenerateImageRequest):
+    topic: str = Field(min_length=3, max_length=8000)
+    caption: Optional[str] = Field(default=None, max_length=8000)
+    brief: Optional[str] = Field(default=None, max_length=8000)
+    platforms: List[SocialPlatform] = Field(min_length=1, max_length=4)
+    slides: Optional[List[StoredSlide]] = Field(default=None, min_length=1, max_length=8)
+    requestId: str = Field(min_length=1, max_length=128)
+
+
+class CreativeSetItem(BaseModel):
+    slideId: str
+    platform: SocialPlatform
+    imageUrl: str
+    assetId: str
+    blobKey: str
+    width: int
+    height: int
+    mimeType: str = "image/jpeg"
+
+
+class GenerateCreativeSetResponse(BaseModel):
+    creativeSetId: str
+    status: str
+    items: List[CreativeSetItem] = Field(default_factory=list)
+    errors: List[Dict[str, str]] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
 
 
 class GenerateVideoRequest(BaseModel):

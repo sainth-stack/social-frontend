@@ -8,7 +8,7 @@ from typing import Optional
 import httpx
 
 from app.social.models import SocialPlatform
-from app.social.publishers.base import BasePublisher, PublishResult, format_caption
+from app.social.publishers.base import BasePublisher, PublishResult, ambiguous_publish, format_caption
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +24,13 @@ class XTwitterPublisher(BasePublisher):
         caption: str,
         hashtags: list[str],
         image_url: Optional[str] = None,
+        image_urls: Optional[list[str]] = None,
         first_comment: Optional[str] = None,
     ) -> PublishResult:
         _ = platform_account_id
         _ = first_comment
 
-        if image_url:
+        if image_url or image_urls is not None:
             return PublishResult(
                 success=False,
                 error_code="INVALID_IMAGE",
@@ -53,6 +54,7 @@ class XTwitterPublisher(BasePublisher):
 
         try:
             with httpx.Client(timeout=30.0) as client:
+                self.checkpoint(submission_started=True)
                 response = client.post(
                     "https://api.twitter.com/2/tweets",
                     headers={
@@ -62,11 +64,19 @@ class XTwitterPublisher(BasePublisher):
                     json={"text": text},
                 )
                 if response.status_code >= 400:
+                    if response.status_code >= 500:
+                        return ambiguous_publish()
+                    self.checkpoint(submission_started=False)
                     return self._error_result(response)
                 data = response.json()
                 tweet_id = (data.get("data") or {}).get("id")
+                if not tweet_id:
+                    return ambiguous_publish()
+                self.checkpoint(platform_post_id=str(tweet_id), submission_started=False)
                 return PublishResult(success=True, platform_post_id=str(tweet_id or ""))
         except httpx.HTTPError as exc:
+            if self.publish_state().get("submission_started"):
+                return ambiguous_publish()
             logger.exception("X publish failed: %s", exc)
             return PublishResult(
                 success=False,
@@ -74,6 +84,9 @@ class XTwitterPublisher(BasePublisher):
                 error_message=str(exc),
                 retryable=True,
             )
+
+        except (ValueError, TypeError, AttributeError):
+            return ambiguous_publish()
 
     def _error_result(self, response: httpx.Response) -> PublishResult:
         try:

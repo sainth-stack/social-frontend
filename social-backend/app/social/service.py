@@ -471,11 +471,26 @@ class SocialMediaService:
             "ai_prompt": payload.aiPrompt,
             "image_url": image_url,
             "image_source": image_source_val,
+            "format": payload.format,
+            "generation_options": payload.generationOptions,
+            "slides": [s.model_dump() for s in payload.slides],
+            "tweets": [t.model_dump() for t in payload.tweets],
             "created_at": now,
             "updated_at": now,
         }
+        platform_rows = self._prepare_platforms(post_id, workspace["id"], payload.platforms)
+        self._validate_structured_post(post, platform_rows)
+        if status_val not in ("draft", "scheduled"):
+            raise HTTPException(status_code=400, detail="Create a draft or scheduled post before publishing")
+        if status_val == "scheduled":
+            if not post["scheduled_at"] or post["scheduled_at"] <= datetime.now(timezone.utc):
+                raise HTTPException(status_code=400, detail="scheduledAt must be in the future")
+            self._validate_ready_to_publish_dict(post, platform_rows, persist_accounts=False)
         self.db["social_posts"].insert_one(post)
-        self._replace_platforms(post_id, workspace["id"], payload.platforms)
+        if platform_rows:
+            self.db["social_post_platforms"].insert_many(platform_rows)
+        if status_val == "scheduled":
+            self._enqueue_publish(post_id, eta=post["scheduled_at"])
         write_social_audit(
             self.db,
             workspace_id=workspace["id"],
@@ -506,9 +521,8 @@ class SocialMediaService:
                 and post.get("status") == SocialPostStatus.SCHEDULED.value
             ):
                 updates["scheduled_at"] = None
-            if new_status == SocialPostStatus.SCHEDULED.value:
-                platforms = _get_post_platforms(self.db, post["id"])
-                self._validate_ready_to_publish_dict(post, platforms)
+            if new_status in ("publishing", "published") and new_status != post.get("status"):
+                raise HTTPException(status_code=400, detail="Use the publish endpoint to publish a post")
             updates["status"] = new_status
         if payload.scheduledAt is not None:
             new_scheduled = _parse_dt(payload.scheduledAt)
@@ -521,9 +535,7 @@ class SocialMediaService:
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="scheduledAt must be in the future",
                     )
-                platforms = _get_post_platforms(self.db, post["id"])
-                self._validate_ready_to_publish_dict(post, platforms)
-        if payload.imageUrl is not None:
+        if "imageUrl" in payload.model_fields_set:
             from app.social.media import ensure_public_image_url
             updates["image_url"] = ensure_public_image_url(workspace["id"], payload.imageUrl)
         if payload.imageSource is not None:
@@ -536,8 +548,27 @@ class SocialMediaService:
             updates["ai_prompt"] = payload.aiPrompt
         if payload.templateId is not None:
             updates["template_id"] = payload.templateId or None
+        for field, key in (("format", "format"), ("generationOptions", "generation_options"), ("slides", "slides"), ("tweets", "tweets")):
+            value = getattr(payload, field)
+            if value is not None:
+                updates[key] = [item.model_dump() for item in value] if field in ("slides", "tweets") else value
+        platforms = self._prepare_platforms(post["id"], workspace["id"], payload.platforms) if payload.platforms is not None else _get_post_platforms(self.db, post["id"])
+        candidate = {**post, **updates}
+        self._validate_structured_post(candidate, platforms)
+        if candidate.get("status") == "scheduled":
+            self._validate_ready_to_publish_dict(candidate, platforms, persist_accounts=False)
+            scheduled = candidate.get("scheduled_at")
+            if scheduled and scheduled.tzinfo is None:
+                scheduled = scheduled.replace(tzinfo=timezone.utc)
+            if not scheduled or scheduled <= datetime.now(timezone.utc):
+                raise HTTPException(status_code=400, detail="scheduledAt must be in the future")
         if payload.platforms is not None:
-            self._replace_platforms(post["id"], workspace["id"], payload.platforms)
+            self.db["social_post_platforms"].delete_many({"post_id": post["id"]})
+            if platforms:
+                self.db["social_post_platforms"].insert_many(platforms)
+        elif candidate.get("status") == "scheduled":
+            for pp in platforms:
+                self.db["social_post_platforms"].update_one({"id": pp["id"]}, {"$set": {"social_account_id": pp.get("social_account_id")}})
 
         self.db["social_posts"].update_one({"id": post["id"]}, {"$set": updates})
         post = self.db["social_posts"].find_one({"id": post["id"]})
@@ -547,7 +578,7 @@ class SocialMediaService:
         if (
             new_status == SocialPostStatus.SCHEDULED.value
             and new_scheduled
-            and new_scheduled != previous_scheduled
+            and (previous_status != SocialPostStatus.SCHEDULED.value or new_scheduled != previous_scheduled)
         ):
             self._enqueue_publish(post["id"], eta=new_scheduled)
         return self._serialize_post(post)
@@ -570,6 +601,8 @@ class SocialMediaService:
         from app.social.polish import SocialPolishService
         from app.social.schemas import SocialPostPlatformIn, UpdateSocialPostRequest
 
+        if post.get("format") in ("carousel", "thread"):
+            raise HTTPException(status_code=400, detail="Regenerate structured content in AI Studio to preserve slides and tweets")
         platforms = _get_post_platforms(self.db, post["id"])
         if not platforms:
             raise HTTPException(
@@ -796,7 +829,6 @@ class SocialMediaService:
 
     def schedule_post(self, post: dict, payload: SchedulePostRequest) -> SocialPostOut:
         platforms = _get_post_platforms(self.db, post["id"])
-        self._validate_ready_to_publish_dict(post, platforms)
         scheduled_at = _parse_dt(payload.scheduledAt)
         if not scheduled_at or scheduled_at <= datetime.now(timezone.utc):
             raise HTTPException(
@@ -812,6 +844,7 @@ class SocialMediaService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot schedule a post in status {post.get('status')}",
             )
+        self._validate_ready_to_publish_dict(post, platforms)
         self.db["social_posts"].update_one(
             {"id": post["id"]},
             {"$set": {"scheduled_at": scheduled_at, "status": SocialPostStatus.SCHEDULED.value, "updated_at": utcnow()}},
@@ -829,20 +862,19 @@ class SocialMediaService:
 
     def publish_now(self, post: dict) -> SocialPostOut:
         platforms = _get_post_platforms(self.db, post["id"])
-        self._validate_ready_to_publish_dict(post, platforms)
         if post.get("status") == SocialPostStatus.PUBLISHED.value:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Post is already {post.get('status')}",
             )
-        if post.get("status") == SocialPostStatus.PUBLISHING.value:
-            if any(
-                pp.get("status") == SocialPlatformPostStatus.PUBLISHING.value for pp in platforms
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Post is already publishing",
-                )
+        if post.get("status") == SocialPostStatus.PUBLISHING.value and any(
+            pp.get("status") == SocialPlatformPostStatus.PUBLISHING.value for pp in platforms
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Post is already publishing",
+            )
+        self._validate_ready_to_publish_dict(post, platforms)
         now = utcnow()
         self.db["social_posts"].update_one(
             {"id": post["id"]},
@@ -894,6 +926,7 @@ class SocialMediaService:
 
         retried = 0
         skipped = 0
+        self._validate_ready_to_publish_dict(post, platforms)
         for pp in platforms:
             if pp.get("status") != SocialPlatformPostStatus.FAILED.value:
                 continue
@@ -1077,6 +1110,10 @@ class SocialMediaService:
             "ai_prompt": post.get("ai_prompt"),
             "image_url": post.get("image_url"),
             "image_source": post.get("image_source", SocialImageSource.NONE.value),
+            "format": post.get("format") or "single",
+            "generation_options": post.get("generation_options") or {},
+            "slides": post.get("slides") or [],
+            "tweets": post.get("tweets") or [],
             "created_at": now,
             "updated_at": now,
         }
@@ -1091,6 +1128,7 @@ class SocialMediaService:
                     "caption": pp.get("caption", ""),
                     "hashtags": list(pp.get("hashtags") or []),
                     "first_comment": pp.get("first_comment"),
+                    "media": list(pp.get("media") or []),
                     "character_count": pp.get("character_count", 0),
                     "status": SocialPlatformPostStatus.PENDING.value,
                     "platform_post_id": None,
@@ -1129,6 +1167,7 @@ class SocialMediaService:
 
     def upsert_brand_voice(self, workspace: dict, payload: BrandVoiceUpdateRequest) -> BrandVoiceOut:
         now = utcnow()
+        existing = self._get_brand_voice_row(workspace["id"]) or {}
         updates = {
             "brand_name": payload.brandName,
             "industry": payload.industry,
@@ -1150,6 +1189,9 @@ class SocialMediaService:
             updates["primary_color"] = payload.primaryColor or None
         if payload.accentColor is not None:
             updates["accent_color"] = payload.accentColor or None
+        for field, key in (("tones", "tones"), ("emojiUsage", "emoji_usage")):
+            if field not in payload.model_fields_set and existing.get(key) is not None:
+                updates[key] = existing[key]
         row = self.db["social_brand_voices"].find_one_and_update(
             {"workspace_id": workspace["id"]},
             {"$set": updates, "$setOnInsert": {"id": new_id()}},
@@ -1322,6 +1364,8 @@ class SocialMediaService:
             result = generate_carousel_content(
                 topic=payload.topic, tone=payload.tone, audience=payload.audience,
                 cta=payload.cta, brand_voice=brand_voice,
+                num_slides=payload.slideCount, include_emojis=payload.includeEmojis,
+                include_hashtags=payload.includeHashtags, length_hint=payload.length,
             )
             slides = [
                 GeneratedSlide(
@@ -1339,6 +1383,8 @@ class SocialMediaService:
             result = generate_thread_content(
                 topic=payload.topic, tone=payload.tone, audience=payload.audience,
                 cta=payload.cta, brand_voice=brand_voice,
+                include_emojis=payload.includeEmojis, include_hashtags=payload.includeHashtags,
+                length_hint=payload.length,
             )
             tweets = [
                 GeneratedTweet(text=t["text"], characterCount=len(t["text"]))
@@ -1353,6 +1399,8 @@ class SocialMediaService:
             result = generate_poll_content(
                 topic=payload.topic, tone=payload.tone, audience=payload.audience,
                 brand_voice=brand_voice,
+                include_emojis=payload.includeEmojis, include_hashtags=payload.includeHashtags,
+                length_hint=payload.length,
             )
             return GeneratePostResponse(
                 format="poll", prompt=payload.topic, pollQuestion=result["question"],
@@ -1707,18 +1755,18 @@ class SocialMediaService:
     def _brand_voice_dict(self, workspace_id: str) -> dict:
         row = self._get_brand_voice_row(workspace_id)
         if not row:
-            return {}
+            return {"tones": ["Professional"], "emoji_usage": "never"}
         return {
             "brand_name": row.get("brand_name", ""),
             "industry": row.get("industry", ""),
             "tagline": row.get("tagline", ""),
             "target_audience": row.get("target_audience", ""),
-            "tones": list(row.get("tones") or []),
+            "tones": list(row["tones"] if row.get("tones") is not None else ["Professional"]),
             "words_to_use": list(row.get("words_to_use") or []),
             "words_to_avoid": list(row.get("words_to_avoid") or []),
             "cta_phrases": list(row.get("cta_phrases") or []),
             "sentence_length": row.get("sentence_length") or "medium",
-            "emoji_usage": row.get("emoji_usage") or "sometimes",
+            "emoji_usage": row.get("emoji_usage") or "never",
             "primary_language": row.get("primary_language", "en"),
             "system_prompt_override": row.get("system_prompt_override"),
             "logo_url": row.get("logo_url"),
@@ -1765,6 +1813,20 @@ class SocialMediaService:
         except RuntimeError as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
+    def render_brand_creative_variants(self, workspace: dict, topic: str, style: Optional[str], spec: "CreativeSpec", platforms: list[str], *, brand: Optional[dict] = None, logo_bytes: Optional[bytes] = None, base_image: Optional[bytes] = None, on_base_ready=None) -> dict:
+        from app.social.ai.creative import render_creative_variants
+
+        return render_creative_variants(
+            topic=topic, style=style, spec=spec, platforms=platforms,
+            brand=brand if brand is not None else self._brand_voice_dict(workspace["id"]),
+            logo_bytes=logo_bytes, base_image=base_image, on_base_ready=on_base_ready,
+        )
+
+    def generate_creative_set(self, workspace: dict, user: dict, payload):
+        from app.social.creative_sets import generate_creative_set
+
+        return generate_creative_set(self, workspace, user, payload)
+
     def _serialize_brand_voice(self, row: dict) -> BrandVoiceOut:
         from app.social.media import resolve_stored_image_url
 
@@ -1775,12 +1837,12 @@ class SocialMediaService:
             industry=row.get("industry", ""),
             tagline=row.get("tagline", ""),
             targetAudience=row.get("target_audience", ""),
-            tones=list(row.get("tones") or []),
+            tones=list(row["tones"] if row.get("tones") is not None else ["Professional"]),
             wordsToUse=list(row.get("words_to_use") or []),
             wordsToAvoid=list(row.get("words_to_avoid") or []),
             ctaPhrases=list(row.get("cta_phrases") or []),
             sentenceLength=row.get("sentence_length") or "medium",
-            emojiUsage=row.get("emoji_usage") or "sometimes",
+            emojiUsage=row.get("emoji_usage") or "never",
             primaryLanguage=row.get("primary_language") or "en",
             systemPromptOverride=row.get("system_prompt_override"),
             logoUrl=resolve_stored_image_url(row.get("logo_url")),
@@ -1795,7 +1857,75 @@ class SocialMediaService:
             sort=[("is_default", -1), ("created_at", 1)],
         )
 
-    def _validate_ready_to_publish_dict(self, post: dict, platforms: list[dict]) -> None:
+    def _owned_media(self, workspace_id: str, media: list) -> list[dict]:
+        from app.social.media import relative_storage_key
+
+        result = []
+        for item in media:
+            descriptor = item.model_dump(exclude_none=True) if hasattr(item, "model_dump") else dict(item)
+            asset_id = descriptor.get("assetId")
+            key = descriptor.get("blobKey") or relative_storage_key(descriptor.get("url"))
+            query = {"workspace_id": workspace_id, "is_deleted": {"$ne": True}}
+            if asset_id:
+                query["id"] = asset_id
+            elif key:
+                query["blob_key"] = key
+            else:
+                raise HTTPException(status_code=400, detail="Platform media must reference an owned image asset")
+            asset = self.db["social_media_assets"].find_one(query)
+            if not asset or asset.get("media_type") != "image":
+                raise HTTPException(status_code=400, detail="Image asset not found in this workspace")
+            asset_key = asset.get("blob_key")
+            if key and key != asset_key:
+                raise HTTPException(status_code=400, detail="Media asset and blobKey do not match")
+            if not asset_key or not asset_key.startswith(f"social/{workspace_id}/"):
+                raise HTTPException(status_code=400, detail="Image asset does not belong to this workspace storage")
+            descriptor.update(assetId=str(asset["id"]), blobKey=asset_key, url=asset.get("blob_url") or "")
+            result.append(descriptor)
+        return result
+
+    def _validate_structured_post(self, post: dict, platforms: list[dict], *, publishing: bool = False) -> None:
+        from app.social.media import relative_storage_key
+
+        image_key = relative_storage_key(post.get("image_url"))
+        if image_key and not image_key.startswith((f"social/{post['workspace_id']}/", f"social-video/{post['workspace_id']}/")):
+            raise HTTPException(status_code=400, detail="Image does not belong to this workspace")
+        fmt = post.get("format") or "single"
+        slides = post.get("slides") or []
+        ids = [slide["id"] for slide in slides]
+        if len(ids) != len(set(ids)) or len(ids) > 8:
+            raise HTTPException(status_code=400, detail="Slides require unique IDs and at most 8 slides")
+        if publishing and fmt == "thread":
+            raise HTTPException(status_code=400, detail="Threads are copy-only and cannot be scheduled or published")
+        if publishing and (post.get("generation_options") or {}).get("visualsStale"):
+            raise HTTPException(status_code=400, detail="Creative images are stale; regenerate or reattach current visuals before publishing")
+        from app.social.media import is_video_media_url
+
+        for pp in platforms:
+            media = pp.get("media") or []
+            if media:
+                self._owned_media(post["workspace_id"], media)
+            if not publishing:
+                continue
+            if fmt == "carousel":
+                if pp.get("platform") == "x":
+                    raise HTTPException(status_code=400, detail="X carousel publishing is not supported")
+                if not 2 <= len(media) <= 8 or len(media) != len(slides):
+                    raise HTTPException(status_code=400, detail="Carousel publishing requires 2–8 complete images for every platform and slide")
+                if [item.get("slideId") for item in media] != ids:
+                    raise HTTPException(status_code=400, detail="Carousel media must match slide order and IDs")
+                if any(not item.get("url") and not item.get("blobKey") for item in media):
+                    raise HTTPException(status_code=400, detail="Carousel images are incomplete")
+                sizes = {(item.get("width"), item.get("height")) for item in media if item.get("width") and item.get("height")}
+                if len(sizes) > 1:
+                    raise HTTPException(status_code=400, detail="Carousel image dimensions must match within each platform")
+            elif len(media) > 1:
+                raise HTTPException(status_code=400, detail="Multiple images require carousel format")
+            if any(is_video_media_url(item.get("url") or item.get("blobKey") or "") or (item.get("mimeType") or "").startswith("video/") for item in media):
+                raise HTTPException(status_code=400, detail="Video publishing is not supported yet — save as draft only")
+
+    def _validate_ready_to_publish_dict(self, post: dict, platforms: list[dict], *, persist_accounts: bool = True) -> None:
+        self._validate_structured_post(post, platforms, publishing=True)
         if not platforms:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Post has no platform content"
@@ -1828,7 +1958,7 @@ class SocialMediaService:
                     detail=f"{platform} content is {character_count} characters; the limit is {limit} (including hashtags and separators)",
                 )
         for pp in publishable:
-            if not (pp.get("caption") or "").strip() and not post.get("image_url"):
+            if not (pp.get("caption") or "").strip() and not post.get("image_url") and not pp.get("media"):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"{pp.get('platform')} content is empty",
@@ -1842,16 +1972,13 @@ class SocialMediaService:
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Connect a {pp.get('platform')} account before publishing",
                     )
-                self.db["social_post_platforms"].update_one(
-                    {"id": pp["id"]}, {"$set": {"social_account_id": account["id"]}}
-                )
                 pp["social_account_id"] = account["id"]
-            if pp.get("platform") == SocialPlatform.INSTAGRAM.value and not post.get("image_url"):
+            if pp.get("platform") == SocialPlatform.INSTAGRAM.value and not post.get("image_url") and not pp.get("media"):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Instagram posts require an image URL",
                 )
-            if pp.get("platform") == SocialPlatform.X.value and post.get("image_url"):
+            if pp.get("platform") == SocialPlatform.X.value and (post.get("image_url") or pp.get("media")):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="X free tier is text-only — remove the image before publishing to X",
@@ -1862,6 +1989,11 @@ class SocialMediaService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Video publishing is not supported yet — save as draft only",
             )
+        if persist_accounts:
+            for pp in publishable:
+                self.db["social_post_platforms"].update_one(
+                    {"id": pp["id"]}, {"$set": {"social_account_id": pp["social_account_id"]}}
+                )
 
     def _enqueue_publish(self, post_id: str, eta: Optional[datetime]) -> None:
         from app.social.tasks.publish import publish_post
@@ -1956,8 +2088,22 @@ class SocialMediaService:
         )
 
     def _replace_platforms(self, post_id: str, workspace_id: str, platforms: list) -> None:
+        rows = self._prepare_platforms(post_id, workspace_id, platforms)
         self.db["social_post_platforms"].delete_many({"post_id": post_id})
+        if rows:
+            self.db["social_post_platforms"].insert_many(rows)
+
+    def _prepare_platforms(self, post_id: str, workspace_id: str, platforms: list) -> list[dict]:
+        existing = {pp["platform"]: pp for pp in _get_post_platforms(self.db, post_id)}
+        rows = []
+        seen = set()
         for item in platforms:
+            platform_val = item.platform.value if hasattr(item.platform, "value") else item.platform
+            if platform_val in seen:
+                raise HTTPException(status_code=400, detail="Duplicate platform content")
+            seen.add(platform_val)
+            old = existing.get(platform_val) or {}
+            media = self._owned_media(workspace_id, item.media) if item.media is not None else list(old.get("media") or [])
             account_id = None
             if item.socialAccountId:
                 account = self.db["social_accounts"].find_one({"id": str(item.socialAccountId)})
@@ -1981,15 +2127,16 @@ class SocialMediaService:
             caption = item.caption or ""
             hashtags = list(item.hashtags or [])
             platform_val = item.platform.value if hasattr(item.platform, "value") else item.platform
-            self.db["social_post_platforms"].insert_one(
+            rows.append(
                 {
-                    "id": new_id(),
+                    "id": old.get("id") or new_id(),
                     "post_id": post_id,
                     "platform": platform_val,
                     "social_account_id": account_id,
                     "caption": caption,
                     "hashtags": hashtags,
                     "first_comment": item.firstComment if hasattr(item, "firstComment") else None,
+                    "media": media,
                     "character_count": len(caption),
                     "status": SocialPlatformPostStatus.PENDING.value,
                     "platform_post_id": None,
@@ -2007,6 +2154,7 @@ class SocialMediaService:
                     "engagement_rate": 0.0,
                 }
             )
+        return rows
 
     def _serialize_account(self, account: dict) -> SocialAccountOut:
         return SocialAccountOut(
@@ -2028,7 +2176,7 @@ class SocialMediaService:
         )
 
     def _serialize_post(self, post: dict, platforms: Optional[list[dict]] = None) -> SocialPostOut:
-        from app.social.media import resolve_stored_image_url
+        from app.social.media import refresh_blob_url, resolve_stored_image_url
 
         if platforms is None:
             platforms = _get_post_platforms(self.db, post["id"])
@@ -2040,6 +2188,7 @@ class SocialMediaService:
                 caption=pp.get("caption", ""),
                 hashtags=list(pp.get("hashtags") or []),
                 firstComment=pp.get("first_comment"),
+                media=[{**item, "url": refresh_blob_url(item["blobKey"]) if item.get("blobKey") else resolve_stored_image_url(item.get("url")) or ""} for item in pp.get("media") or []],
                 characterCount=pp.get("character_count", 0),
                 status=SocialPlatformPostStatus(pp.get("status", "pending")),
                 platformPostId=pp.get("platform_post_id"),
@@ -2072,6 +2221,10 @@ class SocialMediaService:
             aiPrompt=post.get("ai_prompt"),
             imageUrl=resolve_stored_image_url(post.get("image_url")),
             imageSource=post.get("image_source", SocialImageSource.NONE.value),
+            format=post.get("format") or "single",
+            generationOptions=post.get("generation_options") or {},
+            slides=post.get("slides") or [],
+            tweets=post.get("tweets") or [],
             platforms=platform_outs,
             createdAt=_iso(post.get("created_at")) or "",
             updatedAt=_iso(post.get("updated_at")) or "",

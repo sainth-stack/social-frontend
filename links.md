@@ -1,0 +1,1 @@
+https://bright-idea-landing-pages.lovable.app/#why

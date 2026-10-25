@@ -288,6 +288,7 @@ describe("Actual Topbar", () => {
     expect(breadcrumb.textContent).not.toContain("507f1f77bcf86cd799439011");
     expect(breadcrumb.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
     expect(screen.getByText("Acme")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to Posts" }).getAttribute("href")).toBe("/dashboard/posts");
   });
 
   it.each(["drafts", "scheduled", "published", "failed", "archived", "publishing"])("keeps the %s breadcrumb instead of treating it as an id", (status) => {

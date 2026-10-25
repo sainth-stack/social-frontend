@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { configureStore } from "@reduxjs/toolkit";
 import { Provider } from "react-redux";
@@ -34,6 +34,17 @@ function mount(value: SocialPost) {
 }
 
 describe("structured post details", () => {
+  it.each(["draft", "scheduled", "published", "failed", "archived"] as const)("keeps one persistent back link and existing actions for %s posts", (status) => {
+    mount({ ...post, status });
+    const actions = screen.getByRole("region", { name: "Post actions" });
+    expect(actions.className).toContain("sticky top-[var(--app-header-height)]");
+    expect(within(actions).getByRole("link", { name: "Back to posts" }).getAttribute("href")).toBe(`/dashboard/posts/${status === "draft" ? "drafts" : status}`);
+    expect(screen.getAllByRole("link", { name: "Back to posts" })).toHaveLength(1);
+    if (status === "draft" || status === "failed") expect(within(actions).getByRole("button", { name: "Schedule" })).toBeTruthy();
+    if (status === "scheduled") expect(within(actions).getByRole("button", { name: "Cancel schedule" })).toBeTruthy();
+    if (status === "published" || status === "failed") expect(within(actions).getByRole("button", { name: "Archive" })).toBeTruthy();
+  });
+
   it("shows every ordered platform export and keeps complete carousel publishing available", () => {
     mount(post);
     expect(screen.getAllByRole("img").map((image) => image.getAttribute("src"))).toEqual(platform.media!.map((media) => media.url));

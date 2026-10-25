@@ -41,6 +41,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AdminContacts", () => {
+  it("keeps the active status filter visible in the collapsed filter indicator without duplicating save actions", async () => {
+    render(<AdminContacts />); await screen.findByRole("heading", { name: contact.name });
+    const toggle = screen.getByRole("button", { name: "Advanced filters · None active" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    await choose("Filter status", "New");
+    await waitFor(() => expect(adminApi.listContacts).toHaveBeenLastCalledWith(expect.objectContaining({ status: "new" }), expect.any(AbortSignal)));
+    fireEvent.click(screen.getByRole("button", { name: "Advanced filters · 1 active" }));
+    expect(screen.getByRole("button", { name: "Advanced filters · 1 active" }).getAttribute("aria-expanded")).toBe("false");
+    await screen.findByRole("heading", { name: contact.name });
+    expect(screen.getAllByRole("button", { name: `Save status for ${contact.name}` })).toHaveLength(1);
+  });
   it("loads real submission details with a message disclosure and explicit save", async () => {
     render(<AdminContacts />);
     expect(screen.getByRole("status", { name: "Loading enquiries" })).toBeTruthy();

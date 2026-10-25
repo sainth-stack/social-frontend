@@ -52,8 +52,8 @@ export default function SocialDashboard() {
     <div className="mx-auto max-w-7xl space-y-6" aria-busy={loading}>
       <header className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
         <PageHeader icon={ProductDashboardIcon} title={`${greeting()}, ${firstName}`} description="Your publishing day, at a glance. Let’s keep things moving." />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="icon" aria-label="Refresh dashboard" disabled={loading || refreshing || !user?.workspaceId} onClick={() => void reload()}>
+        <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
+          <Button className="order-last col-span-2 justify-self-end sm:order-none" variant="outline" size="icon" aria-label="Refresh dashboard" disabled={loading || refreshing || !user?.workspaceId} onClick={() => void reload()}>
             <RefreshCcw className={cn("h-4 w-4", refreshing && "motion-safe:animate-spin")} />
           </Button>
           <Button variant="outline" asChild><Link href="/dashboard/calendar"><CalendarDays className="mr-2 h-4 w-4" />View calendar</Link></Button>
@@ -153,10 +153,10 @@ export default function SocialDashboard() {
                 </CardHeader>
                 <CardContent>
                   {accounts.length ? (
-                    <ul className="grid gap-2 sm:grid-cols-2">
+                    <ul className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
                       {accounts.map((account) => {
                         const status = connectionState(account.tokenStatus);
-                        return <li key={account.id}><Link href="/dashboard/accounts" className="flex h-full items-start gap-3 rounded-lg border border-border p-3 transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><PlatformIcon platform={account.platform} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{account.accountName || PLATFORM_LABELS[account.platform]}</span><span className="mt-1 block text-xs text-muted-foreground">{PLATFORM_LABELS[account.platform]} · {(account.followerCount ?? 0).toLocaleString()} followers</span><span className={cn("mt-2 inline-flex items-center gap-1 text-xs font-medium", status.healthy ? "text-success" : "text-destructive")}>{status.healthy ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}{status.label}</span></span></Link></li>;
+                        return <li key={account.id} className="min-w-0"><Link href="/dashboard/accounts" className="flex h-full min-w-0 items-start gap-3 rounded-lg border border-border p-3 transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><PlatformIcon platform={account.platform} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{account.accountName || PLATFORM_LABELS[account.platform]}</span><span className="mt-1 block text-xs text-muted-foreground">{PLATFORM_LABELS[account.platform]} · {(account.followerCount ?? 0).toLocaleString()} followers</span><span className={cn("mt-2 inline-flex items-center gap-1 text-xs font-medium", status.healthy ? "text-success" : "text-destructive")}>{status.healthy ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}{status.label}</span></span></Link></li>;
                       })}
                     </ul>
                   ) : <p className="py-4 text-sm text-muted-foreground">Your connected accounts and their status will appear here.</p>}

@@ -43,7 +43,7 @@ import { toast } from "sonner";
 
 import socialMediaApi from "@/api/endpoints/social-media.api";
 import { ProductAIStudioIcon, ProductGenerateIcon, ProductPublishIcon } from "@/components/icons/product-icons";
-import { carouselReady, creativeMedia, creativeResultMessage, mergeCreativeItems } from "./studioCreative";
+import { approvedCaptionContext, copyFingerprint, carouselReady, creativeMedia, creativeResultMessage, mergeCreativeItems } from "./studioCreative";
 import { PageHeader } from "@/components/layouts/PageHeader";
 import { PlatformIcon } from "@/components/platform-icon";
 import {
@@ -520,6 +520,8 @@ function GenerateTab({
   const [includeHashtags, setIncludeHashtags] = useState(true);
   const [includeEmojis, setIncludeEmojis] = useState(false);
   const [alsoGenerateImage, setAlsoGenerateImage] = useState(false);
+  const [artDirection, setArtDirection] = useState("");
+  const [copyApproval, setCopyApproval] = useState<{ version: 1; fingerprint: string } | null>(null);
   const imagePreferenceChanged = useRef(false);
   const [visualFormat, setVisualFormat] = useState<VisualFormat>("auto");
   const [headlineOnImage, setHeadlineOnImage] = useState(true);
@@ -535,10 +537,12 @@ function GenerateTab({
     logos.find((l) => l.id === logoId) ?? logos.find((l) => l.isDefault) ?? logos[0] ?? null;
   const [imageMeta, setImageMeta] = useState<GenerateImageResult | null>(null);
   const [brandKit, setBrandKit] = useState<BrandKit | null>(null);
+  const [brandContextReady, setBrandContextReady] = useState(false);
   const [slides, setSlides] = useState<StoredSlide[] | null>(null);
   const [tweets, setTweets] = useState<GeneratedTweet[]>([]);
   const [creativeItems, setCreativeItems] = useState<CreativeSetItem[]>([]);
   const [creativeRequest, setCreativeRequest] = useState<GenerateCreativeSetPayload | null>(null);
+  const creativeFingerprint = useRef<string | null>(null);
   const [visualsStale, setVisualsStale] = useState(false);
   const [visualMessage, setVisualMessage] = useState<string | null>(null);
   const [activeSlide, setActiveSlide] = useState(0);
@@ -605,6 +609,7 @@ function GenerateTab({
     if (!orgId || !draftId || draftLoadedRef.current === draftId) return;
     let cancelled = false;
     operation.current += 1;
+    setCopyApproval(null);
     draftLoadedRef.current = draftId;
     void dispatch(fetchSocialPost({ orgId, postId: draftId }))
       .unwrap()
@@ -618,10 +623,13 @@ function GenerateTab({
         setIncludeEmojis(options.includeEmojis ?? false);
         setIncludeHashtags(options.includeHashtags ?? true);
         setLength(options.length ?? "Medium");
+        setVariationsWanted(options.variationsWanted ?? 1);
         setSlideCount(options.slideCount ?? post.slides?.length ?? 3);
         setSlides(post.slides?.length ? post.slides : null);
         setTweets((post.tweets ?? []).map((tweet) => ({ ...tweet, characterCount: tweet.text.length })));
         setCreativeRequest(options.creativeRequest ?? null);
+        creativeFingerprint.current = options.copyApproval?.version === 1 ? options.copyApproval.fingerprint : null;
+        setHashtags([]);
         if (options.creativeRequest) {
           const request = options.creativeRequest;
           setHeadlineOnImage(request.textOverlay ?? false);
@@ -631,8 +639,16 @@ function GenerateTab({
           setCta(request.cta ?? "");
           setVisualFormat(request.format && request.format !== "carousel" && request.format !== "product" ? request.format : "auto");
         }
+        setCopyApproval(options.copyApproval?.version === 1 && typeof options.copyApproval.fingerprint === "string" ? options.copyApproval : null);
+        setArtDirection(options.artDirection ?? "");
+        setCta(options.cta ?? options.creativeRequest?.cta ?? "");
+        setVisualFormat((options.visualFormat === "product" || options.visualFormat === "carousel" ? "auto" : options.visualFormat) ?? (options.creativeRequest?.format === "product" || options.creativeRequest?.format === "carousel" ? "auto" : options.creativeRequest?.format) ?? "auto");
+        setHeadlineOnImage(options.headlineOnImage ?? options.creativeRequest?.textOverlay ?? true);
+        setIncludeLogo(options.includeLogo ?? options.creativeRequest?.includeLogo ?? true);
+        setLogoId(options.logoId ?? options.creativeRequest?.logoId ?? null);
+        setLogoPosition(options.logoPosition ?? options.creativeRequest?.logoPosition ?? "top-right");
         imagePreferenceChanged.current = true;
-        setAlsoGenerateImage(Boolean(options.creativeRequest || post.platforms.some((platform) => platform.media?.length)));
+        setAlsoGenerateImage(options.visualIntent ?? Boolean(options.creativeRequest || post.platforms.some((platform) => platform.media?.length)));
         setVisualsStale(options.visualsStale ?? false);
         setActiveSlide(0);
         setCreativeItems(post.platforms.flatMap((platform) => (platform.media ?? []).map((media) => ({
@@ -701,6 +717,7 @@ function GenerateTab({
   useEffect(() => {
     if (!orgId) return;
     let cancelled = false;
+    setBrandContextReady(false);
     void socialMediaApi
       .getBrandVoice(orgId)
       .then((bv) => {
@@ -713,7 +730,8 @@ function GenerateTab({
           accentColor: bv.accentColor ?? null,
         });
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setBrandContextReady(true); });
     return () => {
       cancelled = true;
     };
@@ -838,7 +856,31 @@ function GenerateTab({
         ? "product"
         : "post";
 
+  const approvedPlatforms = selectedPlatforms.map((platform) => {
+    const variation = activeVariation?.platform === platform ? activeVariation : variations?.find((item) => item.platform === platform);
+    return { platform, caption: variation?.caption ?? "", hashtags: includeHashtags ? [...new Set([...(variation?.hashtags ?? []), ...hashtags])] : [] };
+  });
+  const fingerprint = copyFingerprint({
+    platforms: approvedPlatforms, slides: type === "Carousel" ? slides ?? [] : [], tweets: type === "Thread" ? tweets.map(({ text }) => ({ text })) : [],
+    prompt, type, tone, length, slideCount, cta, includeHashtags, includeEmojis, brandForbidsEmoji, variationsWanted,
+    alsoGenerateImage, artDirection, visualFormat, headlineOnImage, includeLogo, logoId, logoPosition, effectiveLogoId: includeLogo ? selectedLogo?.id ?? null : null, brandKit,
+  });
+  const currentFingerprint = useRef(fingerprint);
+  currentFingerprint.current = fingerprint;
+  const approvalContextReady = brandContextReady && !logosLoading;
+  const copyApproved = approvalContextReady && copyApproval?.version === 1 && copyApproval.fingerprint === fingerprint;
+  const canApproveCopy = type === "Thread" ? tweets.length > 0 && tweets.every((tweet) => tweet.text.trim()) : approvedPlatforms.length > 0 && approvedPlatforms.every((platform) => platform.caption.trim()) && (type !== "Carousel" || Boolean(slides?.length && slides.every((slide) => slide.headline.trim() || slide.body.trim())));
+  useEffect(() => {
+    if (approvalContextReady && copyApproval && copyApproval.fingerprint !== fingerprint) {
+      setCopyApproval(null);
+      setCreativeRequest(null);
+      if (creativeItems.length) setVisualsStale(true);
+      operation.current += 1;
+    }
+  }, [fingerprint, copyApproval, creativeItems.length, approvalContextReady]);
+
   const markVisualsStale = () => {
+    setCopyApproval(null);
     if (creativeItems.length || generatedImageUrl || creativeRequest) {
       setVisualsStale(true);
       setCreativeRequest(null);
@@ -846,13 +888,18 @@ function GenerateTab({
     }
   };
 
-  const runCreativeSet = async (list: StoredSlide[] | null, captionContext: string, retry = false, parentOperation?: number) => {
+  const runCreativeSet = async (retry = false) => {
+    if (!copyApproved || !canApproveCopy) { toast.error("Review all selected captions and slides, then approve copy before generating visuals."); return; }
+    const list = type === "Carousel" ? slides : null;
     const platforms = selectedPlatforms.filter((platform) => platform !== "x");
     if (!platforms.length || type === "Thread") return;
-    const token = parentOperation ?? ++operation.current;
-    const current = () => mounted.current && operation.current === token;
-    const request: GenerateCreativeSetPayload = retry && creativeRequest ? creativeRequest : {
-      requestId: crypto.randomUUID(), topic: prompt.trim(), brief: `${prompt.trim()}\n\nTone: ${tone}. Content type: ${type}.`,
+    const token = ++operation.current;
+    const approvedFingerprint = fingerprint;
+    const current = () => mounted.current && operation.current === token && currentFingerprint.current === approvedFingerprint;
+    const captionContext = approvedCaptionContext(approvedPlatforms);
+    const request: GenerateCreativeSetPayload = retry && creativeRequest && creativeFingerprint.current === fingerprint ? creativeRequest : {
+      requestId: crypto.randomUUID(), topic: prompt.trim(), brief: `${prompt.trim()}\n\nTone: ${tone}. Content type: ${type}. Use all approved channel copy in caption and all ordered slides supplied with this request.${artDirection.trim() ? `\n\nVisual art direction (medium, subject, style, avoid):\n${artDirection.trim()}` : ""}`,
+      style: artDirection.trim() || undefined,
       caption: captionContext, platforms, mode: "create", format: list?.length ? "carousel" : resolvedVisualFormat,
       slides: list?.length ? list.map(({ id, headline, body, imagePrompt }) => ({ id, headline, body, imagePrompt })) : undefined,
       cta: cta.trim().slice(0, 40) || undefined, textOverlay: headlineOnImage,
@@ -867,12 +914,13 @@ function GenerateTab({
     }
     setVisualsStale(true);
     setCreativeRequest(request);
+    creativeFingerprint.current = fingerprint;
     setVisualMessage(null);
     setImageLoading(true);
     if (list?.length) setSlidesLoading(true);
     try {
       const result = await socialMediaApi.generateCreativeSet(orgId, request);
-      if (!current()) { operationLocked.current = false; return; }
+      if (!current()) return;
       if (!Array.isArray(result.items)) throw new Error("The server did not return a creative set. Your current visuals have been kept.");
       setCreativeItems((previous) => result.status === "completed" || !sameRequest ? result.items : mergeCreativeItems(previous, result.items));
       setVisualsStale(result.status !== "completed");
@@ -890,6 +938,7 @@ function GenerateTab({
   };
 
   const removeGeneratedImage = () => {
+    if (operationLocked.current) return;
     operation.current += 1;
     setCreativeItems([]);
     setCreativeRequest(null);
@@ -898,10 +947,13 @@ function GenerateTab({
     setGeneratedImageUrl(null);
     setImageMeta(null);
     setMediaSource("none");
+    setCopyApproval(null);
+    imagePreferenceChanged.current = true;
+    setAlsoGenerateImage(false);
   };
 
   const generate = async () => {
-    if (operationLocked.current || loading || imageLoading || slidesLoading) return;
+    if (operationLocked.current || loading || imageLoading || slidesLoading || saving) return;
     if (!orgId) {
       toast.error("Workspace not ready");
       return;
@@ -931,10 +983,7 @@ function GenerateTab({
     const current = () => mounted.current && operation.current === token;
     setLoading(true);
     setError(null);
-    const shouldImage = alsoGenerateImage && !prefillMedia && type !== "Thread";
-    let captionForImage = "";
     let generatedSlides: StoredSlide[] = [];
-    let captionsOk = false;
     try {
       const results: Variation[] = [];
       const allHashtags: string[] = [];
@@ -981,12 +1030,12 @@ function GenerateTab({
       setActiveSlide(0);
       if (creativeItems.length || generatedImageUrl || creativeRequest) setVisualsStale(true);
       setCreativeRequest(null);
+      setCopyApproval(null);
       setVariations(results);
       setOutputView("edit");
       setHashtags([...new Set(allHashtags)]);
       const recIdx = results.findIndex((v) => v.recommended);
       setPicked(recIdx >= 0 ? recIdx : 0);
-      captionForImage = results[recIdx >= 0 ? recIdx : 0]?.caption ?? "";
       generatedSlides = formatKey === "carousel" ? (responses[0]?.slides ?? []).map((slide) => ({ ...slide, id: slide.id ?? crypto.randomUUID(), headline: cleanText(slide.headline), body: cleanText(slide.body), imagePrompt: cleanText(slide.imagePrompt) })) : [];
       setSlides(generatedSlides.length ? generatedSlides : null);
       const generatedTweets = formatKey === "thread" ? (responses[0]?.tweets ?? []).map((tweet) => {
@@ -994,7 +1043,6 @@ function GenerateTab({
         return { text, characterCount: text.length };
       }) : [];
       setTweets(generatedTweets);
-      captionsOk = true;
       toast.success(
         formatKey === "thread"
           ? `Thread generated (${generatedTweets.length} tweets)`
@@ -1012,18 +1060,18 @@ function GenerateTab({
     } finally {
       if (mounted.current) setLoading(false);
     }
-    if (shouldImage && captionsOk && current()) await runCreativeSet(generatedSlides.length ? generatedSlides : null, captionForImage, false, token);
     operationLocked.current = false;
   };
 
-  const generateImage = async () => {
-    if (operationLocked.current || loading || imageLoading || slidesLoading) return;
+  const generateImage = async (retry = false) => {
+    if (operationLocked.current || loading || imageLoading || slidesLoading || saving) return;
+    if (!copyApproved) { toast.error("Review all selected captions and slides, then approve copy before generating visuals."); return; }
     if (!orgId || prompt.trim().length < 5) {
       toast.error("Add a prompt (at least 5 characters) first");
       return;
     }
     operationLocked.current = true;
-    try { await runCreativeSet(type === "Carousel" ? slides : null, previewCaption); }
+    try { await runCreativeSet(retry); }
     finally { operationLocked.current = false; }
   };
 
@@ -1090,6 +1138,10 @@ function GenerateTab({
   const format = (CONTENT_TYPE_TO_FORMAT[type] ?? "single") as "single" | "carousel" | "thread";
   const publishLimitation = type === "Thread"
     ? "Threads are copy-only. Native X reply-chain publishing and scheduling are not supported. Copy each tweet to publish manually."
+    : !copyApproved
+      ? "Review every selected platform caption and slide, then choose Approve copy before publishing or scheduling."
+    : alsoGenerateImage && !hasMediaAttached
+      ? "Visuals are selected but not generated. Generate visuals after approving copy, or turn off Add an image to use approved text only."
     : visualsStale
       ? "Visuals are out of date or incomplete. Regenerate visuals before publishing or scheduling."
       : type === "Carousel" && !carouselReady(selectedPlatforms, slides, creativeItems)
@@ -1130,7 +1182,7 @@ function GenerateTab({
       imageUrl: persistMedia.imageUrl,
       imageSource: persistMedia.imageSource,
       format,
-      generationOptions: { tone, includeEmojis, includeHashtags, length, slideCount, contentType: type, visualsStale, creativeRequest: creativeRequest ?? undefined },
+      generationOptions: { tone, includeEmojis, includeHashtags, length, slideCount, contentType: type, visualsStale, creativeRequest: creativeRequest ?? undefined, copyApproval: copyApproved ? copyApproval : null, visualIntent: alsoGenerateImage, variationsWanted, artDirection, cta, visualFormat, headlineOnImage, includeLogo, logoId, logoPosition },
       slides: type === "Carousel" ? slides ?? [] : [],
       tweets: type === "Thread" ? tweets.map(({ text }) => ({ text })) : [],
       platforms: platformPayload,
@@ -1248,6 +1300,9 @@ function GenerateTab({
     setTweets([]);
     setCreativeItems([]);
     setCreativeRequest(null);
+    setCopyApproval(null);
+    setArtDirection("");
+    setAlsoGenerateImage(false);
     setVisualsStale(false);
     setVisualMessage(null);
     setActiveSlide(0);
@@ -1285,16 +1340,28 @@ function GenerateTab({
           ) : null}
         </div>
       </div>}
-      <div role="region" aria-label="Post controls" className="sticky top-16 z-10 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-2 shadow-soft">
-        <nav aria-label="Create workspace" className="flex gap-1">
+      <div role="region" aria-label="Post controls" className="sticky top-[var(--app-header-height)] z-10 flex items-center justify-between gap-1 rounded-xl border border-border bg-card p-2 shadow-soft sm:gap-2">
+        <select aria-label="Jump to studio section" defaultValue="" className="h-11 min-w-0 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden" onChange={(event) => {
+          const section = event.target.value;
+          if (section === "content" || section === "preview") setOutputView(section === "preview" ? "preview" : "edit");
+          moveToSection(section === "brief" ? "brief" : "content");
+          event.target.value = "";
+        }}>
+          <option value="" disabled>Jump to…</option>
+          <option value="brief">Brief</option>
+          <option value="content">Content</option>
+          <option value="preview">Preview</option>
+        </select>
+        <nav aria-label="Create workspace" className="hidden gap-1 sm:flex">
           <Button type="button" variant="ghost" size="sm" onClick={() => moveToSection("brief")}><FileText className="hidden h-3.5 w-3.5 sm:block" />Brief</Button>
           <Button type="button" variant="ghost" size="sm" onClick={() => moveToSection("content")}><Pencil className="hidden h-3.5 w-3.5 sm:block" />Content</Button>
         </nav>
-        <div className="flex items-center gap-1 sm:gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
+            className="min-h-11 sm:min-h-8"
             disabled={!hasContent || saving || busy}
             onClick={() => void saveDraft()}
           >
@@ -1312,7 +1379,7 @@ function GenerateTab({
             Publish now
           </Button>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-9 w-9" aria-label="More post actions" disabled={busy || saving}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-9 sm:w-9" aria-label="More post actions" disabled={busy || saving}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem disabled={!hasContent || publishing || hasVideoAttached || !!publishLimitation || xWithImageConflict} onSelect={() => void handlePublishNow()}><ProductPublishIcon />Publish now</DropdownMenuItem>
               <DropdownMenuItem disabled={!hasContent || publishing || hasVideoAttached || !!publishLimitation || xWithImageConflict} onSelect={() => setScheduleOpen(true)}><Calendar />Schedule</DropdownMenuItem>
@@ -1361,7 +1428,7 @@ function GenerateTab({
                 <ProductGenerateIcon className="h-4 w-4" />
               </span>
               <div>
-                <CardTitle className="text-base"><h2 ref={briefHeading} tabIndex={-1} className="scroll-mt-44 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:scroll-mt-36">Your creative brief</h2></CardTitle>
+                <CardTitle className="text-base"><h2 ref={briefHeading} tabIndex={-1} className="scroll-mt-[calc(var(--app-header-height)+5rem)] rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">Your creative brief</h2></CardTitle>
                 <p className="text-xs text-muted-foreground">
                   {brandKit?.brandName ? `Written in the ${brandKit.brandName} voice` : "Describe it, we write and design it"}
                 </p>
@@ -1499,7 +1566,12 @@ function GenerateTab({
               disabled={!!prefillMedia || type === "Thread"}
               onChange={(value) => { imagePreferenceChanged.current = true; setAlsoGenerateImage(value); }}
             />
-            <p className="text-xs leading-relaxed text-muted-foreground">Shared artwork, sized separately for each selected channel. Up to {type === "Carousel" ? slideCount : 1} image generation{type === "Carousel" ? "s" : ""}; platform exports reuse that artwork. X stays text-only.</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">This selects visual intent only. Create and approve copy first, then explicitly generate visuals. Shared artwork is sized for each channel; up to {type === "Carousel" ? slideCount : 1} paid image generation{type === "Carousel" ? "s" : ""}. X stays text-only.</p>
+            <div className="space-y-2">
+              <Label htmlFor="studio-art-direction">Visual art direction (optional)</Label>
+              <Textarea id="studio-art-direction" value={artDirection} maxLength={2000} rows={3} placeholder="Medium: product photography. Subject: our desk lamp. Style: warm, minimal studio. Avoid: people, invented labels, extra text." onChange={(event) => setArtDirection(event.target.value)} />
+              <p className="text-xs text-muted-foreground">Describe the medium, subject, style and anything to avoid. This guides artwork; it does not guarantee exact products or factual image details.</p>
+            </div>
             {alsoGenerateImage && !prefillMedia ? (
               <>
                 {type !== "Carousel" && (
@@ -1690,18 +1762,18 @@ function GenerateTab({
               ) : (
                 <>
                   <ProductGenerateIcon className="mr-1.5 h-4 w-4" />
-                  {alsoGenerateImage && !prefillMedia ? "Create post + image" : "Create post"}
+                  Create copy
                 </>
               )}
             </Button>
-            <p role="status" className="text-center text-xs text-muted-foreground">{slidesLoading ? "Creating slide visuals…" : imageLoading ? "Creating your visual…" : loading ? "Writing your content…" : "Review and edit before publishing. Nothing posts automatically."}</p>
+            <p role="status" className="text-center text-xs text-muted-foreground">{slidesLoading ? "Creating slide visuals…" : imageLoading ? "Creating your visual…" : loading ? "Writing your content…" : "Copy only. Review and approve it before generating visuals. Nothing posts automatically."}</p>
             {(hasContent || busy) && <Button type="button" variant="outline" className="w-full" onClick={() => moveToSection("content")}>View content<Pencil className="ml-2 h-3.5 w-3.5" /></Button>}
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="w-full text-xs text-muted-foreground"
-              disabled={busy || saving || !orgId || prompt.trim().length < 5 || type === "Thread" || (type === "Carousel" && !slides?.length)}
+              disabled={busy || saving || !copyApproved || !alsoGenerateImage || !orgId || prompt.trim().length < 5 || type === "Thread" || (type === "Carousel" && !slides?.length)}
               onClick={() => void generateImage()}
             >
               {imageLoading ? (
@@ -1710,7 +1782,7 @@ function GenerateTab({
                 </>
               ) : (
                 <>
-                  <ImageIcon className="mr-1.5 h-3.5 w-3.5" /> Create image only
+                  <ImageIcon className="mr-1.5 h-3.5 w-3.5" /> Generate approved visuals
                 </>
               )}
             </Button>
@@ -1721,7 +1793,7 @@ function GenerateTab({
       <Card className="min-w-0 shadow-soft xl:col-span-7">
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base"><h2 ref={contentHeading} tabIndex={-1} className="scroll-mt-44 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:scroll-mt-36">Your content workspace</h2></CardTitle>
+            <CardTitle className="text-base"><h2 ref={contentHeading} tabIndex={-1} className="scroll-mt-[calc(var(--app-header-height)+5rem)] rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">Your content workspace</h2></CardTitle>
             {variations && (
               <Badge variant="secondary" className="text-[10px]">
                 {multiPlatform
@@ -1734,6 +1806,12 @@ function GenerateTab({
           </div>
         </CardHeader>
         <CardContent className="min-w-0 space-y-4 p-4 pt-0 sm:p-6 sm:pt-0" aria-busy={loading}>
+          <section aria-label="Copy approval workflow" className="space-y-3 rounded-xl border border-border bg-muted/30 p-3">
+            <ol className="flex flex-wrap gap-3 text-xs font-medium"><li>1. Create copy</li><li>2. Review and approve</li><li>3. Generate visuals (optional)</li></ol>
+            <p role="status" className="text-sm text-muted-foreground">{copyApproved ? "Copy approved for all selected channels and slides. Generate visuals separately if selected, or publish approved text only." : "Review and edit every selected channel caption and every slide. Approve copy when ready; approval never generates images or uses image credits. Any copy, channel, version or generation-setting change requires approval again."}</p>
+            <Button type="button" disabled={busy || saving || !approvalContextReady || !canApproveCopy || copyApproved} onClick={() => { if (!operationLocked.current) setCopyApproval({ version: 1, fingerprint }); }}>{copyApproved ? "Copy approved" : "Approve copy"}</Button>
+            {type !== "Carousel" && type !== "Thread" && (alsoGenerateImage || creativeItems.length > 0 || visualsStale || generatedImageUrl) && !prefillMedia && <Button type="button" variant="outline" disabled={busy || saving} onClick={removeGeneratedImage}>Use text only</Button>}
+          </section>
           {/* Platform switch — only when more than one platform */}
           {selectedPlatforms.length > 1 && (
             <div className="flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
@@ -1741,6 +1819,7 @@ function GenerateTab({
                 <button
                   key={p}
                   type="button"
+                  disabled={busy || saving}
                   onClick={() => selectPlatformTab(p)}
                   aria-pressed={previewPlatform === p}
                   className={cn(
@@ -1768,6 +1847,7 @@ function GenerateTab({
                   <button
                     key={globalIdx}
                     type="button"
+                    disabled={busy || saving}
                     onClick={() => selectVariationTab(globalIdx)}
                     aria-pressed={activeIdx === globalIdx}
                     className={cn(
@@ -1835,7 +1915,7 @@ function GenerateTab({
                 hashtags={includeHashtags ? activeVariation.hashtags : []}
                 saving={saving || busy}
                 onCaptionChange={updateActiveCaption}
-                onSaveDraft={() => void saveDraft(activeVariation)}
+                onSaveDraft={() => void saveDraft()}
               />
             ) : (
               <div className="flex min-h-96 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-5 py-10 text-center">
@@ -1860,7 +1940,7 @@ function GenerateTab({
 
           {(visualMessage || creativeRequest || visualsStale || (type === "Carousel" && slides?.length)) && <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
             {visualMessage && <p role="status" className="text-sm text-muted-foreground">{visualMessage}</p>}
-            <Button type="button" variant="outline" disabled={busy || saving || type === "Thread" || !prompt.trim()} onClick={() => { if (operationLocked.current) return; operationLocked.current = true; void runCreativeSet(type === "Carousel" ? slides : null, previewCaption, true).finally(() => { operationLocked.current = false; }); }}><RefreshCcw className="h-3.5 w-3.5" />{creativeRequest ? "Retry visuals" : "Regenerate visuals"}</Button>
+            <Button type="button" variant="outline" disabled={busy || saving || !copyApproved || !alsoGenerateImage || type === "Thread" || !prompt.trim()} onClick={() => void generateImage(true)}><RefreshCcw className="h-3.5 w-3.5" />{creativeRequest ? "Retry visuals" : "Regenerate visuals"}</Button>
           </div>}
 
           {(imageLoading || previewImageUrl || slideImages.length > 0) && !prefillMedia && (
@@ -1889,7 +1969,7 @@ function GenerateTab({
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={imageLoading || slidesLoading}
+                    disabled={busy || saving || !copyApproved || !alsoGenerateImage}
                     onClick={() => void generateImage()}
                   >
                     <RefreshCcw className={cn("mr-1 h-3.5 w-3.5", (imageLoading || slidesLoading) && "animate-spin")} />
@@ -1902,7 +1982,7 @@ function GenerateTab({
                           <Download className="mr-1 h-3.5 w-3.5" /> Download
                         </a>
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={removeGeneratedImage}>
+                      <Button size="sm" variant="ghost" disabled={busy || saving} onClick={removeGeneratedImage}>
                         <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove
                       </Button>
                     </>
@@ -2587,10 +2667,10 @@ export function BrandTab({
       </div>
       </fieldset>
 
-        <div className="space-y-3 rounded-xl border border-border bg-card p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <p role="status" className="text-sm text-muted-foreground">{saving ? "Saving your profile…" : dirty ? "You have unsaved changes." : "All profile changes saved."}</p>
-          <div className="flex flex-wrap gap-3">
+        <div className="mobile-action-bar space-y-2 rounded-xl border border-border bg-card p-3 sm:space-y-3 sm:p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <p role="status" className="text-xs text-muted-foreground sm:text-sm">{saving ? "Saving your profile…" : dirty ? "You have unsaved changes." : "All profile changes saved."}</p>
+          <div className="grid grid-cols-2 gap-2 [&>button]:min-h-11 [&>button]:px-2 [&>button]:text-xs sm:flex sm:flex-wrap sm:gap-3 sm:[&>button]:px-4 sm:[&>button]:text-sm">
           <Button type="button" variant="outline" disabled={!dirty || saving || refreshing} onClick={() => {
             if (operationRef.current || !snapshot) return;
             applyDraft(snapshot);
@@ -2598,16 +2678,16 @@ export function BrandTab({
           }}>Reset to saved</Button>
           <Button type="submit" disabled={!dirty || saving || refreshing || !orgId || invalidColors}>
             {saving ? (
-              <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" />
+              <RefreshCcw className="mr-1.5 hidden h-4 w-4 animate-spin sm:block" />
             ) : (
-              <Save className="mr-1.5 h-4 w-4" />
+              <Save className="mr-1.5 hidden h-4 w-4 sm:block" />
             )}
             Save brand profile
           </Button>
           </div>
           </div>
           {saveError && <p role="alert" className="text-sm text-destructive">{saveError} Your changes are still here. Try saving again.</p>}
-          <p className="text-xs text-muted-foreground">
+          <p className="hidden text-xs text-muted-foreground sm:block">
             Every post and image you create uses this profile.
           </p>
         </div>
@@ -3140,7 +3220,7 @@ export default function AIStudioPage({
           onValueChange={(v) => navigateTab(v as AIStudioTab)}
           className="space-y-6"
         >
-          <TabsList ref={sectionNavigation} aria-label="Studio sections" className="grid h-auto w-full scroll-mt-20 grid-cols-2 gap-1 rounded-xl border border-border bg-muted/30 p-1 sm:grid-cols-4">
+          <TabsList ref={sectionNavigation} aria-label="Studio sections" className="grid h-auto w-full scroll-mt-[calc(var(--app-header-height)+1rem)] grid-cols-2 gap-1 rounded-xl border border-border bg-muted/30 p-1 sm:grid-cols-4">
             {STUDIO_TABS.map(({ value, label, description, icon: Icon }) => <TabsTrigger key={value} value={value} title={description} className="h-10 min-w-0 gap-2 whitespace-normal rounded-lg px-2 text-xs data-[state=active]:bg-card data-[state=active]:shadow-soft sm:text-sm"><Icon className="h-4 w-4 shrink-0" /><span>{label}</span></TabsTrigger>)}
           </TabsList>
 

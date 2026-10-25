@@ -113,7 +113,7 @@ function TemplateCard({
             <Button size="sm" variant="outline" onClick={onEdit}>
               Edit
             </Button>
-            <Button size="sm" variant="ghost" onClick={onDelete}>
+            <Button size="sm" variant="ghost" aria-label={`Delete ${template.name}`} onClick={onDelete}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </>
@@ -273,20 +273,25 @@ export default function TemplatesList() {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full max-w-xs">
+        <div className="relative w-full sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-8"
+            aria-label="Search templates"
             placeholder="Search templates…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <select aria-label="Template category" value={activeCategory} onChange={(event) => setActiveCategory(event.target.value)} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden">
+          {CATEGORIES.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+        </select>
+        <div className="hidden flex-wrap gap-1.5 sm:flex">
           {CATEGORIES.map((c) => (
             <button
               key={c.value}
               type="button"
+              aria-pressed={activeCategory === c.value}
               onClick={() => setActiveCategory(c.value)}
               className={cn(
                 "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
@@ -376,7 +381,7 @@ export default function TemplatesList() {
       />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-dvh max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? "Edit template" : "Create template"}</DialogTitle>
           </DialogHeader>

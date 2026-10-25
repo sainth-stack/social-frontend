@@ -505,7 +505,7 @@ class ContentPlanGenerateRequest(BaseModel):
     theme: Optional[str] = Field(default=None, max_length=16000)  # legacy alias for prompt
     tone: Optional[str] = Field(default=None, max_length=64)
     cta: Optional[str] = Field(default=None, max_length=200)
-    autoSchedule: bool = True
+    autoSchedule: bool = False
     generateImages: bool = False
     skipFilledDays: bool = True
     startDayOffset: int = Field(default=0, ge=0, le=29)
@@ -518,6 +518,10 @@ class ContentPlanGenerateRequest(BaseModel):
         default=None,
         description="Publishable platforms to use (facebook/instagram). Default: all connected.",
     )
+
+
+class ContentPlanVisualRequest(BaseModel):
+    caption: str = Field(min_length=1, max_length=16000)
 
 
 class ContentPlanJobStartResponse(BaseModel):

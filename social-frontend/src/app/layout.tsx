@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
 
 import AppProviders from "@/components/providers/AppProviders";
+import { themeInitializationScript } from "@/lib/theme-preference";
 
 import "./globals.css";
 
@@ -20,6 +21,7 @@ const plusJakarta = Plus_Jakarta_Sans({
 
 export const viewport: Viewport = {
   themeColor: "#4f46e5",
+  viewportFit: "cover",
 };
 
 export const metadata: Metadata = {
@@ -47,7 +49,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${plusJakarta.variable}`}>
+    <html lang="en" className={`${inter.variable} ${plusJakarta.variable}`} suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: themeInitializationScript }} /></head>
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         <AppProviders>{children}</AppProviders>
       </body>

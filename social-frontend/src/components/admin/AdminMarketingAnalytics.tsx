@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import adminApi from "@/api/endpoints/admin.api";
+import { AdminTableView } from "./AdminMobile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -70,9 +71,9 @@ function MarketingContent() {
           <p className="mt-1 text-sm text-muted-foreground">Last 30 days (UTC). Event totals, not unique visitors. Sign-up clicks are not registrations.</p>
           <p className="mt-2 text-xs text-muted-foreground">Landing-page event collection respects Do Not Track (DNT) and Global Privacy Control, so some activity is not recorded.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={loading} onClick={refresh}><RefreshCw className="mr-2 size-4" aria-hidden />Refresh marketing analytics</Button>
-        <Button variant="outline" asChild><Link href="/admin/contacts">View enquiries</Link></Button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
+        <Button className="min-h-11 sm:min-h-0" variant="outline" disabled={loading} onClick={refresh}><RefreshCw className="mr-2 size-4" aria-hidden />Refresh marketing analytics</Button>
+        <Button className="min-h-11 sm:min-h-0" variant="outline" asChild><Link href="/admin/contacts">View enquiries</Link></Button>
         </div>
       </div>
       {error && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm"><p>Marketing analytics could not be loaded. {data ? "Showing previously loaded data; it may be out of date." : "No totals are available."}</p><Button variant="outline" disabled={loading} onClick={refresh}>Retry marketing analytics</Button></div>}
@@ -111,13 +112,13 @@ function MarketingContent() {
                 <p className="pb-4 text-sm text-muted-foreground">No marketing activity recorded in the last 30 days.</p>
               ) : data.daily.length === 0 ? <p className="pb-4 text-sm text-muted-foreground">No daily breakdown returned. Aggregate totals are shown above.</p> : null}
               {data.daily.length > 0 ? (
-                <div className="overflow-x-auto rounded-lg border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="region" aria-label="Daily marketing totals" tabIndex={0}>
+                <AdminTableView><div className="overflow-x-auto rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:border" role="region" aria-label="Daily marketing totals" tabIndex={0}>
                   <table className="w-full text-left text-sm">
                     <caption className="sr-only">Daily event and enquiry totals for the last 30 days. Dates are UTC.</caption>
                     <thead className="bg-muted/50"><tr>{["Date (UTC)", "Page views", "Sign-up clicks", "Contact clicks", "Enquiries"].map((label) => <th key={label} scope="col" className="whitespace-nowrap px-4 py-3 font-medium">{label}</th>)}</tr></thead>
-                    <tbody>{data.daily.map((day) => <tr key={day.date} className="border-t"><th scope="row" className="whitespace-nowrap px-4 py-3 font-normal"><time dateTime={day.date}>{day.date.slice(0, 10)}</time></th>{[day.pageViews, day.signupClicks, day.contactClicks, day.contacts].map((value, index) => <td key={index} className="px-4 py-3 tabular-nums">{value.toLocaleString()}</td>)}</tr>)}</tbody>
+                    <tbody>{data.daily.map((day) => <tr key={day.date} className="border-t"><th scope="row" className="block px-0 py-3 text-left font-medium md:table-cell md:whitespace-nowrap md:px-4 md:font-normal"><time dateTime={day.date}>{day.date.slice(0, 10)}</time><span aria-hidden="true" className="ml-1 text-xs text-muted-foreground md:hidden">UTC</span></th>{[["Page views", day.pageViews], ["Sign-up clicks", day.signupClicks], ["Contact clicks", day.contactClicks], ["Enquiries", day.contacts]].map(([label, value]) => <td key={label} data-label={label} className="px-4 py-3 tabular-nums">{Number(value).toLocaleString()}</td>)}</tr>)}</tbody>
                   </table>
-                </div>
+                </div></AdminTableView>
               ) : null}
             </CardContent>
           </Card>

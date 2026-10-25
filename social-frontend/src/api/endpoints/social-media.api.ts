@@ -301,6 +301,15 @@ export const socialMediaApi = {
     return data;
   },
 
+  async approveContentPlanVisual(orgId: string, postId: string, caption: string): Promise<SocialPost> {
+    const { data } = await apiClient.post<SocialPost & { workspaceId?: string }>(
+      `${base(orgId)}/content-plan/posts/${postId}/approve-visual`,
+      { caption },
+      { timeout: 180000 },
+    );
+    return normalizePost(data);
+  },
+
   async getContentPlanJob(orgId: string, jobId: string): Promise<ContentPlanJobStatus> {
     const { data } = await apiClient.get<ContentPlanJobStatus>(
       `${base(orgId)}/content-plan/jobs/${jobId}`,

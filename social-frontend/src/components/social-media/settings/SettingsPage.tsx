@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import { Moon, Save, Sun } from "lucide-react";
+import { Monitor, Moon, Save, Sun } from "lucide-react";
 import { toast } from "sonner";
+import { useAppTheme } from "@/components/providers/AppThemeProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -71,15 +72,13 @@ function WorkspaceSettings({ section: explicitSection }: { section?: SettingsSec
   const { form, loading, error, saveError, saving, dirty, canEdit, patch, save, reset, reload } = useWorkspaceSettings();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [validation, setValidation] = useState<string | null>(null);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [themeError, setThemeError] = useState<string | null>(null);
+  const { preference, setTheme, themeError } = useAppTheme();
   const [submitRequested, setSubmitRequested] = useState(false);
   const savingRef = useRef(false);
   const alive = useRef(true);
   const hasDrafts = Object.keys(drafts).length > 0;
   const discard = () => { setDrafts({}); setValidation(null); reset(); };
 
-  useEffect(() => { setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light"); }, []);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => {
     if (!submitRequested) return;
@@ -125,11 +124,7 @@ function WorkspaceSettings({ section: explicitSection }: { section?: SettingsSec
   const approvalLocked = form?.usage?.approvalWorkflow === false;
 
   return <SettingsShell section={section} dirty={dirty || hasDrafts} saving={saving} onDiscard={discard}>
-    {section === "appearance" ? <Card><CardHeader><h2 className="text-lg font-semibold">{title}</h2><CardDescription>{description}</CardDescription></CardHeader><CardContent className="space-y-4"><div className="grid gap-3 sm:grid-cols-2">{(["light", "dark"] as const).map((value) => <Button key={value} type="button" variant={theme === value ? "default" : "outline"} aria-pressed={theme === value} className="h-24 gap-3" disabled={saving} onClick={() => {
-      setTheme(value);
-      document.documentElement.classList.toggle("dark", value === "dark");
-      try { localStorage.setItem("opsbrain-theme", value); setThemeError(null); } catch { setThemeError("Theme applied for this visit. Your browser could not remember it on this device."); }
-    }}>{value === "light" ? <Sun aria-hidden="true" className="h-5 w-5" /> : <Moon aria-hidden="true" className="h-5 w-5" />}{value === "light" ? "Light" : "Dark"}</Button>)}</div><p className="text-sm text-muted-foreground">Theme changes apply immediately and do not change workspace settings.</p>{themeError && <p role="status" className="text-sm text-muted-foreground">{themeError}</p>}</CardContent></Card> : <>
+    {section === "appearance" ? <Card><CardHeader><h2 className="text-lg font-semibold">{title}</h2><CardDescription>{description}</CardDescription></CardHeader><CardContent className="space-y-4"><div className="grid gap-3 sm:grid-cols-3">{(["light", "dark", "system"] as const).map((value) => <Button key={value} type="button" variant={preference === value ? "default" : "outline"} aria-pressed={preference === value} className="h-24 gap-3" disabled={saving} onClick={() => setTheme(value)}>{value === "light" ? <Sun aria-hidden="true" className="h-5 w-5" /> : value === "dark" ? <Moon aria-hidden="true" className="h-5 w-5" /> : <Monitor aria-hidden="true" className="h-5 w-5" />}{value === "light" ? "Light" : value === "dark" ? "Dark" : "System"}</Button>)}</div><p className="text-sm text-muted-foreground">Theme changes apply immediately and do not change workspace settings. System follows your device appearance.</p>{themeError && <p role="status" className="text-sm text-muted-foreground">{themeError}</p>}</CardContent></Card> : <>
       {!user?.workspaceId ? <p role="status" className="rounded-xl border border-border p-6 text-sm text-muted-foreground">Select a workspace to view settings.</p> : loading ? <div role="status" aria-label="Loading settings" aria-busy="true" className="space-y-4 rounded-xl border border-border p-6"><Skeleton className="h-6 w-40" /><Skeleton className="h-4 w-64 max-w-full" /><Skeleton className="h-20 w-full" /><Skeleton className="h-20 w-full" /><span className="sr-only">Loading settings</span></div> : error ? <div role="alert" className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-6"><h2 className="font-semibold">Settings could not be loaded</h2><p className="text-sm">{error}</p><Button variant="outline" onClick={() => void reload()}>Retry loading settings</Button></div> : form ? <form onSubmit={(event) => { event.preventDefault(); submit(); }} className="space-y-5">
         {!canEdit && <p role="status" className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">Read-only access. Only workspace owners and social admins can edit workspace settings.</p>}
         <Card><CardHeader><h2 className="text-lg font-semibold">{title}</h2><CardDescription>{description}</CardDescription></CardHeader><CardContent>
@@ -166,7 +161,7 @@ function WorkspaceSettings({ section: explicitSection }: { section?: SettingsSec
         </CardContent></Card>
         {validation && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{validation}</p>}
         {saveError && <div role="alert" className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"><p>{saveError}</p><Button type="submit" variant="outline" disabled={saving || !canEdit}>Retry saving settings</Button></div>}
-        {(dirty || hasDrafts || saving) && <footer className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-4"><p role="status" className="text-sm text-muted-foreground">{saving ? "Saving your changes…" : "You have unsaved changes"}</p><div className="flex gap-2"><Button type="button" variant="outline" disabled={saving || !canEdit} onClick={discard}>Reset changes</Button><Button type="submit" disabled={saving || !canEdit}><Save aria-hidden="true" className="mr-2 h-4 w-4" />{saving ? "Saving…" : "Save changes"}</Button></div></footer>}
+        {(dirty || hasDrafts || saving) && <footer className="mobile-action-bar flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-3 sm:gap-4 sm:p-4"><p role="status" className="text-xs text-muted-foreground sm:text-sm">{saving ? "Saving your changes…" : "You have unsaved changes"}</p><div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto"><Button type="button" variant="outline" className="min-h-11 px-2 text-xs sm:px-4 sm:text-sm" disabled={saving || !canEdit} onClick={discard}>Reset changes</Button><Button type="submit" className="min-h-11 px-2 text-xs sm:px-4 sm:text-sm" disabled={saving || !canEdit}><Save aria-hidden="true" className="mr-2 hidden h-4 w-4 sm:block" />{saving ? "Saving…" : "Save changes"}</Button></div></footer>}
       </form> : <div role="status" className="space-y-3 rounded-xl border border-border p-6"><p>No settings are available for this workspace.</p><Button variant="outline" onClick={() => void reload()}>Reload settings</Button></div>}
     </>}
   </SettingsShell>;

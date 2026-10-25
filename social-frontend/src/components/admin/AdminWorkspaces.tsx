@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Building2 } from "lucide-react";
 import adminApi from "@/api/endpoints/admin.api";
+import { AdminTableView } from "./AdminMobile";
 import { PageHeader } from "@/components/layouts/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -110,18 +111,18 @@ function WorkspacesContent() {
         <p aria-live="polite" className="text-sm text-muted-foreground">{result.length ? `Showing ${filters.page * 20 + 1}–${filters.page * 20 + Math.min(20, result.length)}` : "0 workspaces on this page"}</p>
         <Card className="min-w-0 overflow-hidden"><CardContent className="min-w-0 p-0">
           {!result.length ? <div className="space-y-3 p-8 text-center"><h2 className="font-semibold">No workspaces found</h2><p className="text-sm text-muted-foreground">Workspaces appear here when users create them. Try another search.</p>{filters.search && <Button variant="outline" onClick={() => changeFilters({ search: "", page: 0 })}>Clear search</Button>}</div> :
-            <div role="region" aria-label="Workspaces table" tabIndex={0} className="max-w-full overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Table>
+            <AdminTableView><div role="region" aria-label="Workspaces table" tabIndex={0} className="max-w-full overflow-x-auto p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:p-0"><Table>
               <TableHeader><TableRow><TableHead>Workspace</TableHead><TableHead>Owner</TableHead><TableHead>Plan</TableHead><TableHead>Status</TableHead><TableHead>Members</TableHead><TableHead>Created</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
               <TableBody>{result.slice(0, 20).map((workspace) => <TableRow key={workspace.id}>
-                <TableCell><div className="w-44 break-words font-medium">{workspace.name}</div></TableCell>
-                <TableCell><div className="w-48 break-all text-muted-foreground">{workspace.owner_email || "Owner unavailable"}</div></TableCell>
-                <TableCell><Badge variant="outline">{PLAN_LABELS[workspace.plan]}</Badge></TableCell>
-                <TableCell><Badge variant={workspace.is_active ? "secondary" : "destructive"}>{workspace.is_active ? "Active" : "Inactive"}</Badge></TableCell>
-                <TableCell>{workspace.member_count.toLocaleString()}</TableCell>
-                <TableCell className="whitespace-nowrap text-muted-foreground">{Number.isNaN(Date.parse(workspace.created_at)) ? "Unavailable" : new Date(workspace.created_at).toLocaleDateString()}</TableCell>
-                <TableCell><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" asChild><Link href={`/admin/ai-usage?workspaceId=${encodeURIComponent(workspace.id)}`} aria-label={`AI usage for ${workspace.name}`}>AI usage</Link></Button><Button size="sm" variant="outline" disabled={saving} aria-label={`Change plan for ${workspace.name}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setPlan(workspace.plan); setSaveError(false); setTarget({ workspace, action: "plan" }); }}>Change plan</Button><Button size="sm" variant="outline" disabled={saving} aria-label={`${workspace.is_active ? "Deactivate" : "Activate"} ${workspace.name}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setSaveError(false); setTarget({ workspace, action: "status" }); }}>{workspace.is_active ? "Deactivate" : "Activate"}</Button></div></TableCell>
+                <TableCell data-label="Workspace"><div className="w-44 break-words font-medium">{workspace.name}</div></TableCell>
+                <TableCell data-label="Owner"><div className="w-48 break-all text-muted-foreground">{workspace.owner_email || "Owner unavailable"}</div></TableCell>
+                <TableCell data-label="Plan"><Badge variant="outline">{PLAN_LABELS[workspace.plan]}</Badge></TableCell>
+                <TableCell data-label="Status"><Badge variant={workspace.is_active ? "secondary" : "destructive"}>{workspace.is_active ? "Active" : "Inactive"}</Badge></TableCell>
+                <TableCell data-label="Members">{workspace.member_count.toLocaleString()}</TableCell>
+                <TableCell data-label="Created" className="whitespace-nowrap text-muted-foreground">{Number.isNaN(Date.parse(workspace.created_at)) ? "Unavailable" : new Date(workspace.created_at).toLocaleDateString()}</TableCell>
+                <TableCell data-label="Actions"><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" asChild><Link href={`/admin/ai-usage?workspaceId=${encodeURIComponent(workspace.id)}`} aria-label={`AI usage for ${workspace.name}`}>AI usage</Link></Button><Button size="sm" variant="outline" disabled={saving} aria-label={`Change plan for ${workspace.name}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setPlan(workspace.plan); setSaveError(false); setTarget({ workspace, action: "plan" }); }}>Change plan</Button><Button size="sm" variant="outline" disabled={saving} aria-label={`${workspace.is_active ? "Deactivate" : "Activate"} ${workspace.name}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setSaveError(false); setTarget({ workspace, action: "status" }); }}>{workspace.is_active ? "Deactivate" : "Activate"}</Button></div></TableCell>
               </TableRow>)}</TableBody>
-            </Table></div>}
+            </Table></div></AdminTableView>}
         </CardContent></Card>
         <nav aria-label="Workspace pagination" className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">Page {filters.page + 1}</p><div className="flex gap-2"><Button variant="outline" disabled={filters.page === 0} onClick={() => changeFilters({ ...filters, page: filters.page - 1 })}>Previous</Button><Button variant="outline" disabled={result.length <= 20} onClick={() => changeFilters({ ...filters, page: filters.page + 1 })}>Next</Button></div></nav>
       </> : null}

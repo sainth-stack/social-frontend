@@ -479,6 +479,8 @@ class SocialMediaService:
             "updated_at": now,
         }
         platform_rows = self._prepare_platforms(post_id, workspace["id"], payload.platforms)
+        if "copyApproval" in payload.generationOptions:
+            post["studio_approval_version"] = 1
         self._validate_structured_post(post, platform_rows)
         if status_val not in ("draft", "scheduled"):
             raise HTTPException(status_code=400, detail="Create a draft or scheduled post before publishing")
@@ -554,6 +556,22 @@ class SocialMediaService:
                 updates[key] = [item.model_dump() for item in value] if field in ("slides", "tweets") else value
         platforms = self._prepare_platforms(post["id"], workspace["id"], payload.platforms) if payload.platforms is not None else _get_post_platforms(self.db, post["id"])
         candidate = {**post, **updates}
+        if post.get("studio_approval_version") or "copyApproval" in (post.get("generation_options") or {}) or "copyApproval" in (candidate.get("generation_options") or {}):
+            updates["studio_approval_version"] = candidate["studio_approval_version"] = 1
+            old_platforms = _get_post_platforms(self.db, post["id"])
+            media_changed = post.get("image_url") != candidate.get("image_url") or {
+                pp["platform"]: pp.get("media") or [] for pp in old_platforms
+            } != {pp["platform"]: pp.get("media") or [] for pp in platforms}
+            renewed = bool(payload.generationOptions and payload.generationOptions.get("copyApproval"))
+            try:
+                self._validate_studio_approval(candidate, platforms, visuals=False)
+                if media_changed and not renewed:
+                    raise HTTPException(status_code=400, detail="Media changed; approve copy again")
+            except HTTPException:
+                options = {**(candidate.get("generation_options") or {}), "copyApproval": None}
+                if media_changed or post.get("image_url") or any(pp.get("media") for pp in old_platforms):
+                    options["visualsStale"] = True
+                updates["generation_options"] = candidate["generation_options"] = options
         self._validate_structured_post(candidate, platforms)
         if candidate.get("status") == "scheduled":
             self._validate_ready_to_publish_dict(candidate, platforms, persist_accounts=False)
@@ -1885,6 +1903,87 @@ class SocialMediaService:
             result.append(descriptor)
         return result
 
+    def _validate_studio_approval(self, post: dict, platforms: list[dict], *, visuals: bool = True) -> None:
+        from app.social.ai.caption_sanitize import normalize_generated_text, sanitize_caption_and_hashtags
+
+        options = post.get("generation_options") or {}
+        if not post.get("studio_approval_version") and "copyApproval" not in options:
+            return
+        error = "Copy approval is missing or out of date; review and approve the latest Studio copy"
+        approval = options.get("copyApproval")
+        if not isinstance(approval, dict) or type(approval.get("version")) is not int or approval["version"] != 1:
+            raise HTTPException(status_code=400, detail=error)
+        try:
+            snapshot = json.loads(approval.get("fingerprint"))
+            if type(snapshot.get("version")) is not int or snapshot["version"] != 1:
+                raise ValueError
+            content = snapshot["content"]
+            approved = content["platforms"]
+            if not isinstance(content, dict) or not isinstance(approved, list) or not approved:
+                raise ValueError
+
+            def copy(rows):
+                result = {}
+                for row in rows:
+                    platform = row["platform"]
+                    caption, tags = row["caption"], row["hashtags"]
+                    if platform in result or not isinstance(caption, str) or not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+                        raise ValueError
+                    caption, tags = sanitize_caption_and_hashtags(caption, tags, hashtag_limit=len(tags) + len(caption), include_emojis=True)
+                    if not caption.strip():
+                        raise ValueError
+                    result[platform] = (caption, tuple(tag.casefold() for tag in tags))
+                return result
+
+            if copy(approved) != copy(platforms):
+                raise ValueError
+            fmt = post.get("format") or "single"
+            expected_format = {"Carousel": "carousel", "Thread": "thread", "Poll": "poll"}.get(content["type"], "single")
+            if fmt != expected_format:
+                raise ValueError
+            for field, keys in (("slides", ("id", "headline", "body", "imagePrompt")), ("tweets", ("text",))):
+                def structured(rows):
+                    if not isinstance(rows, list):
+                        raise ValueError
+                    return [tuple(normalize_generated_text(row.get(key, ""), include_emojis=True) if key != "id" else row[key] for key in keys) for row in rows]
+                if structured(content[field]) != structured(post.get(field) or []):
+                    raise ValueError
+            if str(content["prompt"]).strip() != (post.get("ai_prompt") or "").strip():
+                raise ValueError
+            for key in ("tone", "includeEmojis", "includeHashtags", "length", "slideCount", "variationsWanted", "artDirection", "cta", "visualFormat", "headlineOnImage", "includeLogo", "logoId", "logoPosition"):
+                if content.get(key) != options.get(key):
+                    raise ValueError
+            if "contentType" in options and options["contentType"] != content["type"]:
+                raise ValueError
+            if type(content["alsoGenerateImage"]) is not bool or options.get("visualIntent") is not content["alsoGenerateImage"]:
+                raise ValueError
+        except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
+            raise HTTPException(status_code=400, detail=error) from None
+        if not visuals:
+            return
+        if options.get("visualsStale"):
+            raise HTTPException(status_code=400, detail="Creative images are stale; regenerate current visuals before publishing")
+        if options.get("visualIntent") and not post.get("image_url") and not any(pp.get("media") for pp in platforms):
+            raise HTTPException(status_code=400, detail="Requested Studio visuals are missing; generate visuals or approve text-only copy")
+        if options.get("creativeRequest") and (post.get("format") or "single") != "carousel":
+            if any(pp.get("platform") != "x" and not any(item.get("slideId") == "single" and (item.get("assetId") or item.get("blobKey")) and item.get("url") for item in pp.get("media") or []) for pp in platforms):
+                raise HTTPException(status_code=400, detail="Studio visuals are incomplete for the selected platforms")
+
+    def _validate_planner_approval(self, post: dict, platforms: list[dict]) -> None:
+        if not post.get("planner_text_first"):
+            return
+        import hashlib
+
+        copy = sorted(
+            [{key: row.get(key) for key in ("platform", "social_account_id", "caption", "hashtags", "first_comment")} for row in platforms],
+            key=lambda row: str(row["platform"]),
+        )
+        fingerprint = hashlib.sha256(json.dumps(copy, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        if post.get("planner_approved_fingerprint") != fingerprint:
+            raise HTTPException(status_code=400, detail="Review and approve the latest planner copy before publishing")
+        if any(pp.get("platform") == "instagram" for pp in platforms) and (post.get("planner_visual_fingerprint") != fingerprint or not post.get("image_url")):
+            raise HTTPException(status_code=400, detail="Generate the approved planner visual before publishing to Instagram")
+
     def _validate_structured_post(self, post: dict, platforms: list[dict], *, publishing: bool = False) -> None:
         from app.social.media import relative_storage_key
 
@@ -1898,6 +1997,9 @@ class SocialMediaService:
             raise HTTPException(status_code=400, detail="Slides require unique IDs and at most 8 slides")
         if publishing and fmt == "thread":
             raise HTTPException(status_code=400, detail="Threads are copy-only and cannot be scheduled or published")
+        if publishing:
+            self._validate_studio_approval(post, platforms)
+            self._validate_planner_approval(post, platforms)
         if publishing and (post.get("generation_options") or {}).get("visualsStale"):
             raise HTTPException(status_code=400, detail="Creative images are stale; regenerate or reattach current visuals before publishing")
         from app.social.media import is_video_media_url

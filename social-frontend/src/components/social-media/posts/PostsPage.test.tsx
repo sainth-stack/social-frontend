@@ -39,6 +39,20 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("PostsPage", () => {
+  it("lets phone users expand optional summaries without reloading posts", async () => {
+    const user = userEvent.setup();
+    renderPosts();
+    await screen.findByText("Post one");
+    const toggle = screen.getByRole("button", { name: "Show post overview" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBeTruthy();
+    await user.click(toggle);
+    expect(screen.getByRole("button", { name: "Hide post overview" }).getAttribute("aria-expanded")).toBe("true");
+    await user.click(screen.getByRole("button", { name: "Hide post overview" }));
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(socialMediaApi.listPosts).toHaveBeenCalledTimes(1);
+  });
+
   it("renders a single page heading and truthful page-scoped metrics", async () => {
     renderPosts();
     await screen.findByRole("button", { name: /Post one Copy for one/ });

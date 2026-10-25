@@ -26,6 +26,12 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AdminWorkspaces", () => {
+  it("labels mobile workspace fields without duplicating administrative actions", async () => {
+    render(<AdminWorkspaces />); await ready();
+    const table = screen.getByRole("region", { name: "Workspaces table" });
+    expect(Array.from(table.querySelectorAll("tbody td")).map((cell) => cell.getAttribute("data-label"))).toEqual(["Workspace", "Owner", "Plan", "Status", "Members", "Created", "Actions"]);
+    expect(screen.getAllByRole("button", { name: `Deactivate ${workspace.name}` })).toHaveLength(1);
+  });
   it("explains workspace boundaries and links workspace-scoped AI usage", async () => {
     render(<AdminWorkspaces />); await ready();
     expect(screen.getByText(/collaboration, billing and AI quota boundary/)).toBeTruthy();

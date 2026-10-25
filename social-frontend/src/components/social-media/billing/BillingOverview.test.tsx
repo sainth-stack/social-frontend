@@ -60,6 +60,22 @@ beforeEach(() => {
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("BillingOverview", () => {
+  it("keeps checkout actions in one viewport-constrained sticky footer without initiating payment", async () => {
+    renderBilling();
+    const user = await openCheckout();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.className).toContain("max-h-[calc(100dvh-2rem)]");
+    expect(dialog.className).toContain("overflow-y-auto");
+    const pay = within(dialog).getByRole("button", { name: "Pay with Razorpay" });
+    expect(pay.parentElement?.className).toContain("sticky");
+    expect(pay.parentElement?.className).toContain("env(safe-area-inset-bottom)");
+    expect(within(dialog).getAllByRole("button", { name: "Pay with Razorpay" })).toHaveLength(1);
+    expect(billingApi.createCheckout).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Upgrade to Pro" }));
+  });
+
   it("matches landing prices, unlimited accounts and the sales-only Scale offering", async () => {
     vi.mocked(billingApi.listPlans).mockResolvedValue([
       { planKey: "growth", name: "Pro", monthlyPriceInr: 499, monthlyPricePaise: 49900 },

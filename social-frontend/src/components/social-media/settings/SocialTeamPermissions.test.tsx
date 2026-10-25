@@ -10,6 +10,7 @@ import authReducer from "@/features/auth/authSlice";
 import type { User } from "@/types/auth";
 import SocialTeamPermissions from "./SocialTeamPermissions";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/api/endpoints/social-media.api", () => ({ default: { listTeamPermissions: vi.fn(), updateTeamPermission: vi.fn() } }));
 vi.mock("@/api/endpoints/auth.api", () => ({ authApi: { me: vi.fn() } }));
 

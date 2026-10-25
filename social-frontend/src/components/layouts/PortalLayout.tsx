@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Sidebar, { type SidebarBrand } from "@/components/layouts/Sidebar";
 import Topbar from "@/components/layouts/Topbar";
+import MobileNavigation from "@/components/layouts/MobileNavigation";
 import type { NavSection } from "@/components/layouts/nav-config";
 import AuthGuard from "@/features/auth/AuthGuard";
 import {
@@ -64,8 +65,9 @@ export default function PortalLayout({
             collapsed={collapsed}
             menuOpen={mobileOpen}
           />
-          <main id="main-content" tabIndex={-1} className="min-h-screen p-4 outline-none md:p-8">{children}</main>
+          <main id="main-content" tabIndex={-1} className="portal-main min-h-screen min-w-0 p-4 outline-none md:p-8">{children}</main>
         </div>
+        <MobileNavigation sections={navSections} isAdmin={isAdmin} menuOpen={mobileOpen} onMenuClick={() => dispatch(setMobileSidebarOpen(true))} />
       </div>
     </AuthGuard>
   );

@@ -188,7 +188,8 @@ export default function PhoneFrame({ children, width = 390, sx }: PhoneFrameProp
         position: "absolute",
         top: bezel, left: bezel, right: bezel, bottom: bezel,
         borderRadius: `${innerR}px`,
-        bgcolor: "#fff",
+        bgcolor: "var(--card)",
+        color: "var(--foreground)",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
@@ -249,7 +250,7 @@ export default function PhoneFrame({ children, width = 390, sx }: PhoneFrameProp
             left: 20, top: "50%", transform: "translateY(-50%)",
             fontSize: Math.round(width * 0.041),
             fontWeight: 700,
-            color: "#000",
+            color: "var(--foreground)",
             letterSpacing: "-0.02em",
             fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif",
             zIndex: 5,
@@ -270,7 +271,7 @@ export default function PhoneFrame({ children, width = 390, sx }: PhoneFrameProp
                 <Box key={i} sx={{
                   width: Math.round(width * 0.008),
                   height: `${frac * 100}%`,
-                  bgcolor: i < 3 ? "rgba(0,0,0,0.85)" : "rgba(0,0,0,0.2)",
+                  bgcolor: i < 3 ? "var(--foreground)" : "var(--muted-foreground)",
                   borderRadius: "1px",
                 }} />
               ))}
@@ -290,12 +291,13 @@ export default function PhoneFrame({ children, width = 390, sx }: PhoneFrameProp
                   bottom: `${i * 4}px`,
                   width: arc.w,
                   height: arc.h / 2,
-                  border: `1.5px solid rgba(0,0,0,${arc.opacity})`,
+                  border: "1.5px solid var(--foreground)",
+                  opacity: arc.opacity,
                   borderBottom: "none",
                   borderRadius: `${arc.w}px ${arc.w}px 0 0`,
                 }} />
               ))}
-              <Box sx={{ position: "absolute", bottom: 0, width: 2, height: 2, bgcolor: "rgba(0,0,0,0.85)", borderRadius: "50%" }} />
+              <Box sx={{ position: "absolute", bottom: 0, width: 2, height: 2, bgcolor: "var(--foreground)", borderRadius: "50%" }} />
             </Box>
 
             {/* Battery */}
@@ -303,7 +305,7 @@ export default function PhoneFrame({ children, width = 390, sx }: PhoneFrameProp
               position: "relative",
               width: Math.round(width * 0.062),
               height: Math.round(width * 0.031),
-              border: "1.5px solid rgba(0,0,0,0.35)",
+              border: "1.5px solid var(--muted-foreground)",
               borderRadius: "3px",
               display: "flex",
               alignItems: "center",
@@ -316,7 +318,7 @@ export default function PhoneFrame({ children, width = 390, sx }: PhoneFrameProp
                 transform: "translateY(-50%)",
                 width: Math.round(width * 0.008),
                 height: Math.round(width * 0.017),
-                bgcolor: "rgba(0,0,0,0.28)",
+                bgcolor: "var(--muted-foreground)",
                 borderRadius: "0 2px 2px 0",
               },
             }}>
@@ -343,7 +345,7 @@ export default function PhoneFrame({ children, width = 390, sx }: PhoneFrameProp
         {/* ── Home Indicator ── */}
         <Box sx={{
           height: Math.round(width * 0.065),
-          bgcolor: "#fff",
+          bgcolor: "var(--card)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -352,7 +354,7 @@ export default function PhoneFrame({ children, width = 390, sx }: PhoneFrameProp
           <Box sx={{
             width: Math.round(width * 0.36),
             height: Math.round(width * 0.013),
-            bgcolor: "rgba(0,0,0,0.2)",
+            bgcolor: "var(--muted-foreground)",
             borderRadius: "999px",
           }} />
         </Box>

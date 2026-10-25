@@ -2,7 +2,8 @@
 
 import { createTheme } from "@mui/material/styles";
 
-import { brandTokens, fontTokens, radiusTokens } from "@/lib/tokens";
+import { brandTokens, darkBrandTokens, fontTokens, radiusTokens } from "@/lib/tokens";
+import type { ThemeMode } from "@/lib/theme-preference";
 
 /** Card / surface corner radius */
 export const RADIUS = radiusTokens.lg;
@@ -18,48 +19,48 @@ export const displayFont = fontTokens.display;
 
 export const colors = {
   primary: brandTokens.primary,
-  primaryLight: brandTokens.primaryLight,
-  primaryDark: brandTokens.primaryHover,
-  accent: brandTokens.accent,
-  accentLight: brandTokens.accentLight,
-  accentHover: brandTokens.accentHover,
-  background: brandTokens.surfaceMuted,
-  surfaceTint: brandTokens.surfaceTint,
-  paper: brandTokens.surfaceWhite,
-  border: brandTokens.borderDefault,
-  borderHover: brandTokens.borderHover,
-  textPrimary: brandTokens.textPrimary,
-  textSecondary: brandTokens.textSecondary,
-  textMuted: brandTokens.textMuted,
-  ink: brandTokens.ink,
+  primaryLight: "var(--accent)",
+  primaryDark: "var(--legacy-primary-hover)",
+  accent: "var(--success)",
+  accentLight: "var(--legacy-success-surface)",
+  accentHover: "var(--legacy-success-text)",
+  background: "var(--background)",
+  surfaceTint: "var(--accent)",
+  paper: "var(--card)",
+  border: "var(--border)",
+  borderHover: "var(--legacy-border-hover)",
+  textPrimary: "var(--foreground)",
+  textSecondary: "var(--legacy-text-secondary)",
+  textMuted: "var(--muted-foreground)",
+  ink: "var(--foreground)",
   success: brandTokens.accent,
-  successLight: brandTokens.accentLight,
-  warning: "#D97706",
-  warningLight: "#FEF3C7",
-  error: "#DC2626",
-  errorLight: "#FEE2E2",
-  muted: brandTokens.borderMuted,
-  tableHeader: brandTokens.surfaceMuted,
-  navActive: brandTokens.primaryLight,
-  navHover: brandTokens.surfaceMuted,
-  sectionLabel: brandTokens.textMuted,
-  sidebar: brandTokens.surfaceWhite,
-  chipDraftBg: "#F1F5F9",
-  chipDraftText: brandTokens.textMuted,
-  chipSuccessBg: brandTokens.accentLight,
-  chipSuccessText: "#047857",
-  chipWarningBg: "#FEF3C7",
-  chipWarningText: "#B45309",
-  chipInfoBg: brandTokens.primaryLight,
-  chipInfoText: brandTokens.primaryHover,
-  chipErrorBg: "#FEE2E2",
-  chipErrorText: "#B91C1C",
-  chipProspectBg: "#EDE9FE",
-  chipProspectText: "#6D28D9",
-  chipNegotiationBg: "#FEF9C3",
-  chipNegotiationText: "#A16207",
-  fieldLabel: brandTokens.textSecondary,
-  ring: brandTokens.ring,
+  successLight: "var(--legacy-success-surface)",
+  warning: "var(--legacy-warning-text)",
+  warningLight: "var(--legacy-warning-surface)",
+  error: "var(--destructive)",
+  errorLight: "var(--legacy-error-surface)",
+  muted: "var(--muted)",
+  tableHeader: "var(--muted)",
+  navActive: "var(--sidebar-accent)",
+  navHover: "var(--muted)",
+  sectionLabel: "var(--muted-foreground)",
+  sidebar: "var(--sidebar)",
+  chipDraftBg: "var(--muted)",
+  chipDraftText: "var(--muted-foreground)",
+  chipSuccessBg: "var(--legacy-success-surface)",
+  chipSuccessText: "var(--legacy-success-text)",
+  chipWarningBg: "var(--legacy-warning-surface)",
+  chipWarningText: "var(--legacy-warning-text)",
+  chipInfoBg: "var(--accent)",
+  chipInfoText: "var(--legacy-info-text)",
+  chipErrorBg: "var(--legacy-error-surface)",
+  chipErrorText: "var(--legacy-error-text)",
+  chipProspectBg: "var(--accent)",
+  chipProspectText: "var(--legacy-info-text)",
+  chipNegotiationBg: "var(--legacy-warning-surface)",
+  chipNegotiationText: "var(--legacy-warning-text)",
+  fieldLabel: "var(--legacy-text-secondary)",
+  ring: "var(--ring)",
 } as const;
 
 /** Status chip palette — single source for StatusChip variants. */
@@ -82,8 +83,8 @@ export type StatusChipColorKey = keyof typeof statusChipColors;
 
 /** Chart palette — indigo primary + emerald accent */
 export const chartColors = {
-  primary: colors.primary,
-  secondary: colors.accent,
+  primary: "var(--chart-1)",
+  secondary: "var(--chart-2)",
   grid: colors.border,
 } as const;
 
@@ -95,6 +96,8 @@ export const chartAxisTick = {
 
 /** Shared Recharts tooltip container style. */
 export const chartTooltipStyle = {
+  backgroundColor: colors.paper,
+  color: colors.textPrimary,
   borderRadius: radiusTokens.md,
   border: `1px solid ${colors.border}`,
   fontSize: 12,
@@ -112,37 +115,44 @@ export const shadows = {
   md: "0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.06)",
 } as const;
 
-export const theme = createTheme({
+export function createAppTheme(mode: ThemeMode) {
+  const palette = mode === "dark" ? darkBrandTokens : brandTokens;
+  const theme = createTheme({
   palette: {
-    mode: "light",
+    mode,
     primary: {
-      main: colors.primary,
-      light: colors.primaryLight,
-      dark: colors.primaryDark,
-      contrastText: "#FFFFFF",
+      main: palette.primary,
+      light: palette.primaryLight,
+      dark: palette.primaryHover,
+      contrastText: mode === "dark" ? palette.surfaceMuted : "#FFFFFF",
     },
     success: {
-      main: colors.success,
-      light: colors.successLight,
-      dark: colors.accentHover,
+      main: palette.accent,
+      light: palette.accentLight,
+      dark: palette.accentHover,
     },
     warning: {
-      main: colors.warning,
-      light: colors.warningLight,
+      main: mode === "dark" ? "#fbbf24" : "#D97706",
+      light: mode === "dark" ? "#422e12" : "#FEF3C7",
     },
     error: {
-      main: colors.error,
-      light: colors.errorLight,
+      main: mode === "dark" ? "#f87171" : "#DC2626",
+      light: mode === "dark" ? "#421c27" : "#FEE2E2",
+    },
+    info: {
+      main: palette.primary,
+      light: palette.primaryLight,
+      dark: palette.primaryHover,
     },
     background: {
-      default: colors.background,
-      paper: colors.paper,
+      default: palette.surfaceMuted,
+      paper: palette.surfaceWhite,
     },
     text: {
-      primary: colors.textPrimary,
-      secondary: colors.textSecondary,
+      primary: palette.textPrimary,
+      secondary: palette.textSecondary,
     },
-    divider: colors.border,
+    divider: palette.borderDefault,
   },
   typography: {
     fontFamily: fontTokens.sans,
@@ -215,16 +225,16 @@ export const theme = createTheme({
             boxShadow: `0 0 0 2px ${colors.paper}, 0 0 0 4px ${colors.primary}`,
           },
         },
-        contained: {
+        contained: ({ ownerState, theme }) => ({
           boxShadow: "none",
           "&:hover": {
             boxShadow: "none",
-            backgroundColor: colors.primaryDark,
+            backgroundColor: theme.palette[ownerState.color === "inherit" || !ownerState.color ? "primary" : ownerState.color].dark,
           },
           "&:focus-visible": {
             boxShadow: `0 0 0 2px ${colors.paper}, 0 0 0 4px ${colors.primary}`,
           },
-        },
+        }),
         outlined: {
           "&:focus-visible": {
             boxShadow: `0 0 0 2px ${colors.paper}, 0 0 0 4px ${colors.primary}`,
@@ -409,7 +419,7 @@ export const theme = createTheme({
         },
         indicator: {
           height: 2,
-          backgroundColor: colors.primary,
+          backgroundColor: palette.primary,
         },
       },
     },
@@ -422,7 +432,7 @@ export const theme = createTheme({
           minHeight: 48,
           color: colors.textSecondary,
           "&.Mui-selected": {
-            color: colors.primary,
+            color: palette.primary,
           },
         },
       },
@@ -430,9 +440,9 @@ export const theme = createTheme({
     MuiCheckbox: {
       styleOverrides: {
         root: {
-          color: colors.border,
+          color: colors.borderHover,
           "&.Mui-checked": {
-            color: colors.primary,
+            color: palette.primary,
           },
         },
       },
@@ -440,9 +450,9 @@ export const theme = createTheme({
     MuiRadio: {
       styleOverrides: {
         root: {
-          color: colors.border,
+          color: colors.borderHover,
           "&.Mui-checked": {
-            color: colors.primary,
+            color: palette.primary,
           },
         },
       },
@@ -451,19 +461,24 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: radiusTokens.md,
-          bgcolor: colors.muted,
+          backgroundColor: colors.muted,
         },
         bar: {
           borderRadius: radiusTokens.md,
-          bgcolor: colors.primary,
+          backgroundColor: palette.primary,
         },
       },
     },
   },
 });
 
-theme.shadows[1] = shadows.sm;
-theme.shadows[2] = shadows.md;
+  theme.shadows[1] = shadows.sm;
+  theme.shadows[2] = shadows.md;
+  return theme;
+}
+
+export const appThemes = { light: createAppTheme("light"), dark: createAppTheme("dark") };
+export const theme = appThemes.light;
 
 export const layoutTokens = {
   sidebarWidth: 260,

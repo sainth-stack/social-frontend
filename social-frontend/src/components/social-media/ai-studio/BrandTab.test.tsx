@@ -69,6 +69,19 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("BrandTab", () => {
+  it("keeps a single form-bound save/reset action bar reachable on mobile", async () => {
+    mount();
+    await ready();
+    change("Business name", "Mobile Acme");
+    const save = screen.getByRole("button", { name: "Save brand profile" });
+    expect(save.closest(".mobile-action-bar")).toBeTruthy();
+    expect(save.getAttribute("type")).toBe("submit");
+    expect(screen.getAllByRole("button", { name: "Save brand profile" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Reset to saved" }));
+    expect((screen.getByRole("textbox", { name: "Business name" }) as HTMLInputElement).value).toBe("Acme");
+    expect(socialMediaApi.saveBrandVoice).not.toHaveBeenCalled();
+  });
+
   it("uses Professional/never for missing brand preferences without overwriting saved explicit choices", async () => {
     const missing = { ...brand, id: null, tones: [], emojiUsage: undefined };
     vi.mocked(socialMediaApi.getBrandVoice).mockResolvedValueOnce(missing as unknown as BrandVoice);

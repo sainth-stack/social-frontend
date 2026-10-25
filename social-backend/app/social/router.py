@@ -53,6 +53,7 @@ from app.social.schemas import (
     ContentPlanJobStartResponse,
     ContentPlanJobStatusResponse,
     ContentPlanJobProgress,
+    ContentPlanVisualRequest,
     CreateSocialAccountRequest,
     CreateSocialPostRequest,
     GenerateImageRequest,
@@ -316,6 +317,20 @@ def update_post(
     db: Database = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> SocialPostOut:
+    if post.get("planner_text_first"):
+        from app.social.content_plan import ContentPlanService
+        from app.social.models import SocialPermission
+        from app.social.permissions import require_permission
+
+        require_permission(db, workspace, _, SocialPermission.EDITOR)
+        planner = ContentPlanService(db)
+        with planner.edit_lock(post) as fresh:
+            next_status = payload.status.value if payload.status is not None else fresh.get("status")
+            if payload.platforms is not None and next_status != "draft":
+                raise HTTPException(status_code=409, detail="Return this planner post to draft before editing copy; changed copy needs visual approval again.")
+            fingerprint = planner.copy_fingerprint(fresh)
+            SocialMediaService(db).update_post(fresh, workspace, payload)
+            return planner.invalidate_changed_copy(fresh, fingerprint)
     return SocialMediaService(db).update_post(post, workspace, payload)
 
 
@@ -327,6 +342,25 @@ def regenerate_post_content(
     db: Database = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ) -> SocialPostOut:
+    if post.get("planner_text_first"):
+        from app.social.content_plan import ContentPlanService
+        from app.social.models import SocialPermission
+        from app.social.permissions import require_permission
+
+        require_permission(db, workspace, current_user, SocialPermission.EDITOR)
+        if payload.regenerateImage:
+            raise HTTPException(status_code=409, detail="Review and save the latest copy, then approve it through the planner visual action.")
+        planner = ContentPlanService(db)
+        with planner.edit_lock(post) as fresh:
+            if fresh.get("status") != "draft":
+                raise HTTPException(status_code=409, detail="Return this planner post to draft before rewriting copy.")
+            fingerprint = planner.copy_fingerprint(fresh)
+            with metering_scope(db, workspace["id"], current_user["id"], "regenerate"):
+                SocialMediaService(db).regenerate_post_content(
+                    fresh, workspace, current_user, prompt=payload.prompt, regenerate_image=False,
+                    regenerate_caption=payload.regenerateCaption, tone=payload.tone, cta=payload.cta,
+                )
+            return planner.invalidate_changed_copy(fresh, fingerprint)
     with metering_scope(db, workspace["id"], current_user["id"], "regenerate"):
         return SocialMediaService(db).regenerate_post_content(
             post,
@@ -444,33 +478,36 @@ def generate_content_plan(
     from app.social.content_plan import ContentPlanService
     from app.social.tasks.content_plan import generate_content_plan_task
 
-    # Validate accounts and permissions before enqueueing
     ContentPlanService(db).validate_plan_request(workspace, current_user, payload)
 
+    from app.social.content_plan_jobs import register_content_plan_job
+
+    job_id = str(uuid.uuid4())
+    register_content_plan_job(job_id, str(workspace["id"]))
     try:
         task = generate_content_plan_task.apply_async(
             args=[str(workspace["id"]), str(current_user["id"]), payload.model_dump(mode="json")],
             queue="social_maintenance",
+            task_id=job_id,
         )
-        from app.social.content_plan_jobs import register_content_plan_job
-
-        register_content_plan_job(task.id, str(workspace["id"]))
         return ContentPlanJobStartResponse(jobId=task.id)
     except Exception as exc:
-        logger.warning("Celery enqueue failed, running content plan synchronously: %s", exc)
-        result = ContentPlanService(db).generate(workspace, current_user, payload)
-        # Store completed result in Celery backend via a pseudo task id pattern
-        sync_id = f"sync-{uuid.uuid4()}"
-        from workers.celery_app import celery_app
-        from app.social.content_plan_jobs import register_content_plan_job
+        logger.warning("Content plan enqueue uncertain for %s: %s", job_id, exc)
+        return ContentPlanJobStartResponse(jobId=job_id)
 
-        register_content_plan_job(sync_id, str(workspace["id"]))
-        celery_app.backend.store_result(
-            sync_id,
-            result.model_dump(mode="json"),
-            state="SUCCESS",
-        )
-        return ContentPlanJobStartResponse(jobId=sync_id)
+
+@router.post("/content-plan/posts/{post_id}/approve-visual", response_model=SocialPostOut)
+def approve_content_plan_visual(
+    payload: ContentPlanVisualRequest,
+    post: dict = Depends(get_social_post_or_404),
+    workspace: dict = Depends(require_workspace_access),
+    db: Database = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+) -> SocialPostOut:
+    from app.social.content_plan import ContentPlanService
+
+    with metering_scope(db, workspace["id"], current_user["id"], "planner-visual"):
+        return ContentPlanService(db).approve_and_generate_visual(workspace, current_user, post, payload.caption)
 
 
 @router.get("/content-plan/jobs/{job_id}", response_model=ContentPlanJobStatusResponse)
@@ -483,7 +520,9 @@ def get_content_plan_job(
     from celery.result import AsyncResult
 
     from workers.celery_app import celery_app
+    from app.social.content_plan_jobs import verify_content_plan_job_workspace
 
+    verify_content_plan_job_workspace(job_id, str(workspace["id"]))
     result = AsyncResult(job_id, app=celery_app)
     state = result.state or "PENDING"
 

@@ -19,9 +19,9 @@ function limitLabel(value: number | null): string {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">{value}</span>
+    <div className="flex min-w-0 items-start justify-between gap-3 text-sm">
+      <span className="min-w-0 break-words text-muted-foreground">{label}</span>
+      <span className="break-all text-right font-medium tabular-nums">{value}</span>
     </div>
   );
 }
@@ -54,8 +54,8 @@ export default function PricingPlanCard({ plan, onEdit, disabled = false, verifi
   return (
     <Card className="flex min-w-0 flex-col rounded-xl border-border shadow-sm">
       <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-lg">{plan.name}</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="min-w-0 break-words text-lg">{plan.name}</CardTitle>
           {plan.recommended ? <Badge variant="secondary">Recommended</Badge> : null}
         </div>
         <CardDescription>
@@ -84,7 +84,7 @@ export default function PricingPlanCard({ plan, onEdit, disabled = false, verifi
           <BoolRow label="Brand voice" enabled={plan.limits.brandVoice} />
           <BoolRow label="Approval workflow" enabled={plan.limits.approvalWorkflow} />
         </div>
-        <Button variant="outline" className="mt-auto w-full" disabled={disabled || !verified} aria-label={`Edit ${plan.name} allowances`} onClick={() => onEdit(plan)}>
+        <Button variant="outline" className="mt-auto min-h-11 w-full sm:min-h-0" disabled={disabled || !verified} aria-label={`Edit ${plan.name} allowances`} onClick={() => onEdit(plan)}>
           <Pencil aria-hidden className="mr-2 h-4 w-4" /> Edit allowances
         </Button>
       </CardContent>

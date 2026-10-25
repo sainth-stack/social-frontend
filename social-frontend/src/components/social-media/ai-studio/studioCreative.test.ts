@@ -1,11 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { CreativeSetItem, StoredSlide } from "@/types/social-media.types";
-import { carouselReady, creativeMedia, creativeResultMessage, mergeCreativeItems } from "./studioCreative";
+import { approvedCaptionContext, copyFingerprint, carouselReady, creativeMedia, creativeResultMessage, mergeCreativeItems } from "./studioCreative";
 
 const slides: StoredSlide[] = ["one", "two", "three"].map((id) => ({ id, headline: id, body: "Copy", imagePrompt: "Artwork" }));
 const item = (slideId: string, platform: "linkedin" | "instagram" = "linkedin"): CreativeSetItem => ({ slideId, platform, imageUrl: `https://example.test/${platform}/${slideId}.jpg`, assetId: `${platform}-${slideId}`, blobKey: `social/studio/${platform}/${slideId}.jpg`, width: 1080, height: platform === "instagram" ? 1350 : 1080, mimeType: "image/jpeg" });
 
 describe("coordinated creative exports", () => {
+  it("fingerprints exact values with stable object keys, preserving channel and slide order", () => {
+    expect(copyFingerprint({ caption: "Copy", options: { tone: "Professional", logo: null } })).toBe(copyFingerprint({ options: { logo: null, tone: "Professional" }, caption: "Copy" }));
+    expect(copyFingerprint({ caption: "Copy" })).not.toBe(copyFingerprint({ caption: "Copy " }));
+    expect(copyFingerprint(slides)).not.toBe(copyFingerprint([...slides].reverse()));
+    expect(copyFingerprint(slides)).not.toBe(copyFingerprint(slides.map((slide, index) => index === 1 ? { ...slide, body: "Changed" } : slide)));
+  });
+
+  it("includes every selected channel caption and its hashtags in the approved visual context", () => {
+    expect(approvedCaptionContext([{ platform: "linkedin", caption: "Business copy", hashtags: ["Acme"] }, { platform: "facebook", caption: "Community copy", hashtags: [] }])).toBe("linkedin:\nBusiness copy\n#Acme\n\nfacebook:\nCommunity copy");
+  });
   it("orders media by durable slide IDs and selects only the requested platform", () => {
     const items = [item("three"), item("one", "instagram"), item("one"), item("two")];
     expect(creativeMedia(items, "linkedin", slides)).toEqual(slides.map((slide) => {

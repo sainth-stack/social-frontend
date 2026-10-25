@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Archive,
@@ -132,7 +131,6 @@ type PostDetailProps = {
 
 export default function PostDetail({ postId }: PostDetailProps) {
   const dispatch = useAppDispatch();
-  const router = useRouter();
   const user = useAppSelector(selectUser);
   const orgId = user?.workspaceId ?? "";
   const post = useAppSelector(selectCurrentSocialPost);
@@ -157,6 +155,7 @@ export default function PostDetail({ postId }: PostDetailProps) {
   if (loading && !post) {
     return (
       <div className="mx-auto max-w-3xl space-y-4">
+        <Button variant="ghost" asChild><Link href="/dashboard/posts"><ArrowLeft aria-hidden="true" className="mr-2 h-4 w-4" />Back to posts</Link></Button>
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-56 w-full" />
@@ -166,8 +165,9 @@ export default function PostDetail({ postId }: PostDetailProps) {
 
   if (!post || post.id !== postId) {
     return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-        Post not found
+      <div className="mx-auto max-w-3xl space-y-4">
+        <Button variant="ghost" asChild><Link href="/dashboard/posts"><ArrowLeft aria-hidden="true" className="mr-2 h-4 w-4" />Back to posts</Link></Button>
+        <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">Post not found</p>
       </div>
     );
   }
@@ -183,20 +183,11 @@ export default function PostDetail({ postId }: PostDetailProps) {
           : null;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto min-w-0 max-w-3xl space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="-ml-2 h-8 px-2 text-muted-foreground"
-            onClick={() => router.push(postsListHref(post.status))}
-          >
-            <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-            Back to posts
-          </Button>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">
+            <h1 className="min-w-0 break-words text-2xl font-semibold tracking-tight">
               {post.title || "Post detail"}
             </h1>
             <StatusBadge status={post.status} />
@@ -207,7 +198,11 @@ export default function PostDetail({ postId }: PostDetailProps) {
         </div>
       </header>
 
-      <div className="flex flex-wrap gap-2">
+      <section aria-label="Post actions" className="sticky top-[var(--app-header-height)] z-10 space-y-2 rounded-xl border border-border bg-card p-2 shadow-soft">
+        <Button variant="ghost" className="h-11 text-muted-foreground" asChild>
+          <Link href={postsListHref(post.status)}><ArrowLeft aria-hidden="true" className="mr-1.5 h-4 w-4" />Back to posts</Link>
+        </Button>
+        <div className="flex flex-wrap gap-2 [&>button]:min-h-11 [&>a]:min-h-11">
         {(post.status === "draft" || post.status === "failed") && (
           <>
             <Button variant="outline" size="sm" asChild>
@@ -382,7 +377,8 @@ export default function PostDetail({ postId }: PostDetailProps) {
             Submit for approval
           </Button>
         )}
-      </div>
+        </div>
+      </section>
 
       {publishLimitation && <p role="status" className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">{publishLimitation}</p>}
       {post.format === "thread" && post.tweets?.length ? <Card><CardHeader><CardTitle className="text-base">Thread · copy only</CardTitle></CardHeader><CardContent><ol className="space-y-4">{post.tweets.map((tweet, index) => <li key={index} className="space-y-2 rounded-lg border border-border p-3"><p className="text-xs text-muted-foreground">Tweet {index + 1} of {post.tweets!.length} · {tweet.text.length} / 280</p><p className="whitespace-pre-wrap break-words text-sm">{tweet.text}</p><Button size="sm" variant="outline" onClick={() => { void navigator.clipboard.writeText(tweet.text); toast.success("Tweet copied"); }}><Copy className="h-3.5 w-3.5" />Copy tweet {index + 1}</Button></li>)}</ol></CardContent></Card> : null}
@@ -434,20 +430,20 @@ export default function PostDetail({ postId }: PostDetailProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               {pp.media?.length ? <section aria-label={`${PLATFORM_LABELS[pp.platform]} media`} className="space-y-3"><p className="text-xs text-muted-foreground">{pp.media.length} {pp.media.length === 1 ? "image" : "slides"} · publishing order</p><div className="flex gap-3 overflow-x-auto pb-2">{pp.media.map((asset, index) => <figure key={asset.slideId ?? index} className="w-48 shrink-0 space-y-1"><img src={asset.url} alt={post.slides?.find((slide) => slide.id === asset.slideId)?.headline || `${PLATFORM_LABELS[pp.platform]} image ${index + 1}`} width={asset.width ?? undefined} height={asset.height ?? undefined} className="h-auto w-full rounded-lg border border-border object-contain" /><figcaption className="text-xs text-muted-foreground">{index + 1}{asset.width && asset.height ? ` · ${asset.width} × ${asset.height}` : ""}</figcaption></figure>)}</div></section> : null}
-              <p className="whitespace-pre-wrap text-sm">{pp.caption}</p>
+              <p className="whitespace-pre-wrap break-words text-sm">{pp.caption}</p>
               {pp.hashtags.length > 0 ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="break-words text-sm text-muted-foreground">
                   {pp.hashtags.map((h) => `#${h}`).join(" ")}
                 </p>
               ) : null}
               {pp.firstComment ? (
-                <p className="text-sm">
+                <p className="break-words text-sm">
                   <span className="text-muted-foreground">First comment: </span>
                   {pp.firstComment}
                 </p>
               ) : null}
               <Separator />
-              <p className="text-xs text-muted-foreground">
+              <p className="break-all text-xs text-muted-foreground">
                 Platform post ID: {pp.platformPostId || "—"}
               </p>
               {pp.errorMessage ? (

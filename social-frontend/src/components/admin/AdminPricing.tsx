@@ -92,7 +92,7 @@ function PricingContent() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <PageHeader icon={Layers3} title="Plans" description="View checkout prices in INR and manage workspace allowances. Prices are read-only; allowance changes apply to every workspace on the plan." />
 
       {status === "loading" || loading ? (

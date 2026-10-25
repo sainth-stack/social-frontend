@@ -43,6 +43,24 @@ _COMPOSITION = {
 
 _DEFAULT_STYLE = "purposeful editorial visual design, a clear subject, restrained palette, refined lighting or graphic shading, crisp detail; choose illustration, diagrammatic art, product still life or photography to suit the brief"
 
+_BUSINESS_DIRECTION = (
+    "Make the approved message understandable through one concrete visual idea, not a collage of unrelated symbols. "
+    "For educational or thought-leadership posts, use an editorial concept or a simple visual metaphor tied to the actual insight. "
+    "For launches, show the supplied product category or benefit without fabricating a product interface. "
+    "For founder or team stories, use an illustrative scene unless real reference photography is supplied; "
+    "do not impersonate the founder, a customer or an employee. "
+    "For case studies, never invent charts, customer identities, testimonials, badges or performance evidence. "
+    "Avoid generic corporate handshakes, floating dashboards, decorative robots and rockets unless explicitly requested. "
+    "Use deliberate hierarchy, believable materials and lighting, clean edges, and adequate breathing room; "
+    "avoid clutter, malformed anatomy, duplicated objects and clipped focal subjects."
+)
+
+_CHANNEL_DIRECTION = {
+    "linkedin": "LinkedIn: credible editorial business communication, a restrained professional treatment, one useful insight visible at feed size; not a loud stock advertisement.",
+    "instagram": "Instagram: visually immediate storytelling with a strong subject, intentional texture or lighting and a cohesive palette; prioritize the supplied business and audience over generic lifestyle imagery.",
+    "facebook": "Facebook: approachable, specific community or product storytelling with one clear focal point and natural visual detail; avoid clickbait treatments.",
+}
+
 
 @dataclass
 class CreativeSpec:
@@ -177,6 +195,8 @@ def build_visual_prompt(subject: str, spec: CreativeSpec, brand: dict, style: Op
     ]
     if spec.caption:
         parts.append(f"Post caption (context only, not text to render): {_clean(spec.caption)}")
+    parts.append(_BUSINESS_DIRECTION)
+    parts.append(_CHANNEL_DIRECTION.get(spec.platform or "", "Keep one central focal subject inside the middle 70% of the frame so square and portrait platform exports preserve the meaning."))
     parts.extend(_brand_lines(brand))
     parts.append(f"Style: {_clean(style) if style else _DEFAULT_STYLE}.")
     if spec.format == "carousel":
@@ -228,6 +248,8 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
         "Choose a medium grounded in the brief: editorial illustration or diagrammatic artwork for educational concepts, "
         "product still life for physical products, photography only when appropriate. Preserve any supplied series style and palette. "
         "Never request text, letters, numbers, logos, watermarks, UI or screenshots in the visual. "
+        f"{_BUSINESS_DIRECTION} "
+        f"{_CHANNEL_DIRECTION.get(spec.platform or '', 'Keep the focal subject within the central safe region for square and portrait exports.')} "
         f"Composition requirement: {_composition(spec)} "
     )
     if wants_copy:

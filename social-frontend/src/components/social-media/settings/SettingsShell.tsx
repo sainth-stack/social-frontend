@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Bell, CalendarClock, CheckCheck, Cog, Palette, Sparkles, Users } from "lucide-react";
 import { PageHeader } from "@/components/layouts/PageHeader";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ export default function SettingsShell({ section, children, dirty = false, saving
   saving?: boolean;
   onDiscard?: () => void;
 }) {
+  const router = useRouter();
   useEffect(() => {
     if (!dirty && !saving) return;
     const previousUrl = location.href;
@@ -65,7 +67,19 @@ export default function SettingsShell({ section, children, dirty = false, saving
     <div className="mx-auto w-full max-w-6xl space-y-8">
       <PageHeader icon={Cog} title="Workspace settings" description="Make this workspace work for your team. Manage publishing, preferences, and access." />
       <div className="grid min-w-0 gap-6 lg:grid-cols-4 lg:gap-8">
-        <nav aria-label="Settings sections" className="min-w-0 lg:col-span-1">
+        <div className="lg:hidden">
+          <label htmlFor="settings-section" className="mb-2 block text-sm font-medium">Settings section</label>
+          <select id="settings-section" value={section} disabled={saving} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => {
+            const target = sections.find(({ key }) => key === event.target.value);
+            if (!target || target.key === section || saving) return;
+            if (dirty && !window.confirm("Discard your unsaved settings changes?")) return;
+            if (dirty) onDiscard?.();
+            router.push(target.href);
+          }}>
+            {sections.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+          </select>
+        </div>
+        <nav aria-label="Settings sections" className="hidden min-w-0 lg:col-span-1 lg:block">
           <div className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-card p-2 lg:flex-col">
             {sections.map(({ key, label, href, icon: Icon }) => (
               <Link key={key} href={href} aria-current={section === key ? "page" : undefined}

@@ -128,6 +128,29 @@ def test_visual_prompt_reserves_overlay_space_only_when_enabled():
     assert "calm uncluttered lower third" in prompt
 
 
+@pytest.mark.parametrize("platform,expected", [
+    ("linkedin", "credible editorial business communication"),
+    ("instagram", "visually immediate storytelling"),
+    ("facebook", "specific community or product storytelling"),
+    (None, "middle 70%"),
+])
+def test_business_visual_direction_is_grounded_and_channel_aware(platform, expected):
+    prompt = build_visual_prompt("Founder explains customer onboarding", CreativeSpec(platform=platform), {}, None)
+    assert expected in prompt
+    assert "do not impersonate the founder" in prompt
+    assert "never invent charts" in prompt
+    assert "one concrete visual idea" in prompt
+    assert "floating dashboards" in prompt
+
+
+def test_art_direction_includes_business_quality_constraints(art_direction_response):
+    art_direct("Explain a customer retention lesson", CreativeSpec(platform="linkedin"), {}, None)
+    system = art_direction_response.call_args.kwargs["messages"][0]["content"]
+    assert "credible editorial business communication" in system
+    assert "never invent charts" in system
+    assert "malformed anatomy" in system
+
+
 @pytest.mark.parametrize("directed", [False, True])
 def test_render_preserves_full_brief_caption_and_safety_rules(monkeypatch, directed):
     from app.social.ai import creative

@@ -66,7 +66,7 @@ function renderStudio(initialTab: "generate" | "brand" | "media" = "generate", w
 
 async function createCopy(user: ReturnType<typeof userEvent.setup>) {
   fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Share our latest business update" } });
-  await user.click(screen.getByRole("button", { name: "Create post" }));
+  await user.click(screen.getByRole("button", { name: "Create copy" }));
   return screen.findByRole("textbox", { name: "LinkedIn caption" });
 }
 
@@ -87,7 +87,7 @@ describe("AIStudioPage", () => {
     await user.click(screen.getByRole("switch", { name: "Add slide images" }));
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Useful carousel for our customers" } });
     vi.mocked(apiClient.post).mockResolvedValueOnce(response(carouselResponse));
-    await user.click(screen.getByRole("button", { name: "Create post" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
     await screen.findByRole("textbox", { name: "LinkedIn caption" });
     expect(apiClient.post).toHaveBeenCalledWith(expect.stringContaining("/generate"), expect.objectContaining({ format: "carousel", slideCount: count, tone: "Professional", includeEmojis: false }), { timeout: 120_000 });
     expect((screen.getByRole("textbox", { name: "LinkedIn caption" }) as HTMLTextAreaElement).value).toBe("Intro\nUseful content");
@@ -100,13 +100,16 @@ describe("AIStudioPage", () => {
     renderStudio();
     await user.click(screen.getByRole("button", { name: "Carousel" }));
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Useful carousel for customers" } });
-    await user.click(screen.getByRole("button", { name: "Create post + image" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
+    await user.click(await screen.findByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
     await screen.findByRole("img", { name: "LinkedIn slide 1 artwork" });
     expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false);
     const firstRequest = vi.mocked(apiClient.post).mock.calls.find(([url]) => String(url).endsWith("/generate-creative-set"))![1] as GenerateCreativeSetPayload;
     expect(firstRequest.slides).toEqual(carouselSlides);
     fireEvent.change(screen.getByLabelText("Slide 2 body"), { target: { value: "Edited slide body" } });
     expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
     await user.click(screen.getByRole("button", { name: "Regenerate visuals" }));
     await waitFor(() => expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false));
     const requests = vi.mocked(apiClient.post).mock.calls.filter(([url]) => String(url).endsWith("/generate-creative-set")).map((call) => call[1] as GenerateCreativeSetPayload);
@@ -120,7 +123,7 @@ describe("AIStudioPage", () => {
     expect(saved.platforms.every((platform) => platform.caption === "Intro\nUseful content")).toBe(true);
     expect(saved.platforms[0].media.map((asset) => asset.slideId)).toEqual(["a", "b", "c"]);
     expect(saved.platforms[1].media[0].url).toContain("facebook/a");
-    expect(saved.generationOptions).toMatchObject({ tone: "Professional", includeEmojis: false, slideCount: 3, visualsStale: false });
+    expect(saved.generationOptions).toMatchObject({ tone: "Professional", includeEmojis: false, slideCount: 3, visualsStale: false, copyApproval: { version: 1, fingerprint: expect.any(String) } });
   });
 
   it("retries a partial set with the identical request and preserves valid artwork on retry failure", async () => {
@@ -136,7 +139,9 @@ describe("AIStudioPage", () => {
     renderStudio();
     await user.click(screen.getByRole("button", { name: "Carousel" }));
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Useful carousel for customers" } });
-    await user.click(screen.getByRole("button", { name: "Create post + image" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
+    await user.click(await screen.findByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
     await screen.findByRole("img", { name: "LinkedIn slide 1 artwork" });
     expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "Retry visuals" }));
@@ -163,9 +168,12 @@ describe("AIStudioPage", () => {
     renderStudio();
     await user.click(screen.getByRole("button", { name: "Carousel" }));
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Useful carousel for customers" } });
-    await user.click(screen.getByRole("button", { name: "Create post + image" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
+    await user.click(await screen.findByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
     await screen.findByRole("img", { name: "LinkedIn slide 1 artwork" });
     fireEvent.change(screen.getByLabelText("Slide 1 body"), { target: { value: "Changed artwork copy" } });
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
     await user.click(screen.getByRole("button", { name: "Regenerate visuals" }));
     await screen.findByText(/Some visuals are missing/);
     await user.click(screen.getByRole("button", { name: "Retry visuals" }));
@@ -198,7 +206,9 @@ describe("AIStudioPage", () => {
     renderStudio();
     await user.click(screen.getByRole("switch", { name: "Add an image" }));
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Share our latest business update" } });
-    await user.click(screen.getByRole("button", { name: "Create post + image" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
+    await user.click(await screen.findByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
     await screen.findByRole("button", { name: "Retry visuals" });
     expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "More post actions" }));
@@ -232,7 +242,7 @@ describe("AIStudioPage", () => {
     renderStudio();
     await user.click(screen.getByRole("button", { name: "Thread" }));
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Useful thread for our audience" } });
-    await user.click(screen.getByRole("button", { name: "Create post" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
     const first = await screen.findByRole("textbox", { name: "Tweet 1 of 2" });
     expect((first as HTMLTextAreaElement).value).toBe("First");
     fireEvent.change(first, { target: { value: "Edited first tweet" } });
@@ -255,7 +265,7 @@ describe("AIStudioPage", () => {
     const user = userEvent.setup();
     const old = renderStudio();
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Old workspace business update" } });
-    await user.click(screen.getByRole("button", { name: "Create post" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
     old.unmount();
     renderStudio("generate", "different-workspace");
     await act(async () => resolve(response(generated)));
@@ -268,10 +278,10 @@ describe("AIStudioPage", () => {
     renderStudio();
     const brief = screen.getByRole("heading", { name: "Your creative brief" });
     const content = screen.getByRole("heading", { name: "Your content workspace" });
-    await user.click(screen.getByRole("button", { name: "Content" }));
+    fireEvent.click(screen.getByRole("button", { name: "Content", hidden: true }));
     expect(document.activeElement).toBe(content);
     expect(content.scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start" });
-    await user.click(screen.getByRole("button", { name: "Brief" }));
+    fireEvent.click(screen.getByRole("button", { name: "Brief", hidden: true }));
     expect(document.activeElement).toBe(brief);
     expect(apiClient.post).not.toHaveBeenCalled();
     const caption = await createCopy(user);
@@ -282,10 +292,32 @@ describe("AIStudioPage", () => {
     expect(apiClient.post).toHaveBeenCalledTimes(1);
   });
 
+  it("jumps between brief, content and preview on mobile without losing edited copy", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    const caption = await createCopy(user);
+    fireEvent.change(caption, { target: { value: "Preserved mobile copy" } });
+    const picker = screen.getByRole("combobox", { name: "Jump to studio section" });
+    const toolbar = screen.getByRole("region", { name: "Post controls" });
+    expect(toolbar.className).toContain("top-[var(--app-header-height)]");
+    expect(toolbar.className).not.toContain("flex-wrap");
+    await user.selectOptions(picker, "preview");
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Your content workspace" }));
+    expect(screen.getByRole("tab", { name: "Live preview" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByLabelText("Platform preview").textContent).toContain("Preserved mobile copy");
+    await user.selectOptions(picker, "brief");
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Your creative brief" }));
+    await user.selectOptions(picker, "content");
+    expect(screen.getByRole("tab", { name: "Edit copy" }).getAttribute("aria-selected")).toBe("true");
+    expect((screen.getByRole("textbox", { name: "LinkedIn caption" }) as HTMLTextAreaElement).value).toBe("Preserved mobile copy");
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps publishing actions accessible without triggering them by opening the menu", async () => {
     const user = userEvent.setup();
     renderStudio();
     await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
     await user.click(screen.getByRole("button", { name: "More post actions" }));
     for (const name of ["Schedule", "Publish now", "Submit for approval", "New post"]) {
       expect(screen.getByRole("menuitem", { name }).getAttribute("data-disabled")).toBeNull();
@@ -340,8 +372,12 @@ describe("AIStudioPage", () => {
     expect(screen.queryByRole("combobox", { name: /model/i })).toBeNull();
     await user.click(screen.getByRole("switch", { name: "Add an image" }));
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Share our latest business update" } });
-    await user.click(screen.getByRole("button", { name: "Create post + image" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
     await screen.findByRole("textbox", { name: "LinkedIn caption" });
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2));
     expect(apiClient.post).toHaveBeenNthCalledWith(1,
       "/api/v1/workspaces/studio/social/generate",
@@ -350,24 +386,164 @@ describe("AIStudioPage", () => {
     );
     expect(apiClient.post).toHaveBeenNthCalledWith(2,
       "/api/v1/workspaces/studio/social/generate-creative-set",
-      expect.objectContaining({ requestId: expect.any(String), mode: "create", format: "post", platforms: ["linkedin", "facebook"], caption: generated.platforms.linkedin!.caption, textOverlay: true }),
+      expect.objectContaining({ requestId: expect.any(String), mode: "create", format: "post", platforms: ["linkedin", "facebook"], caption: expect.stringContaining(generated.platforms.linkedin!.caption), textOverlay: true }),
       { timeout: 600_000 },
     );
     expect((await screen.findByRole("link", { name: "Download" })).getAttribute("href")).toBe(generatedImage.imageUrl);
     expect(vi.mocked(apiClient.get).mock.calls.some(([url]) => String(url).endsWith("/ai-models"))).toBe(false);
   });
 
-  it("uses server defaults for image-only generation", async () => {
+  it("does not allow image-only generation to bypass copy approval", async () => {
     const user = userEvent.setup();
     renderStudio();
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Share our latest business update" } });
-    await user.click(screen.getByRole("button", { name: "Create image only" }));
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
-      "/api/v1/workspaces/studio/social/generate-creative-set",
-      expect.objectContaining({ format: "post" }),
-      { timeout: 600_000 },
-    ));
-    expect((await screen.findByRole("link", { name: "Download" })).getAttribute("href")).toBe(generatedImage.imageUrl);
+    const visualButton = screen.getByRole("button", { name: "Generate approved visuals" });
+    expect((visualButton as HTMLButtonElement).disabled).toBe(true);
+    await user.click(visualButton);
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it("requires approval for text-only publishing and invalidates it on non-preview channel edits", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await createCopy(user);
+    const publish = screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement;
+    expect(publish.disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    expect(publish.disabled).toBe(false);
+    await user.click(screen.getAllByRole("button", { name: "Facebook" })[1]);
+    expect(screen.getByRole("button", { name: "Copy approved" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Facebook caption"), { target: { value: "Edited community copy" } });
+    expect(publish.disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    expect(publish.disabled).toBe(false);
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["Hashtags", "Emojis", "Add an image"])("invalidates approval when %s options change", async (name) => {
+    const user = userEvent.setup();
+    renderStudio();
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("switch", { name }));
+    expect(screen.queryByRole("button", { name: "Copy approved" })).toBeNull();
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("sends all approved channel copy and art direction, without paid calls during approval", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    fireEvent.change(screen.getByLabelText("Visual art direction (optional)"), { target: { value: "Watercolor desk lamp, warm light; avoid people" } });
+    await createCopy(user);
+    expect((screen.getByRole("button", { name: "Generate approved visuals" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
+    await screen.findByRole("link", { name: "Download" });
+    const request = vi.mocked(apiClient.post).mock.calls[1][1] as GenerateCreativeSetPayload;
+    expect(request.caption).toContain(generated.platforms.linkedin!.caption);
+    expect(request.caption).toContain(generated.platforms.facebook!.caption);
+    expect(request.style).toBe("Watercolor desk lamp, warm light; avoid people");
+    expect(request.brief).toContain(request.style);
+    fireEvent.change(screen.getByLabelText("Visual art direction (optional)"), { target: { value: "Minimal illustration" } });
+    expect((screen.getByRole("button", { name: "Regenerate visuals" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Copy approved" })).toBeNull();
+  });
+
+  it("can remove artwork and approve text-only content without a visual dead end", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
+    await screen.findByRole("link", { name: "Download" });
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    expect(screen.getByRole("switch", { name: "Add an image" }).getAttribute("aria-checked")).toBe("false");
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates approval after version selection, even when switching back", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await user.click(screen.getAllByRole("button", { name: "Facebook" })[0]);
+    await user.click(screen.getByRole("button", { name: /Advanced settings/ }));
+    await user.click(screen.getByRole("button", { name: "2" }));
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "B" }));
+    expect(screen.queryByRole("button", { name: "Copy approved" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "A" }));
+    expect(screen.queryByRole("button", { name: "Copy approved" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getAllByRole("button", { name: "Facebook" })[0]);
+    expect(screen.queryByRole("button", { name: "Copy approved" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Approve copy" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps approved copy after visual failure and can explicitly switch to text only", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    const caption = await createCopy(user);
+    fireEvent.change(caption, { target: { value: "Keep this exact approved copy" } });
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    vi.mocked(apiClient.post).mockRejectedValueOnce(new Error("Artwork unavailable"));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
+    await screen.findByText("Artwork unavailable");
+    expect((screen.getByLabelText("LinkedIn caption") as HTMLTextAreaElement).value).toBe("Keep this exact approved copy");
+    expect(screen.getByRole("button", { name: "Copy approved" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Use text only" }));
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("locks mutations during a visual request and ignores its result after unmount", async () => {
+    const user = userEvent.setup();
+    const original = renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    let resolve!: (value: AxiosResponse) => void;
+    vi.mocked(apiClient.post).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
+    expect((screen.getByLabelText("LinkedIn caption") as HTMLTextAreaElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: "Facebook" })[1] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Copy approved" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Use text only" }) as HTMLButtonElement).disabled).toBe(true);
+    original.unmount();
+    renderStudio("generate", "different-workspace");
+    await act(async () => resolve(response(creativeSet)));
+    expect(screen.queryByRole("link", { name: "Download" })).toBeNull();
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+  });
+
+  it("restores an exact saved approval but rejects it when resumed copy was changed", async () => {
+    const user = userEvent.setup();
+    const first = renderStudio();
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ id: "saved", platforms: [] }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(context.replace).toHaveBeenCalled());
+    const saved = vi.mocked(apiClient.post).mock.calls[1][1] as SocialPost;
+    expect(saved.generationOptions?.copyApproval?.fingerprint).toEqual(expect.any(String));
+    first.unmount();
+    context.params = new URLSearchParams({ draftId: "saved" });
+    vi.spyOn(socialMediaApi, "getPost").mockResolvedValue({ ...saved, id: "saved" });
+    const resumed = renderStudio();
+    await screen.findByRole("textbox", { name: "LinkedIn caption" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copy approved" })).toBeTruthy());
+    resumed.unmount();
+    vi.mocked(socialMediaApi.getPost).mockResolvedValue({ ...saved, id: "saved", platforms: saved.platforms.map((platform) => ({ ...platform, caption: "Changed outside Studio" })) });
+    renderStudio();
+    await screen.findByRole("textbox", { name: "LinkedIn caption" });
+    expect(screen.queryByRole("button", { name: "Copy approved" })).toBeNull();
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("does not start overlapping caption or image generation", async () => {
@@ -375,9 +551,9 @@ describe("AIStudioPage", () => {
     vi.mocked(apiClient.post).mockReturnValue(new Promise(() => {}));
     renderStudio();
     await user.type(screen.getByLabelText("What do you want to post?"), "A short business update");
-    await user.click(screen.getByRole("button", { name: "Create post" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
     expect(screen.getByRole("status", { name: "Generating content" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Create image only" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Generate approved visuals" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "More post actions" }) as HTMLButtonElement).disabled).toBe(true);
     expect(apiClient.post).toHaveBeenCalledTimes(1);
   });
@@ -401,7 +577,7 @@ describe("AIStudioPage", () => {
     await user.clear(caption);
     await user.type(caption, "Keep this edited caption");
     vi.mocked(apiClient.post).mockRejectedValueOnce(new Error("Generation unavailable"));
-    await user.click(screen.getByRole("button", { name: "Create post" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
     expect(screen.getByRole("dialog", { name: "Replace your current copy?" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Generate again" }));
     expect(await screen.findByRole("alert")).toBeTruthy();

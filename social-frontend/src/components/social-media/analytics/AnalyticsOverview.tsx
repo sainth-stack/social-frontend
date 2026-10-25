@@ -115,16 +115,16 @@ export default function AnalyticsOverview() {
     <div className="space-y-6" aria-busy={loading}>
       <header className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
         <PageHeader icon={BarChart3} title="Analytics" description="Understand what works. Build on your best content." />
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid min-w-0 grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
           <Select value={channel} onValueChange={(value) => { setChannel(value as AnalyticsChannel); setExported(false); setShowAllPosts(false); }}>
-            <SelectTrigger className="w-44 bg-card" aria-label="Filter by channel"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-full min-w-0 bg-card sm:w-44" aria-label="Filter by channel"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All channels</SelectItem>
               {ANALYTICS_PLATFORMS.map((platform) => <SelectItem key={platform} value={platform}><span className="inline-flex items-center gap-2"><PlatformIcon platform={platform} size="sm" />{PLATFORM_LABELS[platform]}</span></SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={period} onValueChange={(value) => { setPeriod(value as AnalyticsPeriod); setShowAllPosts(false); }}>
-            <SelectTrigger className="w-40 bg-card" aria-label="Date range"><CalendarDays className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" /><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-full min-w-0 bg-card sm:w-40" aria-label="Date range"><CalendarDays className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" /><SelectValue /></SelectTrigger>
             <SelectContent>{Object.entries(periods).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
           </Select>
           <Button variant="outline" size="icon" aria-label="Refresh analytics" onClick={refresh} disabled={loading || !orgId}><RefreshCcw className={cn("h-4 w-4", loading && "motion-safe:animate-spin")} /></Button>
@@ -305,13 +305,13 @@ export default function AnalyticsOverview() {
                           key={`${post.postId}-${post.platformRowId}`}
                           href={`/dashboard/posts/${post.postId}`}
                           prefetch={false}
-                          className="group flex items-center gap-3 rounded-lg py-4 transition hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:gap-4"
+                          className="group flex flex-wrap items-center gap-3 rounded-lg py-4 transition hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-nowrap sm:gap-4"
                         >
                           <span className="w-5 shrink-0 text-center text-xs font-medium text-muted-foreground tabular-nums">{index + 1}</span>
                           <span className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted">
                             {post.imageUrl ? <Image src={post.imageUrl} alt="" fill sizes="56px" unoptimized className="object-cover" /> : <FileText className="h-5 w-5 text-muted-foreground" />}
                           </span>
-                          <span className="min-w-0 flex-1">
+                          <span className="min-w-0 flex-1 basis-1/2 sm:basis-auto">
                             <span className="line-clamp-2 text-sm font-medium leading-relaxed group-hover:text-primary">{post.caption || "Untitled post"}</span>
                             <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                               <PlatformIcon platform={post.platform} size="sm" />{PLATFORM_LABELS[post.platform]}
@@ -324,7 +324,7 @@ export default function AnalyticsOverview() {
                               <span className="text-xs text-muted-foreground">reach</span>
                             </span>
                           )}
-                          <span className="w-20 shrink-0 text-right">
+                          <span className="ml-auto shrink-0 text-right sm:ml-0 sm:w-20">
                             <span className="block text-sm font-semibold tabular-nums">
                               {postSort === "reach" ? number(post.reach) : postSort === "engagements" ? number(post.engagements) : percent(post.engagementRate)}
                             </span>

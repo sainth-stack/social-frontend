@@ -1,5 +1,3 @@
-"""Background content plan generation (multi-day AI + schedule)."""
-
 from __future__ import annotations
 
 import logging
@@ -47,22 +45,20 @@ def generate_content_plan_task(
         logger.error("content plan payload invalid workspace=%s: %s", workspace_id, msg)
         return {"error": msg}
 
-    plan_accounts = _accounts_for_plan(db, str(workspace_id), request.platforms)
-    total = estimate_plan_work_steps(
-        workspace=workspace, payload=request, accounts=plan_accounts
-    )
-
     def progress(current: int, total_days: int, message: str) -> None:
         self.update_state(
             state="PROGRESS",
             meta={"current": current, "total": total_days, "message": message},
         )
 
-    self.update_state(
-        state="PROGRESS",
-        meta={"current": 0, "total": total, "message": "Starting content plan…"},
-    )
     try:
+        ContentPlanService(db).validate_plan_request(workspace, user, request)
+        plan_accounts = _accounts_for_plan(db, str(workspace_id), request.platforms)
+        total = estimate_plan_work_steps(workspace=workspace, payload=request, accounts=plan_accounts)
+        self.update_state(
+            state="PROGRESS",
+            meta={"current": 0, "total": total, "message": "Writing text drafts for review…"},
+        )
         from app.social.content_plan_jobs import is_content_plan_cancelled
 
         def cancel_check() -> bool:

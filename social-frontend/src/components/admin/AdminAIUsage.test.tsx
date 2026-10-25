@@ -29,6 +29,18 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("AdminAIUsage", () => {
+  it("retains unknown costs and coverage in labelled mobile cards with visible scope-filter counts", async () => {
+    auth.query = `workspaceId=${workspaceId}`;
+    render(<AdminAIUsage />); const region = await ready();
+    expect(Array.from(region.querySelectorAll("tbody td")).map((cell) => cell.getAttribute("data-label"))).toEqual(["Identity", "Text generations", "Image generations", "Provider calls", "Estimated USD", "Coverage & observed tokens"]);
+    expect(within(region).getByText("Total: Unknown · partial estimate")).toBeTruthy();
+    const toggle = screen.getByRole("button", { name: "Advanced filters · 2 active" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect((screen.getByLabelText("Workspace ID scope") as HTMLInputElement).value).toBe(workspaceId);
+    expect(screen.getAllByRole("link", { name: "Scope AI usage" })).toHaveLength(1);
+  });
   it("defaults to 30 UTC days with no fabricated loading totals", async () => {
     const pending = deferred<AdminAIUsageReport>(); vi.mocked(adminApi.getAIUsage).mockReturnValue(pending.promise);
     render(<AdminAIUsage />);

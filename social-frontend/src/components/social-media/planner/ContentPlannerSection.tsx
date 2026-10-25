@@ -35,7 +35,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -180,7 +179,6 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   const [planGoal, setPlanGoal] = useState<string | null>(null);
   const [planTone, setPlanTone] = useState("");
   const [planCta, setPlanCta] = useState("");
-  const [generateImages, setGenerateImages] = useState(true);
   const [skipFilledDays, setSkipFilledDays] = useState(true);
   const [planPlatforms, setPlanPlatforms] = useState<SocialPlatform[]>([]);
 
@@ -189,6 +187,10 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const pollAbortRef = useRef(false);
   const unmountedRef = useRef(false);
+  const scopeRef = useRef(orgId);
+  scopeRef.current = orgId;
+  const loadIdRef = useRef(0);
+  const mutationRef = useRef(false);
 
   useEffect(() => {
     unmountedRef.current = false;
@@ -204,8 +206,8 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   const [regenPrompt, setRegenPrompt] = useState("");
   const [regenTone, setRegenTone] = useState("");
   const [regenCta, setRegenCta] = useState("");
-  const [regenCaption, setRegenCaption] = useState(true);
-  const [regenImage, setRegenImage] = useState(true);
+  const [postError, setPostError] = useState<string | null>(null);
+  const [planNotes, setPlanNotes] = useState<string[]>([]);
   const [savingPost, setSavingPost] = useState(false);
   const [regeneratingPostId, setRegeneratingPostId] = useState<string | null>(null);
   const [loadingPost, setLoadingPost] = useState(false);
@@ -268,6 +270,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
 
   const load = useCallback(async () => {
     if (!orgId) return;
+    const requestId = ++loadIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -282,11 +285,13 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
       const merged = results
         .flatMap((r) => r.items)
         .filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i);
+      if (scopeRef.current !== orgId || requestId !== loadIdRef.current) return;
       setItems(merged);
     } catch (err) {
+      if (scopeRef.current !== orgId || requestId !== loadIdRef.current) return;
       setError(extractErrorMessage(err, "Failed to load planner"));
     } finally {
-      setLoading(false);
+      if (scopeRef.current === orgId && requestId === loadIdRef.current) setLoading(false);
     }
   }, [orgId, viewDays]);
 
@@ -295,11 +300,25 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   }, [load]);
 
   useEffect(() => {
+    pollAbortRef.current = true;
+    setItems([]);
+    setSelectedPost(null);
+    setFullPost(null);
+    setActiveJobId(null);
+    setPlanning(false);
+    setPlanProgress(null);
+    setPlanNotes([]);
+    setPostError(null);
+  }, [orgId]);
+
+  useEffect(() => {
     if (!selectedPost || !orgId) {
       setFullPost(null);
       return;
     }
     let cancelled = false;
+    setFullPost(null);
+    setPostError(null);
     setLoadingPost(true);
     void socialMediaApi
       .getPost(orgId, selectedPost.id)
@@ -313,6 +332,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
       })
       .catch(() => {
         if (!cancelled) {
+          setPostError("Could not load this post. Close and reopen it to retry.");
           setEditCaption(selectedPost.captionPreview || "");
           setEditSchedule(toDatetimeLocalValue(selectedPost.scheduledAt));
         }
@@ -323,7 +343,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, selectedPost]);
+  }, [orgId, selectedPost?.id]);
 
   const dayBuckets = useMemo((): DayBucket[] => {
     const start = new Date();
@@ -403,10 +423,13 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     if (orgId && jobId && !jobId.startsWith("sync-")) {
       try {
         await socialMediaApi.cancelContentPlanJob(orgId, jobId);
-      } catch {
-        /* still stop UI polling */
+      } catch (err) {
+        pollAbortRef.current = false;
+        setError(extractErrorMessage(err, "Could not confirm cancellation. Check plan status before starting another plan."));
+        return;
       }
     }
+    if (scopeRef.current !== orgId) return;
     setPlanning(false);
     setPlanProgress(null);
     setActiveJobId(null);
@@ -419,6 +442,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     jobId: string,
     meta: { prompt: string; platforms: SocialPlatform[] },
   ) => {
+    if (scopeRef.current !== orgId || unmountedRef.current) return;
     if (result.calendarItems?.length) {
       setItems((prev) => {
         const ids = new Set(result.calendarItems.map((p) => p.id));
@@ -432,7 +456,10 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
       result,
     });
     await load();
-    toast.success(result.message || `Planned ${result.days} day(s)`);
+    if (scopeRef.current !== orgId || unmountedRef.current) return;
+    setPlanNotes(result.errors || []);
+    if (result.draftCount > 0) toast.success(result.message || `Saved ${result.draftCount} text drafts`);
+    else toast.message(result.message || "No new drafts saved. Review the notes and retry the affected day.");
     if (result.errors?.length) {
       toast.message(result.errors.slice(0, 2).join(" · "));
     }
@@ -440,17 +467,17 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     setPlanTargetDate(null);
   };
 
-  const generatePlan = async () => {
-    if (!orgId) return;
-    if (!planPrompt.trim() || planPrompt.trim().length < 10) {
+  const generatePlan = async (resumeJobId?: string) => {
+    if (!orgId || planning) return;
+    if (!resumeJobId && (!planPrompt.trim() || planPrompt.trim().length < 10)) {
       toast.error("Describe your campaign (at least 10 characters)");
       return;
     }
-    if (!hasPlanAccount) {
+    if (!resumeJobId && !hasPlanAccount) {
       toast.error("Connect Facebook, Instagram, or LinkedIn first");
       return;
     }
-    if (planPlatforms.length === 0) {
+    if (!resumeJobId && planPlatforms.length === 0) {
       toast.error("Select at least one platform");
       return;
     }
@@ -464,17 +491,18 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
     const promptSnapshot = (planGoal ? `Goal: ${planGoal}.\n` : "") + planPrompt.trim();
     const platformsSnapshot = [...planPlatforms];
     try {
-      const { jobId } = await socialMediaApi.startContentPlanJob(orgId, {
+      const { jobId } = resumeJobId ? { jobId: resumeJobId } : await socialMediaApi.startContentPlanJob(orgId, {
         days: days as 1 | 7 | 15 | 30,
         prompt: promptSnapshot,
         tone: planTone.trim() || undefined,
         cta: planCta.trim() || undefined,
-        autoSchedule: true,
-        generateImages,
+        autoSchedule: false,
+        generateImages: false,
         skipFilledDays: planTargetDate ? false : skipFilledDays,
         targetDate: planTargetDate || undefined,
         platforms: platformsSnapshot,
       });
+      if (scopeRef.current !== orgId || unmountedRef.current) return;
       setActiveJobId(jobId);
       setPlanDialogOpen(false);
 
@@ -482,11 +510,11 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
       let result = null;
       let pollErrors = 0;
       while (Date.now() < deadline) {
-        if (unmountedRef.current) return;
+        if (unmountedRef.current || scopeRef.current !== orgId) return;
         if (pollAbortRef.current) {
           for (let i = 0; i < 8 && !result; i++) {
             await new Promise((r) => setTimeout(r, 1500));
-            if (unmountedRef.current) return;
+            if (unmountedRef.current || scopeRef.current !== orgId) return;
             try {
               const status = await socialMediaApi.getContentPlanJob(orgId, jobId);
               if (status.status === "completed" && status.result) {
@@ -508,6 +536,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         let status;
         try {
           status = await socialMediaApi.getContentPlanJob(orgId, jobId);
+          if (scopeRef.current !== orgId || unmountedRef.current) return;
           pollErrors = 0;
         } catch (pollErr) {
           pollErrors += 1;
@@ -523,6 +552,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
           break;
         }
         if (status.status === "failed") {
+          setActiveJobId(null);
           throw new Error(status.error || "Content plan failed");
         }
         await new Promise((r) => setTimeout(r, 2000));
@@ -535,17 +565,19 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         prompt: promptSnapshot,
         platforms: platformsSnapshot,
       });
+      setActiveJobId(null);
     } catch (err) {
-      if (!pollAbortRef.current) {
+      if (!pollAbortRef.current && scopeRef.current === orgId) {
         const message = extractPlanError(err, "Failed to generate plan");
         setError(message);
         toast.error(message);
       }
     } finally {
-      setPlanning(false);
-      setPlanProgress(null);
-      setActiveJobId(null);
-      pollAbortRef.current = false;
+      if (scopeRef.current === orgId) {
+        setPlanning(false);
+        setPlanProgress(null);
+        pollAbortRef.current = false;
+      }
     }
   };
 
@@ -626,10 +658,12 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   };
 
   const savePostEdits = async () => {
-    if (!orgId || !fullPost) return;
+    if (!orgId || !fullPost || mutationRef.current) return;
     const platform = fullPost.platforms[0];
     if (!platform) return;
+    mutationRef.current = true;
     setSavingPost(true);
+    setPostError(null);
     try {
       const scheduledAt = editSchedule ? new Date(editSchedule).toISOString() : null;
       const updated = await socialMediaApi.updatePost(orgId, fullPost.id, {
@@ -644,36 +678,64 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
           },
         ],
       });
+      if (scopeRef.current !== orgId) return;
       applyPostUpdate(updated);
       toast.success("Post saved");
     } catch (err) {
-      toast.error(extractErrorMessage(err, "Could not save post"));
+      if (scopeRef.current === orgId) setPostError(extractErrorMessage(err, "Could not save post. Your edits are still here; retry saving."));
     } finally {
+      mutationRef.current = false;
       setSavingPost(false);
     }
   };
 
   const handleRegeneratePost = async () => {
-    if (!orgId || !fullPost) return;
-    if (!regenCaption && !regenImage) {
-      toast.error("Choose caption and/or image to regenerate");
-      return;
-    }
+    if (!orgId || !fullPost || mutationRef.current) return;
+    mutationRef.current = true;
+    setPostError(null);
     setRegeneratingPostId(fullPost.id);
     try {
       const updated = await socialMediaApi.regeneratePostContent(orgId, fullPost.id, {
         prompt: regenPrompt.trim() || undefined,
-        regenerateCaption: regenCaption,
-        regenerateImage: regenImage,
+        regenerateCaption: true,
+        regenerateImage: false,
         tone: regenTone.trim() || undefined,
         cta: regenCta.trim() || undefined,
       });
+      if (scopeRef.current !== orgId) return;
       applyPostUpdate(updated);
       toast.success("Post updated");
     } catch (err) {
-      toast.error(extractErrorMessage(err, "Regenerate failed"));
+      if (scopeRef.current === orgId) setPostError(extractErrorMessage(err, "Rewrite failed. Your saved copy is unchanged; retry when ready."));
     } finally {
+      mutationRef.current = false;
       setRegeneratingPostId(null);
+    }
+  };
+
+  const approveVisual = async () => {
+    if (!fullPost || !orgId || !editCaption.trim() || mutationRef.current) return;
+    mutationRef.current = true;
+    setSavingPost(true);
+    setPostError(null);
+    try {
+      const platform = fullPost.platforms[0];
+      if (!platform) throw new Error("This post has no channel. Reopen the post to retry.");
+      const saved = await socialMediaApi.updatePost(orgId, fullPost.id, {
+        platforms: [{ platform: platform.platform, socialAccountId: platform.socialAccountId,
+          caption: editCaption.trim(), hashtags: platform.hashtags, firstComment: platform.firstComment }],
+      });
+      if (scopeRef.current !== orgId) return;
+      applyPostUpdate(saved);
+      const updated = await socialMediaApi.approveContentPlanVisual(orgId, saved.id, saved.platforms[0].caption);
+      if (scopeRef.current !== orgId) return;
+      applyPostUpdate(updated);
+      toast.success("Visual generated from approved copy. Post remains a draft.");
+    } catch (err) {
+      if (scopeRef.current === orgId) setPostError(extractErrorMessage(err, "Visual request failed. Reopen the post to check its status before retrying; another attempt may use image credits."));
+    } finally {
+      mutationRef.current = false;
+      setSavingPost(false);
     }
   };
 
@@ -703,7 +765,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                   aria-checked={viewDays === d}
                   onClick={() => setViewDays(d)}
                   className={cn(
-                    "rounded-md px-3 py-1 text-xs font-medium transition",
+                    "min-h-11 rounded-md px-3 py-1 text-xs font-medium transition sm:min-h-0",
                     viewDays === d
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:bg-muted",
@@ -726,7 +788,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
             >
               <RefreshCcw className={cn("h-4 w-4", loading && "animate-spin")} />
             </Button>
-            <Button size="sm" onClick={() => openGenerateDialog(null)} disabled={!hasPlanAccount || planning}>
+            <Button size="sm" onClick={() => openGenerateDialog(null)} disabled={!hasPlanAccount || planning || !!activeJobId}>
               <ProductGenerateIcon className="mr-1.5 h-4 w-4" />
               Plan content
             </Button>
@@ -768,7 +830,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         </div>
 
       <Card className="shadow-soft">
-        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+        <CardHeader className="flex-col items-start justify-between gap-2 space-y-0 pb-3 sm:flex-row sm:items-center">
           <CardTitle className="text-sm">Next {viewDays} days</CardTitle>
           <p className="text-xs text-muted-foreground">
             {scheduledInWindow} post{scheduledInWindow === 1 ? "" : "s"}
@@ -808,6 +870,19 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
               </p>
             </div>
           )}
+          {planNotes.length > 0 && (
+            <div role="status" className="mb-4 rounded-xl border border-border p-4 text-sm">
+              <p className="font-medium">Plan notes — saved drafts are kept. Retry missing posts using the affected day&apos;s add button.</p>
+              <ul className="mt-2 list-inside list-disc">{planNotes.map((note, index) => <li key={index}>{note}</li>)}</ul>
+            </div>
+          )}
+          {activeJobId && !planning && (
+            <div role="status" className="mb-4 space-y-2 rounded-xl border border-border p-4 text-sm">
+              <p>A plan may still be running. Check this job before starting another plan.</p>
+              <Button variant="outline" onClick={() => void generatePlan(activeJobId)}>Check plan status</Button>
+              <Button variant="ghost" onClick={() => void stopPlan()}>Stop this plan</Button>
+            </div>
+          )}
           {loading && !planning ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
               {Array.from({ length: Math.min(viewDays, 7) }).map((_, i) => (
@@ -833,7 +908,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                   onPostClick={setSelectedPost}
                   onDeletePost={(post) => setPostToDelete(post)}
                   onGenerateDay={() => openGenerateDialog(bucket.key)}
-                  canGenerate={hasPlanAccount && !planning}
+                  canGenerate={hasPlanAccount && !planning && !activeJobId}
                   deletingPostId={deletingPostId}
                 />
               ))}
@@ -849,18 +924,18 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
           setPlanDialogOpen(open);
         }}
       >
-        <DialogContent className="gap-0 p-0 w-[calc(100vw-2rem)] max-w-[42rem] sm:max-w-2xl">
+        <DialogContent className="max-h-dvh overflow-y-auto gap-0 p-0 sm:max-w-2xl">
           <DialogHeader className="border-b border-border px-6 py-4 text-left">
             <DialogTitle className="text-lg">
               {planTargetDate ? "Plan a post for this day" : "Plan your content"}
             </DialogTitle>
             <DialogDescription>
               {planTargetDate
-                ? `One post for ${new Date(`${planTargetDate}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}, scheduled automatically.`
-                : "One post per day, written in your brand voice and scheduled automatically."}
+                ? `Text drafts for ${new Date(`${planTargetDate}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}. Nothing is scheduled or published.`
+                : "Create text drafts first. Review and edit each caption, then explicitly approve it to generate a visual. Nothing is scheduled automatically."}
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-[70vh] space-y-5 overflow-y-auto px-6 py-5">
+          <div className="space-y-5 px-4 py-5 sm:px-6">
             <div className="space-y-2">
               <Label>Goal</Label>
               <div className="flex flex-wrap gap-1.5">
@@ -872,7 +947,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                     disabled={planning}
                     onClick={() => setPlanGoal((cur) => (cur === g ? null : g))}
                     className={cn(
-                      "rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                      "min-h-11 rounded-full border px-3 py-1.5 text-xs font-medium transition sm:min-h-0",
                       planGoal === g
                         ? "border-primary bg-primary/10 text-primary"
                         : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -908,7 +983,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                       key={ex}
                       type="button"
                       onClick={() => setPlanPrompt(ex)}
-                      className="rounded-full border border-dashed border-border px-2.5 py-1 text-[11px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                      className="min-h-11 rounded-xl border border-dashed border-border px-2.5 py-2 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground sm:min-h-0"
                     >
                       {ex}
                     </button>
@@ -962,7 +1037,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                       disabled={planning}
                       onClick={() => togglePlanPlatform(platform)}
                       className={cn(
-                        "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                        "flex min-h-11 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition sm:min-h-0",
                         active
                           ? "border-primary bg-primary/10 text-primary"
                           : "border-border text-muted-foreground hover:bg-muted",
@@ -976,7 +1051,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                       key={platform}
                       href="/dashboard/accounts"
                       onClick={() => setPlanDialogOpen(false)}
-                      className="flex items-center gap-2 rounded-full border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                      className="flex min-h-11 items-center gap-2 rounded-full border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground sm:min-h-0"
                     >
                       <PlatformIcon platform={platform} size="sm" />
                       Connect {PLATFORM_LABELS[platform]}
@@ -986,7 +1061,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
               </div>
               {planPlatforms.length > 1 && (
                 <p className="text-[11px] text-muted-foreground">
-                  Each channel gets its own version, posted at staggered times.
+                  Each channel gets its own text draft and proposed calendar time.
                 </p>
               )}
             </div>
@@ -1003,7 +1078,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                       disabled={planning}
                       onClick={() => setPlanTone((cur) => (cur === t ? "" : t))}
                       className={cn(
-                        "rounded-full border px-2.5 py-1 text-[11px] font-medium transition",
+                        "min-h-11 rounded-full border px-2.5 py-1 text-xs font-medium transition sm:min-h-0",
                         planTone === t
                           ? "border-primary bg-primary/10 text-primary"
                           : "border-border text-muted-foreground hover:bg-muted",
@@ -1028,18 +1103,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
             </div>
 
             <div className="space-y-3 rounded-xl border border-border p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <Label htmlFor="plan-images" className="text-sm font-medium">Branded images</Label>
-                  <p className="text-[11px] text-muted-foreground">Uses your logo and brand colors</p>
-                </div>
-                <Switch
-                  id="plan-images"
-                  checked={generateImages}
-                  onCheckedChange={setGenerateImages}
-                  disabled={planning}
-                />
-              </div>
+              <p className="text-sm text-muted-foreground">Text generation uses text credits. Images are only generated after you review and approve each post, including Instagram drafts.</p>
               {!planTargetDate && (
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -1123,6 +1187,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                       {entry.days} post(s) · {entry.scheduledCount} scheduled
                       {entry.errors.length ? ` · ${entry.errors.length} note(s)` : ""}
                     </p>
+                    {entry.errors.length > 0 && <ul className="mt-2 list-inside list-disc text-xs text-muted-foreground">{entry.errors.map((note, index) => <li key={index}>{note}</li>)}</ul>}
                     {postIdsFromHistoryEntry(entry).length > 0 ? (
                       <Button
                         type="button"
@@ -1158,7 +1223,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         </DialogContent>
       </Dialog>
 
-      <Sheet open={!!selectedPost} onOpenChange={(open) => !open && setSelectedPost(null)}>
+      <Sheet open={!!selectedPost} onOpenChange={(open) => !open && !savingPost && !regeneratingPostId && setSelectedPost(null)}>
         <SheetContent className="flex w-full flex-col sm:max-w-lg">
           {selectedPost && (
             <>
@@ -1188,7 +1253,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="flex-1 space-y-5 overflow-y-auto py-2">
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto py-2">
                 {selectedPost.imageUrl ? (
                   <div className="overflow-hidden rounded-lg border border-border">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1207,19 +1272,20 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                     rows={6}
                     value={editCaption}
                     onChange={(e) => setEditCaption(e.target.value)}
-                    disabled={loadingPost || savingPost}
+                    disabled={loadingPost || savingPost || !!regeneratingPostId}
                     className="text-sm"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-schedule">Schedule</Label>
+                  <Label htmlFor="edit-schedule">Proposed calendar time</Label>
+                  <p className="text-xs text-muted-foreground">Draft dates do not schedule publishing. Use full post details to schedule after review.</p>
                   <Input
                     id="edit-schedule"
                     type="datetime-local"
                     value={editSchedule}
                     onChange={(e) => setEditSchedule(e.target.value)}
-                    disabled={loadingPost || savingPost}
+                    disabled={loadingPost || savingPost || !!regeneratingPostId}
                   />
                 </div>
 
@@ -1247,29 +1313,12 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                       disabled={!!regeneratingPostId}
                     />
                   </div>
-                  <div className="flex flex-wrap gap-4 text-xs">
-                    <label className="flex items-center gap-2">
-                      <Checkbox
-                        checked={regenCaption}
-                        onCheckedChange={(v) => setRegenCaption(!!v)}
-                        disabled={!!regeneratingPostId}
-                      />
-                      New caption
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <Checkbox
-                        checked={regenImage}
-                        onCheckedChange={(v) => setRegenImage(!!v)}
-                        disabled={!!regeneratingPostId}
-                      />
-                      New image
-                    </label>
-                  </div>
+                  <p className="text-xs text-muted-foreground">Rewrites copy only. Save any edits first; review rewritten copy before generating a visual.</p>
                   <Button
                     className="w-full"
                     variant="secondary"
                     onClick={() => void handleRegeneratePost()}
-                    disabled={regeneratingPostId === selectedPost.id}
+                    disabled={!!regeneratingPostId || savingPost || loadingPost || !fullPost || editCaption.trim() !== fullPost.platforms[0]?.caption}
                   >
                     {regeneratingPostId === selectedPost.id ? (
                       <>
@@ -1285,7 +1334,16 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
               </div>
 
               <SheetFooter className="flex-col gap-2 sm:flex-col">
-                <Button className="w-full" onClick={() => void savePostEdits()} disabled={savingPost || loadingPost}>
+                {postError && <p role="alert" className="text-sm text-destructive">{postError}</p>}
+                {fullPost?.status === "draft" && (
+                  <>
+                    <p className="text-xs text-muted-foreground">Approve the caption above to generate a visual using image credits. This saves your latest copy first and does not schedule the post.</p>
+                    <Button className="w-full" variant="secondary" onClick={() => void approveVisual()} disabled={savingPost || loadingPost || !!regeneratingPostId || !editCaption.trim()}>
+                      {savingPost ? "Saving / generating…" : "Approve copy & generate visual"}
+                    </Button>
+                  </>
+                )}
+                <Button className="w-full" onClick={() => void savePostEdits()} disabled={savingPost || loadingPost || !!regeneratingPostId || !fullPost}>
                   {savingPost ? (
                     <>
                       <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Saving…
@@ -1299,6 +1357,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                 <Button
                   className="w-full"
                   variant="outline"
+                  disabled={savingPost || !!regeneratingPostId}
                   onClick={() => {
                     router.push(`/dashboard/content-studio/generate?draftId=${selectedPost.id}`);
                     setSelectedPost(null);
@@ -1313,7 +1372,7 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                   type="button"
                   variant="destructive"
                   className="w-full"
-                  disabled={!!deletingPostId || loadingPost}
+                  disabled={!!deletingPostId || loadingPost || savingPost || !!regeneratingPostId}
                   onClick={() => setPostToDelete(selectedPost)}
                 >
                   {deletingPostId === selectedPost.id ? (
@@ -1432,8 +1491,8 @@ function DayCard({
   return (
     <div
       className={cn(
-        "group/day flex min-h-[176px] flex-col rounded-xl border p-2.5",
-        isToday ? "border-primary/50 bg-primary/[0.03]" : empty ? "border-dashed border-border" : "border-border bg-card",
+        "group/day flex min-h-24 flex-col rounded-xl border p-2.5 sm:min-h-44",
+        isToday ? "border-primary/50 bg-primary/5" : empty ? "border-dashed border-border" : "border-border bg-card",
       )}
     >
       <div className="flex items-center justify-between gap-2 px-0.5">
@@ -1448,7 +1507,7 @@ function DayCard({
             onClick={onGenerateDay}
             disabled={!canGenerate}
             aria-label="Add another post"
-            className="rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground group-hover/day:opacity-100 disabled:hidden"
+            className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8 sm:w-8 sm:opacity-0 sm:group-hover/day:opacity-100 disabled:hidden"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -1460,7 +1519,7 @@ function DayCard({
           type="button"
           disabled={!canGenerate}
           onClick={onGenerateDay}
-          className="mt-2 flex flex-1 flex-col items-center justify-center gap-1 rounded-lg text-xs text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          className="mt-2 flex min-h-11 flex-1 items-center justify-center gap-1 rounded-lg text-xs text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:hover:bg-transparent sm:flex-col"
         >
           <Plus className="h-4 w-4" />
           Add post
@@ -1475,12 +1534,12 @@ function DayCard({
                 key={post.id}
                 className="group/post relative overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-primary/50 hover:shadow-soft"
               >
-                <button type="button" onClick={() => onPostClick(post)} className="w-full text-left">
+                <button type="button" onClick={() => onPostClick(post)} className="min-h-11 w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   {post.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={post.imageUrl} alt="" loading="lazy" className="aspect-[4/3] w-full bg-muted object-cover" />
                   ) : null}
-                  <div className="space-y-1 p-2">
+                  <div className="space-y-1 p-2 pr-14 sm:pr-2">
                     <div className="flex items-center justify-between gap-1">
                       <span className="flex items-center gap-1">
                         <PlatformIcon platform={platform} size="sm" />
@@ -1508,7 +1567,7 @@ function DayCard({
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="absolute right-1 top-1 h-6 w-6 p-0 opacity-0 transition group-hover/post:opacity-100 focus-visible:opacity-100"
+                  className="absolute right-1 top-1 h-11 w-11 p-0 transition focus-visible:opacity-100 sm:h-8 sm:w-8 sm:opacity-0 sm:group-hover/post:opacity-100"
                   disabled={deletingPostId === post.id}
                   aria-label="Delete post"
                   onClick={(e) => {

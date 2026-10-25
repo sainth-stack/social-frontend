@@ -338,10 +338,10 @@ export default function Sidebar({
       <Dialog.Root open={mobileOpen} onOpenChange={(open) => { if (!open) onMobileClose?.(); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-40 bg-foreground/40 lg:hidden" />
-          <Dialog.Content id="mobile-navigation" className="fixed inset-y-0 left-0 z-50 w-64 max-w-full border-r border-sidebar-border bg-sidebar shadow-xl focus:outline-none lg:hidden" onCloseAutoFocus={(event) => { const trigger = document.getElementById("navigation-menu-trigger"); if (trigger) { event.preventDefault(); trigger.focus(); } }}>
+          <Dialog.Content id="mobile-navigation" className="mobile-drawer fixed inset-y-0 left-0 z-50 w-72 max-w-full border-r border-sidebar-border bg-sidebar shadow-xl focus:outline-none lg:hidden" onCloseAutoFocus={(event) => { const trigger = document.getElementById("navigation-menu-trigger"); if (trigger) { event.preventDefault(); trigger.focus(); } }}>
             <Dialog.Title className="sr-only">Navigation</Dialog.Title>
             <Dialog.Description className="sr-only">Navigate your {brand.type === "platform" ? "admin console" : "workspace"} and manage your plan.</Dialog.Description>
-            <Dialog.Close asChild><Button variant="outline" size="icon" aria-label="Close navigation" className="absolute right-2 top-2 z-10 size-6"><X className="size-3" aria-hidden="true" /></Button></Dialog.Close>
+            <Dialog.Close asChild><Button variant="outline" size="icon" aria-label="Close navigation" className="mobile-drawer-close absolute right-2 top-2 z-10 size-11"><X className="size-4" aria-hidden="true" /></Button></Dialog.Close>
             <SidebarContent sections={sections} brand={brand} usage={usage} onNavigate={onMobileClose} />
           </Dialog.Content>
         </Dialog.Portal>

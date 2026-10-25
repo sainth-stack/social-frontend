@@ -67,6 +67,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AdminCoupons", () => {
+  it("labels mobile offer and redemption cards and retains a single activation action", async () => {
+    vi.mocked(billingApi.listCoupons).mockResolvedValue([coupon]);
+    vi.mocked(billingApi.listCouponRedemptions).mockResolvedValue([redemption]);
+    render(<AdminCoupons />); await screen.findByText("Acme");
+    const codes = screen.getByRole("table", { name: "Coupon codes" });
+    const history = screen.getByRole("table", { name: "Redemption history" });
+    expect(Array.from(codes.querySelectorAll("tbody td")).map((cell) => cell.getAttribute("data-label"))).toEqual(["Code & offer", "Plan", "Redemptions", "Availability", "Actions"]);
+    expect(Array.from(history.querySelectorAll("tbody td")).map((cell) => cell.getAttribute("data-label"))).toEqual(["When", "Code", "Workspace / user", "Plan granted", "Discount", "Paid"]);
+    expect(screen.getAllByRole("button", { name: "Deactivate SAVE10" })).toHaveLength(1);
+  });
   it.each([null, { id: "member", isPlatformAdmin: false }])("does not expose or fetch coupons without administrator access: %j", (user) => {
     auth.user = user;
     render(<AdminCoupons />);

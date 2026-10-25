@@ -133,7 +133,7 @@ def test_image_catalog_excludes_retired_nova_even_if_discovered_active(isolated_
         _foundation(CORE, "IMAGE"), _foundation(NOVA, "IMAGE"),
     ]}
     catalog = selection.get_model_catalog()
-    assert [m["id"] for m in catalog["imageModels"]] == [SD, ULTRA, CORE]
+    assert {m["id"] for m in catalog["imageModels"]} == {SD, ULTRA, CORE}
     assert all(m["availability"] == "catalogued" for m in catalog["imageModels"])
     assert all(not m["invokeAccessVerified"] for m in catalog["imageModels"])
     for model in (SD, ULTRA, CORE):

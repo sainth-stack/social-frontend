@@ -91,8 +91,8 @@ function OverviewContent() {
       {loading && overview && <p role="status" className="text-sm text-muted-foreground">Refreshing overview… Showing previously loaded data.</p>}
       <div aria-busy={loading} className="space-y-6">
         {loading && !overview ? <div role="status" aria-label="Loading overview" className="space-y-6"><span className="sr-only">Loading overview…</span><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-36 rounded-xl" />)}</div><Skeleton className="h-64 rounded-xl" /></div> : overview ? <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            {kpis.map(({ label, value, detail, icon: Icon }) => <Card key={label}><CardContent className="p-5"><div className="flex items-start justify-between gap-2"><h2 className="text-sm font-medium text-muted-foreground">{label}</h2><Icon className="size-4 shrink-0 text-primary" aria-hidden /></div><p className="mt-3 text-3xl font-semibold tracking-tight tabular-nums">{value.toLocaleString()}</p><p className="mt-2 text-xs text-muted-foreground">{detail}</p></CardContent></Card>)}
+          <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-5">
+            {kpis.map(({ label, value, detail, icon: Icon }) => <Card key={label}><CardContent className="grid grid-cols-2 items-center gap-x-3 p-4 sm:block sm:p-5"><div className="flex items-start justify-between gap-2"><h2 className="text-sm font-medium text-muted-foreground">{label}</h2><Icon className="size-4 shrink-0 text-primary" aria-hidden /></div><p className="row-span-2 text-right text-2xl font-semibold tracking-tight tabular-nums sm:mt-3 sm:text-left sm:text-3xl">{value.toLocaleString()}</p><p className="mt-2 text-xs text-muted-foreground">{detail}</p></CardContent></Card>)}
           </div>
           <Card>
             <CardHeader><CardTitle className="text-base"><h2>Workspace plan distribution</h2></CardTitle><CardDescription>Current workspace counts by plan, including inactive workspaces.</CardDescription></CardHeader>

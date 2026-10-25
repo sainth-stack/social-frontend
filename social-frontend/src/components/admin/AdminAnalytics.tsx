@@ -112,7 +112,7 @@ function AnalyticsContent() {
     <div className="min-w-0 space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader icon={ChartNoAxesCombined} title="Analytics" description="Product activity and marketing events across the platform." />
-        <Button variant="outline" disabled={loading} onClick={refresh}><RefreshCw className="mr-2 size-4" aria-hidden />Refresh product analytics</Button>
+        <Button className="min-h-11 w-full sm:min-h-0 sm:w-auto" variant="outline" disabled={loading} onClick={refresh}><RefreshCw className="mr-2 size-4" aria-hidden />Refresh product analytics</Button>
       </header>
       <div><h2 className="text-lg font-semibold">Product analytics</h2><p className="mt-1 text-sm text-muted-foreground">Publishing: last 30 days, including today (UTC). Account and workspace counts are current snapshots.</p></div>
       {error ? (

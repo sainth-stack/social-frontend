@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Inbox, RefreshCw } from "lucide-react";
 import adminApi from "@/api/endpoints/admin.api";
+import { AdminFilters } from "./AdminMobile";
 import { PageHeader } from "@/components/layouts/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,7 +38,7 @@ function ContactCard({ contact, savingId, disabled, onSave }: {
 
   return (
     <Card>
-      <CardContent className="space-y-4 p-5">
+      <CardContent className="space-y-4 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 space-y-1 break-words">
             <h2 className="font-semibold">{contact.name}</h2>
@@ -47,14 +48,14 @@ function ContactCard({ contact, savingId, disabled, onSave }: {
             <p className="text-xs text-muted-foreground">Updated <time dateTime={contact.updatedAt}>{dateLabel(contact.updatedAt)}</time></p>
           </div>
           <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto">
-            <div className="w-44 space-y-1">
+            <div className="min-w-0 flex-1 space-y-1 sm:w-44 sm:flex-none">
               <label htmlFor={`status-${contact.id}`} className="text-xs font-medium">Status</label>
               <Select value={status} onValueChange={(value) => setStatus(value as Status)} disabled={disabled}>
                 <SelectTrigger id={`status-${contact.id}`} aria-label={`Status for ${contact.name}`}><SelectValue /></SelectTrigger>
                 <SelectContent>{statuses.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <Button onClick={() => void onSave(contact.id, status)} disabled={status === contact.status || disabled} aria-label={`Save status for ${contact.name}`}>
+            <Button className="min-h-11 sm:min-h-0" onClick={() => void onSave(contact.id, status)} disabled={status === contact.status || disabled} aria-label={`Save status for ${contact.name}`}>
               {savingId === contact.id ? "Saving…" : "Save"}
             </Button>
           </div>
@@ -197,13 +198,13 @@ function ContactsContent() {
           <label htmlFor="contact-search" className="text-sm font-medium">Search enquiries</label>
           <Input id="contact-search" value={filters.search} placeholder="Name, email, company or message" onChange={(event) => changeFilters({ ...filters, search: event.target.value, page: 1 })} />
         </div>
-        <div className="space-y-1.5 sm:w-48">
+        <AdminFilters activeCount={Number(filters.status !== "all")}><div className="space-y-1.5 sm:w-48">
           <label htmlFor="contact-filter" className="text-sm font-medium">Filter status</label>
           <Select value={filters.status} onValueChange={(value) => changeFilters({ ...filters, status: value as Filters["status"], page: 1 })}>
             <SelectTrigger id="contact-filter" aria-label="Filter status"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="all">All statuses</SelectItem>{statuses.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
           </Select>
-        </div>
+        </div></AdminFilters>
       </CardContent></Card>
       {notice ? <p role="status" className="text-sm text-muted-foreground">{notice}</p> : null}
       {saveError ? <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm">Could not save the enquiry status. Select the status and press Save to retry.</p> : null}

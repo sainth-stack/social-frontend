@@ -367,7 +367,7 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
                           })()}
                         />
                       </div>
-                      <div className="mt-4 flex flex-wrap gap-2">
+                      <div className="mt-4 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
                         <Button
                           variant="outline"
                           size="sm"
@@ -405,7 +405,7 @@ function WorkspaceAccounts({ workspaceId }: { workspaceId: string }) {
                   ))}
                   </div>
                   {!xDisabled && (platformAccounts.length ? (
-                    <Button variant="outline" size="sm" className="mt-4" disabled={!!busy || loading} onClick={() => void authorize(platform)}>
+                    <Button variant="outline" size="sm" className="mt-4 w-full whitespace-normal sm:w-auto" disabled={!!busy || loading} onClick={() => void authorize(platform)}>
                       <Sparkles aria-hidden className="mr-2 h-4 w-4" /> {busy === `connect:${platform}` ? "Connecting…" : `Add another ${name} account`}
                     </Button>
                   ) : (

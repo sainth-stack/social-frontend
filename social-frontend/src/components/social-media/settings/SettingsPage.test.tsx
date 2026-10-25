@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { configureStore, type UnknownAction } from "@reduxjs/toolkit";
 import { Provider } from "react-redux";
 import { axe } from "vitest-axe";
+import AppThemeProvider from "@/components/providers/AppThemeProvider";
 import authReducer from "@/features/auth/authSlice";
 import type { User } from "@/types/auth";
 import type { SocialSettings } from "@/types/social-media.types";
@@ -13,7 +14,7 @@ import SocialSettingsForm from "./SocialSettingsForm";
 
 const controls = vi.hoisted(() => ({ query: "", loading: false, error: null as string | null, saveError: null as string | null, canEdit: true, saving: false, empty: false, initial: null as SocialSettings | null, savedForm: null as SocialSettings | null, save: vi.fn(), patch: vi.fn(), reset: vi.fn(), reload: vi.fn(), navigate: vi.fn() }));
 
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(controls.query) }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(controls.query), useRouter: () => ({ push: controls.navigate }) }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a href={href} {...props} onClick={(event) => { event.preventDefault(); controls.navigate(href); }}>{children}</a> }));
 vi.mock("@/hooks/useWorkspaceSettings", () => ({ useWorkspaceSettings: () => {
   const [form, setForm] = useState<SocialSettings | null>(() => controls.empty ? null : structuredClone(controls.initial));
@@ -39,7 +40,7 @@ const settings: SocialSettings = {
 function renderSettings(section?: React.ComponentProps<typeof SettingsPage>["section"], overrides: Partial<User> = {}) {
   const initial = { ...authReducer(undefined, { type: "init" }), user: { ...admin, ...overrides }, accessToken: "test-token", isAuthenticated: true, isHydrated: true };
   const store = configureStore({ reducer: { auth: (state: ReturnType<typeof authReducer> = initial, action: UnknownAction) => action.type === "test/user" ? { ...state, user: { ...state.user!, ...(action.payload as Partial<User>) } } : authReducer(state, action) } });
-  return { ...render(<Provider store={store}><SettingsPage section={section} /></Provider>), store };
+  return { ...render(<Provider store={store}><SettingsPage section={section} /></Provider>, { wrapper: AppThemeProvider }), store };
 }
 
 beforeEach(() => {
@@ -56,6 +57,34 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear(); document.documentElement.classList.remove("dark"); });
 
 describe("SettingsPage", () => {
+  it("uses the mobile section picker with the same dirty guard and route targets", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderSettings("ai");
+    const user = userEvent.setup();
+    const picker = screen.getByRole("combobox", { name: "Settings section" });
+    expect((picker as HTMLSelectElement).value).toBe("ai");
+    expect(picker.querySelectorAll("option")).toHaveLength(7);
+    await user.type(screen.getByLabelText("Default tone"), " changed");
+    expect(screen.getByRole("button", { name: "Save changes" }).closest("footer")?.classList.contains("mobile-action-bar")).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Save changes" })).toHaveLength(1);
+    await user.selectOptions(picker, "schedule");
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect((picker as HTMLSelectElement).value).toBe("ai");
+    expect(controls.navigate).not.toHaveBeenCalled();
+    expect(controls.reset).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    await user.selectOptions(picker, "schedule");
+    expect(controls.navigate).toHaveBeenCalledWith("/dashboard/settings/schedule");
+    expect(controls.reset).toHaveBeenCalledTimes(1);
+    expect(controls.save).not.toHaveBeenCalled();
+  });
+
+  it("blocks mobile section changes while saving", () => {
+    controls.saving = true;
+    renderSettings("ai");
+    expect((screen.getByRole("combobox", { name: "Settings section" }) as HTMLSelectElement).disabled).toBe(true);
+  });
+
   it("provides all existing routes with one page heading and associated fields", () => {
     renderSettings();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
@@ -83,7 +112,7 @@ describe("SettingsPage", () => {
   it("keeps the legacy section wrapper and explicit section precedence", () => {
     controls.query = "tab=appearance";
     const store = configureStore({ reducer: { auth: () => ({ user: admin }) } });
-    render(<Provider store={store}><SocialSettingsForm section="ai" /></Provider>);
+    render(<Provider store={store}><SocialSettingsForm section="ai" /></Provider>, { wrapper: AppThemeProvider });
     expect(screen.getByLabelText("Default tone")).toBeTruthy();
     expect(screen.getByText(/backend-managed AWS Bedrock/)).toBeTruthy();
     expect(screen.getByLabelText("Legacy model preference")).toBeTruthy();
@@ -174,6 +203,23 @@ describe("SettingsPage", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Dark" }));
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(screen.getByRole("status").textContent).toMatch(/could not remember/);
+  });
+
+  it("restores saved appearance and lets the user return to system", async () => {
+    localStorage.setItem("opsbrain-theme", "dark");
+    renderSettings("appearance");
+    expect(screen.getByRole("button", { name: "Dark" }).getAttribute("aria-pressed")).toBe("true");
+    await userEvent.setup().click(screen.getByRole("button", { name: "System" }));
+    expect(screen.getByRole("button", { name: "System" }).getAttribute("aria-pressed")).toBe("true");
+    expect(localStorage.getItem("opsbrain-theme")).toBeNull();
+    expect(controls.save).not.toHaveBeenCalled();
+  });
+
+  it("updates the selected appearance after another tab changes it", () => {
+    renderSettings("appearance");
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "opsbrain-theme", newValue: "dark" })));
+    expect(screen.getByRole("button", { name: "Dark" }).getAttribute("aria-pressed")).toBe("true");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
   });
 
   it("shows only pending skeletons and a retryable inline load failure", async () => {

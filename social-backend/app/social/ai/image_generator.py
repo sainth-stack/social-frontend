@@ -24,15 +24,16 @@ ImageGenerationMode = Literal["create", "edit"]
 
 def _build_create_prompt(topic: str, style: Optional[str]) -> str:
     style_line = style or (
-        "premium modern brand photography, clean product-marketing aesthetic, "
-        "soft cinematic lighting, high contrast, polished color grade"
+        "purposeful editorial illustration, product still life or natural photography as appropriate to the brief, "
+        "restrained palette, clear focal subject, believable materials and refined lighting"
     )
     return (
-        "Professional social media marketing image, scroll-stopping, ad-ready for "
-        "Instagram and LinkedIn. Not clip-art, not cartoon unless the brief requires it. "
+        "Create a business social visual grounded in the supplied message and explicit visual preferences. "
         f"Subject: {topic}. Visual style: {style_line}. "
-        "Strong focal point, square-friendly composition, negative space for optional text. "
-        "No watermarks, no logos unless described, no readable text overlays, no garbled letters."
+        "One concrete visual idea, legible at mobile feed size, with the main subject inside a safe central crop. "
+        "Do not fabricate product interfaces, customer evidence, performance charts or identifiable team members. "
+        "Avoid generic corporate stock scenes unless requested. No clipped subjects, duplicated objects or distorted anatomy. "
+        "No watermarks, logos, readable text, garbled letters or simulated screenshots."
     )
 
 

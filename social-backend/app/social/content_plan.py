@@ -1,8 +1,10 @@
-"""Day-wise content plan: generate captions (+ images) and schedule auto-publish."""
-
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
+import uuid
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
@@ -12,7 +14,6 @@ from pymongo.database import Database
 
 from app.social.models import (
     SocialImageSource,
-    SocialMediaAssetType,
     SocialPlatform,
     SocialPostStatus,
 )
@@ -23,7 +24,6 @@ from app.social.schemas import (
     ContentPlanGenerateRequest,
     ContentPlanGenerateResponse,
     CreateSocialPostRequest,
-    SchedulePostRequest,
     SocialPostPlatformIn,
 )
 from app.workspaces.models import WorkspacePlan
@@ -115,11 +115,12 @@ def build_plan_image_brief(
 ) -> str:
     return (
         f"Premium {platform.value} marketing visual for {brand_name}. "
-        f"Campaign context: {user_prompt[:200]}. "
+        f"Campaign context: {user_prompt}. "
         f"Creative angle: {day_focus}. "
-        f"Post mood (do not render as text): {caption[:220]}. "
-        "Editorial product-brand photography, cinematic light, modern SaaS/consumer brand aesthetic, "
-        "single strong focal point, square crop, no watermarks, no readable text in image."
+        f"Approved caption (source of truth, do not render as text): {caption}. "
+        "Choose a specific visual concept that supports this caption and the brand's actual industry. "
+        "Do not invent product interfaces, customer proof, metrics, offers, or endorsements. "
+        "Single strong focal point, no watermarks, no readable text in image."
     )
 
 
@@ -380,6 +381,123 @@ class ContentPlanService:
     def __init__(self, db: Database) -> None:
         self.db = db
 
+    def copy_fingerprint(self, post: dict) -> str:
+        rows = list(self.db["social_post_platforms"].find({"post_id": post["id"]}))
+        copy = sorted(
+            [{key: row.get(key) for key in ("platform", "social_account_id", "caption", "hashtags", "first_comment")} for row in rows],
+            key=lambda row: str(row["platform"]),
+        )
+        return hashlib.sha256(json.dumps(copy, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    @contextmanager
+    def edit_lock(self, post: dict):
+        now = datetime.now(timezone.utc)
+        token = str(uuid.uuid4())
+        scope = {"id": post["id"], "workspace_id": post["workspace_id"]}
+        claimed = self.db["social_posts"].update_one(
+            {**scope, "$or": [{"planner_visual_lock_until": {"$exists": False}}, {"planner_visual_lock_until": {"$lte": now}}]},
+            {"$set": {"planner_visual_lock": token, "planner_visual_lock_until": now + timedelta(minutes=30)}},
+        )
+        if not claimed.modified_count:
+            raise HTTPException(status_code=409, detail="This post is being updated or generating a visual. Refresh before retrying.")
+        try:
+            yield self.db["social_posts"].find_one(scope)
+        finally:
+            self.db["social_posts"].update_one(
+                {**scope, "planner_visual_lock": token},
+                {"$unset": {"planner_visual_lock": "", "planner_visual_lock_until": ""}},
+            )
+
+    def invalidate_changed_copy(self, post: dict, previous_fingerprint: str):
+        from app.social.service import SocialMediaService
+
+        scope = {"id": post["id"], "workspace_id": post["workspace_id"]}
+        if self.copy_fingerprint(post) != previous_fingerprint:
+            self.db["social_posts"].update_one(scope, {
+                "$set": {"image_url": None, "image_source": SocialImageSource.NONE.value},
+                "$unset": {"planner_approved_fingerprint": "", "planner_approved_by": "", "planner_approved_at": "", "planner_visual_fingerprint": ""},
+            })
+        return SocialMediaService(self.db).get_post(self.db["social_posts"].find_one(scope))
+
+    def approve_and_generate_visual(self, workspace: dict, user: dict, post: dict, caption: str):
+        from app.core.mongo_utils import utcnow
+        from app.plans.service import record_ai_usage
+        from app.social.ai.creative import CreativeSpec
+        from app.social.limits import enforce_ai_image_limit
+        from app.social.media import upload_social_image_bytes
+        from app.social.models import SocialMediaAssetType, SocialPermission
+        from app.social.permissions import require_permission
+        from app.social.service import SocialMediaService
+
+        require_permission(self.db, workspace, user, SocialPermission.EDITOR)
+        scope = {"id": post["id"], "workspace_id": workspace["id"]}
+        fresh = self.db["social_posts"].find_one(scope)
+        if not fresh or not fresh.get("planner_text_first"):
+            raise HTTPException(status_code=404, detail="Text-first planner draft not found")
+        if fresh.get("status") != "draft":
+            raise HTTPException(status_code=409, detail="Return this post to draft before generating a planner visual.")
+        rows = list(self.db["social_post_platforms"].find({"post_id": post["id"]}))
+        if len(rows) != 1 or not caption.strip() or rows[0].get("caption") != caption:
+            raise HTTPException(status_code=409, detail="Copy changed. Save and review the latest caption before approving.")
+        fingerprint = self.copy_fingerprint(fresh)
+        social = SocialMediaService(self.db)
+        if fresh.get("planner_visual_fingerprint") == fingerprint and fresh.get("image_url"):
+            return social.get_post(fresh)
+        now = utcnow()
+        token = str(uuid.uuid4())
+        claim = self.db["social_posts"].update_one(
+            {**scope, "status": "draft", "$or": [{"planner_visual_lock_until": {"$exists": False}}, {"planner_visual_lock_until": {"$lte": now}}]},
+            {"$set": {"planner_visual_lock_until": now + timedelta(minutes=30), "planner_visual_lock": token,
+                       "planner_approved_fingerprint": fingerprint, "planner_approved_by": user["id"], "planner_approved_at": now}},
+        )
+        if not claim.modified_count:
+            raise HTTPException(status_code=409, detail="Visual generation is already in progress. Refresh this post before retrying.")
+        try:
+            if self.copy_fingerprint(fresh) != fingerprint:
+                raise HTTPException(status_code=409, detail="Copy changed. Review and approve the latest saved caption.")
+            enforce_ai_image_limit(self.db, workspace)
+            brand = social._brand_voice_dict(workspace["id"])
+            platform = SocialPlatform(rows[0]["platform"])
+            brief = build_plan_image_brief(
+                caption=caption, brand_name=brand.get("brand_name") or workspace.get("name") or "our brand",
+                platform=platform, day_focus=fresh.get("planner_day_focus") or "Support the approved copy",
+                user_prompt=fresh.get("ai_prompt") or "",
+            )
+            settings = SocialPolishService(self.db).get_settings(workspace)
+            creative = social.render_brand_creative(
+                workspace, brief, settings.get("imageGenerationStyle"),
+                CreativeSpec(format="post", platform=platform.value, caption=caption, auto_copy=False),
+            )
+            record_ai_usage(self.db, workspace["id"], "image", user_id=user["id"])
+            upload = upload_social_image_bytes(workspace["id"], creative.image, content_type="image/jpeg")
+            if not upload:
+                raise RuntimeError("Image storage did not return an asset")
+            social._record_media_asset(
+                workspace, user, media_type=SocialMediaAssetType.IMAGE, source=SocialImageSource.AI_GENERATED,
+                blob_key=upload.blob_key, blob_url=upload.url, mime_type=upload.content_type,
+                file_size_bytes=upload.file_size, prompt=brief,
+            )
+            if self.copy_fingerprint(fresh) != fingerprint:
+                raise HTTPException(status_code=409, detail="Copy changed during generation. Visual saved in Media; review and approve the latest copy.")
+            attached = self.db["social_posts"].update_one(
+                {**scope, "status": "draft", "planner_visual_lock": token},
+                {"$set": {"image_url": upload.url, "image_source": SocialImageSource.AI_GENERATED.value,
+                           "planner_visual_fingerprint": fingerprint, "updated_at": utcnow()}},
+            )
+            if not attached.modified_count:
+                raise HTTPException(status_code=409, detail="Post changed during generation. Visual saved in Media; refresh before retrying.")
+            return social.get_post(self.db["social_posts"].find_one(scope))
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("Planner visual failed for post %s", post["id"])
+            raise HTTPException(status_code=502, detail="Visual generation or storage failed. Your approved copy is saved. Retry visual generation; another image attempt may use credits.") from exc
+        finally:
+            self.db["social_posts"].update_one(
+                {**scope, "planner_visual_lock": token},
+                {"$unset": {"planner_visual_lock": "", "planner_visual_lock_until": ""}},
+            )
+
     def validate_plan_request(
         self,
         workspace: dict,
@@ -461,9 +579,7 @@ class ContentPlanService:
     ) -> ContentPlanGenerateResponse:
         from app.plans.service import record_ai_usage
         from app.social.ai.generator import generate_platform_content
-        from app.social.ai.creative import CreativeSpec
-        from app.social.limits import enforce_ai_image_limit, enforce_ai_text_limit, enforce_posts_limit
-        from app.social.media import SocialBlobUpload, upload_social_image_bytes
+        from app.social.limits import enforce_ai_text_limit, enforce_posts_limit
         from app.social.models import SocialPermission
         from app.social.permissions import require_permission
         from app.social.service import SocialMediaService
@@ -530,7 +646,6 @@ class ContentPlanService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Add a content brief (at least 10 characters) describing what to post about",
             )
-        image_style = settings.get("imageGenerationStyle")
         audience = brand.get("target_audience")
         occupied_dates = (
             _occupied_plan_dates(self.db, workspace["id"], tz_name)
@@ -629,7 +744,7 @@ class ContentPlanService:
                     record_ai_usage(self.db, workspace["id"], "text", user_id=user["id"])
                 except Exception as exc:
                     logger.warning("Plan %s %s caption failed: %s", day_label, platform_label, exc)
-                    errors.append(f"{day_label} ({platform_label}): caption generation failed")
+                    errors.append(f"{day_label} ({platform_label}, {slot_date}): caption generation failed. Retry this day; saved drafts are unchanged.")
                     continue
 
                 pc = result.get(platform.value) or {}
@@ -641,47 +756,6 @@ class ContentPlanService:
 
                 image_url: Optional[str] = None
                 image_source = SocialImageSource.NONE
-                need_image = platform == SocialPlatform.INSTAGRAM or payload.generateImages
-                if need_image:
-                    try:
-                        enforce_ai_image_limit(self.db, workspace)
-                        creative = social.render_brand_creative(
-                            workspace,
-                            build_plan_image_brief(
-                                caption=caption,
-                                brand_name=brand_name,
-                                platform=platform,
-                                day_focus=day_focus,
-                                user_prompt=user_prompt,
-                            ),
-                            image_style,
-                            CreativeSpec(format="post", platform=platform.value, auto_copy=False),
-                        )
-                        record_ai_usage(self.db, workspace["id"], "image", user_id=user["id"])
-                        upload: Optional[SocialBlobUpload] = upload_social_image_bytes(
-                            workspace["id"],
-                            creative.image,
-                            content_type="image/jpeg",
-                        )
-                        if upload:
-                            social._record_media_asset(
-                                workspace,
-                                user,
-                                media_type=SocialMediaAssetType.IMAGE,
-                                source=SocialImageSource.AI_GENERATED,
-                                blob_key=upload.blob_key,
-                                blob_url=upload.url,
-                                mime_type=upload.content_type,
-                                file_size_bytes=upload.file_size,
-                                prompt=topic,
-                            )
-                            image_url = upload.url
-                            image_source = SocialImageSource.AI_GENERATED
-                    except Exception as exc:
-                        logger.warning("Plan %s %s image failed: %s", day_label, platform_label, exc)
-                        if platform == SocialPlatform.INSTAGRAM:
-                            errors.append(f"{day_label} ({platform_label}): Instagram needs an image — skipped")
-                            continue
 
                 title = f"{day_label} ({platform_label}): {caption[:50]}"
 
@@ -692,6 +766,7 @@ class ContentPlanService:
                         CreateSocialPostRequest(
                             title=title,
                             status=SocialPostStatus.DRAFT,
+                            scheduledAt=slot.isoformat(),
                             imageUrl=image_url,
                             imageSource=image_source,
                             aiPrompt=user_prompt,
@@ -707,30 +782,12 @@ class ContentPlanService:
                     )
                     post_id = created.id
                     final_status = SocialPostStatus.DRAFT
-                    scheduled_at_iso: Optional[str] = None
-
-                    if payload.autoSchedule:
-                        try:
-                            post = self._load_post(post_id)
-                            scheduled = social.schedule_post(
-                                post, SchedulePostRequest(scheduledAt=slot.isoformat())
-                            )
-                            final_status = scheduled.status
-                            scheduled_at_iso = scheduled.scheduledAt
-                            scheduled_count += 1
-                        except Exception as exc:
-                            logger.warning("Plan %s %s schedule failed: %s", day_label, platform_label, exc)
-                            try:
-                                self.db["social_posts"].update_one(
-                                    {"id": post_id}, {"$set": {"scheduled_at": slot}}
-                                )
-                                scheduled_at_iso = slot.isoformat()
-                            except Exception:
-                                scheduled_at_iso = slot.isoformat()
-                            errors.append(f"{day_label} ({platform_label}): saved as draft (schedule failed)")
-                            draft_count += 1
-                    else:
-                        draft_count += 1
+                    scheduled_at_iso = slot.isoformat()
+                    self.db["social_posts"].update_one(
+                        {"id": post_id, "workspace_id": workspace["id"]},
+                        {"$set": {"planner_text_first": True, "planner_day_focus": day_focus}},
+                    )
+                    draft_count += 1
 
                     day_outs.append(
                         ContentPlanDayOut(
@@ -773,7 +830,7 @@ class ContentPlanService:
 
         skip_note = f", {skipped_count} skipped" if skipped_count else ""
         base_message = (
-            f"Planned {len(day_outs)} post(s)"
+            f"Saved {len(day_outs)} text draft(s) for review; nothing scheduled"
             + (f", {scheduled_count} set to auto-post" if scheduled_count else "")
             + skip_note
             + ("." if not errors else f" · {len(errors)} note(s).")
@@ -783,7 +840,7 @@ class ContentPlanService:
         return ContentPlanGenerateResponse(
             days=len(day_outs),
             timezone=tz_name,
-            autoScheduled=payload.autoSchedule,
+            autoScheduled=False,
             scheduledCount=scheduled_count,
             draftCount=draft_count,
             skippedCount=skipped_count,

@@ -23,6 +23,27 @@ export const brandTokens = {
   ring: "#4f46e5",
 } as const;
 
+export const darkBrandTokens = {
+  primary: "#a498ff",
+  primaryHover: "#b9afff",
+  primaryLight: "#30264e",
+  accent: "#4ade94",
+  accentHover: "#86efac",
+  accentLight: "#12392c",
+  surfaceWhite: "#141925",
+  surfaceMuted: "#0b0f19",
+  surfaceTint: "#252039",
+  ink: "#f3f5f8",
+  inkSoft: "#dbe2ee",
+  textPrimary: "#f3f5f8",
+  textSecondary: "#b4bfd0",
+  textMuted: "#98a3b5",
+  borderDefault: "#2c303a",
+  borderMuted: "#202636",
+  borderHover: "#596174",
+  ring: "#a498ff",
+} as const;
+
 export const radiusTokens = {
   sm: 6,
   md: 8,

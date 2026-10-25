@@ -35,6 +35,18 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("AdminUsersTable", () => {
+  it("labels every mobile card field and keeps actions unique alongside collapsible filters", async () => {
+    render(<AdminUsersTable />); await ready();
+    const table = screen.getByRole("region", { name: "Users table" });
+    expect(Array.from(table.querySelectorAll("tbody td")).map((cell) => cell.getAttribute("data-label"))).toEqual(["User", "Primary workspace", "Primary workspace plan", "Status", "Created", "Actions"]);
+    const toggle = screen.getByRole("button", { name: "Advanced filters · None active" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    await choose("Filter status", "Suspended"); await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Advanced filters · 1 active" }));
+    expect(screen.getByRole("button", { name: "Advanced filters · 1 active" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getAllByRole("button", { name: `Suspend ${person.email}` })).toHaveLength(1);
+  });
   it("explains primary workspace plans and links user-scoped AI usage without removing actions", async () => {
     render(<AdminUsersTable />); await ready();
     expect(screen.getByText(/Plans belong to workspaces, not users/)).toBeTruthy();

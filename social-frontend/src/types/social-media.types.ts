@@ -192,6 +192,16 @@ export type GenerationOptions = {
   contentType?: string;
   visualsStale?: boolean;
   creativeRequest?: GenerateCreativeSetPayload;
+  copyApproval?: { version: 1; fingerprint: string } | null;
+  visualIntent?: boolean;
+  variationsWanted?: 1 | 2 | 3;
+  artDirection?: string;
+  cta?: string;
+  visualFormat?: "auto" | CreativeFormat;
+  headlineOnImage?: boolean;
+  includeLogo?: boolean;
+  logoId?: string | null;
+  logoPosition?: LogoPosition;
 };
 
 export type SentenceLength = "short" | "medium" | "long";

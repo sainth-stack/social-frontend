@@ -26,6 +26,7 @@ const shortcuts = [
   ["Workspaces", "Review workspace plans", "/admin/workspaces"],
   ["Enquiries", "Follow up on contact submissions", "/admin/contacts"],
   ["Analytics", "Explore product and marketing activity", "/admin/analytics"],
+  ["AI Usage & Costs", "Separate generation units, provider calls and configured USD estimates", "/admin/ai-usage"],
   ["Plans", "View INR prices and manage allowances", "/admin/pricing"],
   ["Coupons", "Manage offers and redemptions", "/admin/coupons"],
 ] as const;

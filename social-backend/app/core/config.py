@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -97,6 +97,34 @@ class Settings(BaseSettings):
         validation_alias="BEDROCK_IMAGE_REGION",
     )
     video_generation_enabled: bool = Field(default=False, validation_alias="VIDEO_GENERATION_ENABLED")
+    ai_provider_pricing_json: str = Field(default="{}", validation_alias="AI_PROVIDER_PRICING_JSON")
+
+    @field_validator("ai_provider_pricing_json")
+    @classmethod
+    def validate_provider_pricing(cls, value: str) -> str:
+        import json
+        from decimal import Decimal, InvalidOperation
+        import math
+
+        configuration = json.loads(value)
+        if not isinstance(configuration, dict):
+            raise ValueError("AI_PROVIDER_PRICING_JSON must be a model-keyed object")
+        for model, entry in configuration.items():
+            if not model or not isinstance(entry, dict) or entry.get("currency", "USD") != "USD":
+                raise ValueError("Invalid USD provider pricing entry")
+            for key in ("inputPerMillionUsd", "outputPerMillionUsd", "cacheReadPerMillionUsd",
+                        "cacheWritePerMillionUsd", "imagePerUnitUsd"):
+                if key in entry:
+                    try:
+                        rate = Decimal(str(entry[key]))
+                    except InvalidOperation as exc:
+                        raise ValueError("Provider rates must be valid numbers") from exc
+                    if isinstance(entry[key], bool) or not rate.is_finite() or rate < 0 or not math.isfinite(float(rate)):
+                        raise ValueError("Provider rates must be finite and nonnegative")
+            for key in ("region", "version", "source", "aliasOf"):
+                if key in entry and (not isinstance(entry[key], str) or not entry[key].strip()):
+                    raise ValueError(f"{key} must be a nonempty string")
+        return value
 
     @property
     def resolved_bedrock_region(self) -> str:

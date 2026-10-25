@@ -446,6 +446,19 @@ class ContentPlanService:
         progress_callback: Optional[ProgressCallback] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
     ) -> ContentPlanGenerateResponse:
+        from app.providers.llm.metering import metering_scope
+
+        with metering_scope(self.db, workspace["id"], user["id"], "planner"):
+            return self._run(workspace, user, payload, progress_callback, cancel_check)
+
+    def _run(
+        self,
+        workspace: dict,
+        user: dict,
+        payload: ContentPlanGenerateRequest,
+        progress_callback: Optional[ProgressCallback] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> ContentPlanGenerateResponse:
         from app.plans.service import record_ai_usage
         from app.social.ai.generator import generate_platform_content
         from app.social.ai.creative import CreativeSpec

@@ -155,6 +155,14 @@ def _index_specs() -> dict[str, list[IndexModel]]:
             idx(("workspace_id", ASCENDING), ("created_at", DESCENDING)),
             idx(("workspace_id", ASCENDING), ("kind", ASCENDING), ("created_at", DESCENDING)),
         ],
+        "ai_provider_usage": [
+            idx(("id", ASCENDING), unique=True),
+            idx(("created_at", DESCENDING)),
+            idx(("user_id", ASCENDING), ("created_at", DESCENDING)),
+            idx(("workspace_id", ASCENDING), ("created_at", DESCENDING)),
+            idx(("model_id", ASCENDING), ("created_at", DESCENDING)),
+            idx(("provider_request_id", ASCENDING), sparse=True),
+        ],
         "plan_overrides": [idx(("plan_key", ASCENDING), unique=True)],
         "marketing_contacts": [
             idx(("id", ASCENDING), unique=True),

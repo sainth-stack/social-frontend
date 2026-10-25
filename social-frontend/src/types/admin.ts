@@ -2,6 +2,84 @@ import type { PlanTier, SocialPermissionLevel } from "@/types/auth";
 
 export type UserStatus = "active" | "suspended";
 
+export type AdminAIUsageFilters = {
+  days?: 7 | 30 | 90;
+  startDate?: string;
+  endDate?: string;
+  groupBy?: "user" | "workspace" | "model";
+  search?: string;
+  kind?: "all" | "text" | "image";
+  workspaceId?: string;
+  userId?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: "cost" | "count";
+  order?: "asc" | "desc";
+};
+
+export type AdminAIUsageMetrics = {
+  textGenerations: number;
+  imageGenerations: number;
+  providerCalls: number;
+  textProviderCalls: number;
+  imageProviderCalls: number;
+  providerQuantity: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  pricedCalls: number;
+  unpricedCalls: number;
+  failedCalls: number;
+  filteredCalls: number;
+  unattributedCalls: number;
+  legacyTextGenerations: number;
+  legacyImageGenerations: number;
+  estimatedKnownCostUsd: number;
+  totalCostUsd: number | null;
+  estimatedCostUsd: number | null;
+  historicalUnknown: boolean;
+};
+
+export type AdminAIUsageItem = AdminAIUsageMetrics & {
+  id: string;
+  name: string;
+  email: string | null;
+  userId: string | null;
+  workspaceId: string | null;
+  modelId: string | null;
+};
+
+export type AdminAIUsagePricing = {
+  modelId?: string;
+  aliasOf?: string;
+  region?: string;
+  currency?: string;
+  inputPerMillionUsd?: number | null;
+  outputPerMillionUsd?: number | null;
+  cacheReadPerMillionUsd?: number | null;
+  cacheWritePerMillionUsd?: number | null;
+  imagePerUnitUsd?: number | null;
+};
+
+export type AdminAIUsageReport = {
+  startDate: string;
+  endDate: string;
+  currency: "USD";
+  costBasis: "configured_estimate";
+  groupBy: "user" | "workspace" | "model";
+  summary: AdminAIUsageMetrics;
+  items: AdminAIUsageItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  daily: (AdminAIUsageMetrics & { date: string })[];
+  models: AdminAIUsageItem[];
+  pricing: AdminAIUsagePricing[];
+  limitations: string[];
+};
+
 export type AdminUser = {
   id: string;
   email: string;

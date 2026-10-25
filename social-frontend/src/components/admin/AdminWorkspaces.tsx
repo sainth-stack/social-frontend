@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Building2 } from "lucide-react";
 import adminApi from "@/api/endpoints/admin.api";
 import { PageHeader } from "@/components/layouts/PageHeader";
@@ -102,7 +103,7 @@ function WorkspacesContent() {
 
   return (
     <div className="min-w-0 max-w-full space-y-6">
-      <PageHeader icon={Building2} title="Workspaces" description="Manage workspace plans and access across the platform." />
+      <PageHeader icon={Building2} title="Workspaces" description="Workspaces are the collaboration, billing and AI quota boundary. Users are individual sign-ins and can belong to multiple workspaces." />
       <Card><CardContent className="space-y-3 p-4"><div className="space-y-1.5"><Label htmlFor="workspace-search">Search workspaces</Label><Input ref={searchInput} id="workspace-search" placeholder="Workspace name" value={filters.search} onChange={(event) => changeFilters({ search: event.target.value, page: 0 })} /></div><p className="text-sm text-muted-foreground">All plans include unlimited connected accounts. Plan changes are administrative assignments, not payments.</p></CardContent></Card>
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {loading ? <div role="status" aria-label="Loading workspaces" className="space-y-3 rounded-xl border p-4"><span className="sr-only">Loading workspaces…</span>{Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div> : error ? <div role="alert" className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4"><p>Workspaces could not be loaded.</p><Button variant="outline" onClick={refresh}>Retry workspaces</Button></div> : result ? <>
@@ -118,7 +119,7 @@ function WorkspacesContent() {
                 <TableCell><Badge variant={workspace.is_active ? "secondary" : "destructive"}>{workspace.is_active ? "Active" : "Inactive"}</Badge></TableCell>
                 <TableCell>{workspace.member_count.toLocaleString()}</TableCell>
                 <TableCell className="whitespace-nowrap text-muted-foreground">{Number.isNaN(Date.parse(workspace.created_at)) ? "Unavailable" : new Date(workspace.created_at).toLocaleDateString()}</TableCell>
-                <TableCell><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={saving} aria-label={`Change plan for ${workspace.name}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setPlan(workspace.plan); setSaveError(false); setTarget({ workspace, action: "plan" }); }}>Change plan</Button><Button size="sm" variant="outline" disabled={saving} aria-label={`${workspace.is_active ? "Deactivate" : "Activate"} ${workspace.name}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setSaveError(false); setTarget({ workspace, action: "status" }); }}>{workspace.is_active ? "Deactivate" : "Activate"}</Button></div></TableCell>
+                <TableCell><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" asChild><Link href={`/admin/ai-usage?workspaceId=${encodeURIComponent(workspace.id)}`} aria-label={`AI usage for ${workspace.name}`}>AI usage</Link></Button><Button size="sm" variant="outline" disabled={saving} aria-label={`Change plan for ${workspace.name}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setPlan(workspace.plan); setSaveError(false); setTarget({ workspace, action: "plan" }); }}>Change plan</Button><Button size="sm" variant="outline" disabled={saving} aria-label={`${workspace.is_active ? "Deactivate" : "Activate"} ${workspace.name}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setSaveError(false); setTarget({ workspace, action: "status" }); }}>{workspace.is_active ? "Deactivate" : "Activate"}</Button></div></TableCell>
               </TableRow>)}</TableBody>
             </Table></div>}
         </CardContent></Card>

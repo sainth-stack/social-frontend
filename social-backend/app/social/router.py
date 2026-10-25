@@ -25,6 +25,7 @@ from pymongo.database import Database
 
 from app.auth.deps import get_current_user
 from app.core.database import get_db
+from app.providers.llm.metering import metering_scope
 from app.providers.llm.model_selection import (
     ModelSelection,
     get_model_catalog,
@@ -326,16 +327,17 @@ def regenerate_post_content(
     db: Database = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ) -> SocialPostOut:
-    return SocialMediaService(db).regenerate_post_content(
-        post,
-        workspace,
-        current_user,
-        prompt=payload.prompt,
-        regenerate_image=payload.regenerateImage,
-        regenerate_caption=payload.regenerateCaption,
-        tone=payload.tone,
-        cta=payload.cta,
-    )
+    with metering_scope(db, workspace["id"], current_user["id"], "regenerate"):
+        return SocialMediaService(db).regenerate_post_content(
+            post,
+            workspace,
+            current_user,
+            prompt=payload.prompt,
+            regenerate_image=payload.regenerateImage,
+            regenerate_caption=payload.regenerateCaption,
+            tone=payload.tone,
+            cta=payload.cta,
+        )
 
 
 @router.delete("/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -637,11 +639,11 @@ def test_brand_voice(
     payload: Optional[BrandVoiceUpdateRequest] = Body(default=None),
     workspace: dict = Depends(require_workspace_access),
     db: Database = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
     models: ModelSelection = Depends(validate_model_selection),
 ) -> BrandVoiceTestResponse:
-    with selected_models(models):
-        return SocialMediaService(db).test_brand_voice(workspace, payload)
+    with selected_models(models), metering_scope(db, workspace["id"], user["id"], "brandtest"):
+        return SocialMediaService(db).test_brand_voice(workspace, payload, user)
 
 
 @router.get("/ai-models")
@@ -660,7 +662,7 @@ def generate_post(
     user: dict = Depends(get_current_user),
     models: ModelSelection = Depends(validate_model_selection),
 ) -> GeneratePostResponse:
-    with selected_models(models):
+    with selected_models(models), metering_scope(db, workspace["id"], user["id"], "generate"):
         return SocialMediaService(db).generate_post(workspace, payload, user)
 
 
@@ -672,7 +674,7 @@ def generate_creative_set(
     user: dict = Depends(get_current_user),
     models: ModelSelection = Depends(validate_model_selection),
 ) -> GenerateCreativeSetResponse:
-    with selected_models(models):
+    with selected_models(models), metering_scope(db, workspace["id"], user["id"], "creative-set"):
         return SocialMediaService(db).generate_creative_set(workspace, user, payload)
 
 
@@ -705,7 +707,7 @@ def generate_image(
             slide_index=payload.slideIndex,
             slide_count=payload.slideCount,
         )
-    with selected_models(models):
+    with selected_models(models), metering_scope(db, workspace["id"], user["id"], "image"):
         return SocialMediaService(db).generate_image(
             workspace,
             user,

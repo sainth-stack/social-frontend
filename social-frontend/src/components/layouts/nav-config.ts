@@ -83,6 +83,7 @@ export const adminNavSections: NavSection[] = [
       { label: "Plans", href: "/admin/pricing", icon: Tag },
       { label: "Coupons", href: "/admin/coupons", icon: CreditCard },
       { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
+      { label: "AI Usage & Costs", href: "/admin/ai-usage", icon: LineChart },
       { label: "Enquiries", href: "/admin/contacts", icon: Mail },
     ],
   },

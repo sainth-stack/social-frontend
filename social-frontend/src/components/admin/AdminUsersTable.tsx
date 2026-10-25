@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Plus, Users } from "lucide-react";
 import adminApi from "@/api/endpoints/admin.api";
 import ChangePlanModal from "@/components/admin/ChangePlanModal";
@@ -132,9 +133,10 @@ function UsersContent({ currentUserId }: { currentUserId: string }) {
         <PageHeader icon={Users} title="Users" description="Manage user access and primary owned workspace plans." />
         <Button ref={createTrigger} disabled={saving} onClick={(event) => { actionTrigger.current = event.currentTarget; setSaveError(null); setCreateOpen(true); }}><Plus className="mr-2 size-4" aria-hidden />Create user</Button>
       </header>
+      <p className="text-sm text-muted-foreground">Users are individual sign-ins. The primary workspace is their primary owned workspace, not every workspace they can access. Plans belong to workspaces, not users; Change plan updates that workspace. <Link href="/admin/workspaces" className="font-medium text-primary underline">Manage all Workspaces</Link> for collaboration, billing and AI quotas.</p>
       <Card><CardContent className="flex min-w-0 flex-col gap-4 p-4 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1 space-y-1.5"><Label htmlFor="user-search">Search users</Label><Input id="user-search" placeholder="Name, email or owned workspace" value={filters.search} onChange={(event) => changeFilters({ ...filters, search: event.target.value, page: 1 })} /></div>
-        <div className="space-y-1.5 sm:w-40"><Label htmlFor="user-plan">Filter plan</Label><Select value={filters.plan} onValueChange={(value) => changeFilters({ ...filters, plan: value as Filters["plan"], page: 1 })}><SelectTrigger id="user-plan"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All plans</SelectItem>{Object.entries(PLAN_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-1.5 sm:w-52"><Label htmlFor="user-plan">Primary workspace plan</Label><Select value={filters.plan} onValueChange={(value) => changeFilters({ ...filters, plan: value as Filters["plan"], page: 1 })}><SelectTrigger id="user-plan"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All plans</SelectItem>{Object.entries(PLAN_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
         <div className="space-y-1.5 sm:w-40"><Label htmlFor="user-status">Filter status</Label><Select value={filters.status} onValueChange={(value) => changeFilters({ ...filters, status: value, page: 1 })}><SelectTrigger id="user-status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="active">Active</SelectItem><SelectItem value="suspended">Suspended</SelectItem></SelectContent></Select></div>
       </CardContent></Card>
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
@@ -143,14 +145,14 @@ function UsersContent({ currentUserId }: { currentUserId: string }) {
         <Card className="min-w-0 overflow-hidden"><CardContent className="min-w-0 p-0">
           {!result.items.length ? <div className="space-y-3 p-8 text-center"><h2 className="font-semibold">No users found</h2><p className="text-sm text-muted-foreground">Try another search or create a user.</p><Button variant="outline" onClick={() => changeFilters(initialFilters)}>Clear filters</Button></div> :
             <div role="region" aria-label="Users table" tabIndex={0} className="max-w-full overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Table>
-              <TableHeader><TableRow><TableHead>User</TableHead><TableHead>Owned workspace</TableHead><TableHead>Plan</TableHead><TableHead>Status</TableHead><TableHead>Created</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>User</TableHead><TableHead>Primary workspace</TableHead><TableHead>Primary workspace plan</TableHead><TableHead>Status</TableHead><TableHead>Created</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
               <TableBody>{result.items.map((user) => <TableRow key={user.id}>
                 <TableCell><div className="w-48 break-words font-medium">{user.name || "Unnamed user"}</div><div className="w-48 break-all text-xs text-muted-foreground">{user.email}</div>{user.isPlatformAdmin && <Badge variant="outline">Platform admin</Badge>}{user.id === currentUserId && <Badge variant="secondary">You</Badge>}</TableCell>
                 <TableCell><div className="w-40 break-words">{user.workspaceName || "No owned workspace"}</div></TableCell>
                 <TableCell><Badge variant="outline">{user.workspaceId ? PLAN_LABELS[user.plan] : "No workspace"}</Badge></TableCell>
                 <TableCell><Badge variant={user.status === "active" ? "secondary" : "destructive"}>{user.status === "active" ? "Active" : "Suspended"}</Badge></TableCell>
                 <TableCell className="whitespace-nowrap text-muted-foreground">{Number.isNaN(Date.parse(user.createdAt)) ? "Unavailable" : new Date(user.createdAt).toLocaleDateString()}</TableCell>
-                <TableCell><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={saving || !user.workspaceId} aria-label={`Change plan for ${user.email}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setSaveError(null); setPlanTarget(user); }}>Change plan</Button><Button size="sm" variant="outline" disabled={saving || (user.id === currentUserId && user.status === "active")} aria-label={`${user.status === "active" ? "Suspend" : "Activate"} ${user.email}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setSaveError(null); setStatusTarget(user); }}>{user.status === "active" ? "Suspend" : "Activate"}</Button></div>{user.id === currentUserId && <p className="mt-1 text-xs text-muted-foreground">You cannot suspend yourself.</p>}</TableCell>
+                <TableCell><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" asChild><Link href={`/admin/ai-usage?userId=${encodeURIComponent(user.id)}`} aria-label={`AI usage for ${user.email}`}>AI usage</Link></Button><Button size="sm" variant="outline" disabled={saving || !user.workspaceId} aria-label={`Change plan for ${user.email}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setSaveError(null); setPlanTarget(user); }}>Change plan</Button><Button size="sm" variant="outline" disabled={saving || (user.id === currentUserId && user.status === "active")} aria-label={`${user.status === "active" ? "Suspend" : "Activate"} ${user.email}`} onClick={(event) => { actionTrigger.current = event.currentTarget; setSaveError(null); setStatusTarget(user); }}>{user.status === "active" ? "Suspend" : "Activate"}</Button></div>{user.id === currentUserId && <p className="mt-1 text-xs text-muted-foreground">You cannot suspend yourself.</p>}</TableCell>
               </TableRow>)}</TableBody>
             </Table></div>}
         </CardContent></Card>

@@ -9,6 +9,7 @@ from typing import Any
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.config import settings
+from app.providers.llm.metering import record_provider_usage
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +27,9 @@ class _Choice:
 
 
 class _ChatCompletion:
-    def __init__(self, choices: list[_Choice]) -> None:
+    def __init__(self, choices: list[_Choice], usage: dict[str, Any] | None = None) -> None:
         self.choices = choices
+        self.usage = usage
 
 
 class _ChatCompletions:
@@ -91,12 +93,27 @@ class _ChatCompletions:
         if temperature is not None:
             request["inferenceConfig"]["temperature"] = float(temperature)
 
+        region = getattr(getattr(self._runtime, "meta", None), "region_name", None)
+        if not isinstance(region, str):
+            region = settings.resolved_bedrock_region
         try:
             response = self._runtime.converse(**request)
-        except (ClientError, BotoCoreError) as exc:
+        except Exception as exc:
+            record_provider_usage(
+                kind="text", model_id=model_id, region=region,
+                status="error", provider_request_id=getattr(exc, "response", {}).get("ResponseMetadata", {}).get("RequestId"),
+            )
+            if not isinstance(exc, (ClientError, BotoCoreError)):
+                raise
             logger.warning("Bedrock converse failed model=%s: %s", model_id, exc)
             raise RuntimeError(f"Bedrock request failed: {exc}") from exc
 
+        record_provider_usage(
+            kind="text", model_id=model_id, region=region,
+            status="filtered" if response.get("stopReason") in ("guardrail_intervened", "content_filtered") else "success",
+            usage=response.get("usage"),
+            provider_request_id=(response.get("ResponseMetadata") or {}).get("RequestId"),
+        )
         output = response.get("output") or {}
         message = output.get("message") or {}
         parts: list[str] = []
@@ -109,7 +126,8 @@ class _ChatCompletions:
         finish_reason = "length" if stop_reason == "max_tokens" else "stop"
 
         return _ChatCompletion(
-            choices=[_Choice(_Message(text), finish_reason=finish_reason)]
+            choices=[_Choice(_Message(text), finish_reason=finish_reason)],
+            usage=response.get("usage"),
         )
 
 
@@ -151,6 +169,6 @@ def get_bedrock_runtime_client(*, region_name: str | None = None) -> Any:
         config=Config(
             max_pool_connections=50,
             read_timeout=120,
-            retries={"mode": "standard", "max_attempts": 2},
+            retries={"mode": "standard", "total_max_attempts": 1},
         ),
     )

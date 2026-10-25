@@ -118,6 +118,50 @@ Point nginx at `127.0.0.1:5000` (API) and `127.0.0.1:5001` (frontend).
 
 ## API surface
 
+### Provider usage and estimated costs
+
+Bedrock text and image invocations append immutable application events to
+`ai_provider_usage`, separately from the unchanged `plans_ai_usage` quota ledger.
+Generation, brand-voice tests, creative sets, image generation, regeneration, and
+synchronous/background content plans establish workspace/user attribution.
+Each actual text call (including repair/art direction/retries) is a separate event;
+resized exports and creative-set replays without provider calls create none.
+Events are recorded before response parsing, image decoding, and media persistence
+can fail. Image response bodies must first be read to count returned images.
+No prompts, completions, token contents, credentials, or provider error bodies are stored.
+
+`AI_PROVIDER_PRICING_JSON` defaults to `{}`: no rates are supplied or invented.
+Use a JSON object keyed by the exact invoked model ID, with optional
+`inputPerMillionUsd`, `outputPerMillionUsd`, `cacheReadPerMillionUsd`,
+`cacheWritePerMillionUsd`, `imagePerUnitUsd`, `version`, `source`, `region`, and
+`currency` (USD only). Rates must be finite and nonnegative. An explicit profile
+entry may use `aliasOf` referencing a directly priced model entry; no automatic
+prefix stripping or profile/region inference is performed. If supplied, both
+entries' regions must match the actual runtime region. An omitted region explicitly
+means the configured rate applies in every region; specify one for regional rates.
+
+Estimates use Decimal arithmetic, then a finite numeric USD value for reporting.
+Snapshots preserve the exact configured entry and resolved alias rates, currency,
+version/source metadata so later configuration changes do not rewrite history.
+`pricing_configuration()` in `app/providers/llm/metering.py` returns a list of
+configured entries with `model_id` and `currency` for reporting.
+Missing rates/usage remain null with `missing_rate`/`missing_usage`; cache usage
+without its rate, failed/filtered calls, and ambiguous image results have unknown
+cost, never assumed free. Only successful returned images are priced.
+Bedrock Converse `inputTokens` already excludes cache-read/write tokens: no cache
+subtraction is applied; each cache field is priced separately. See
+[AWS cache usage semantics](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html#prompt-caching-converse).
+
+SDK-hidden retries are disabled (`total_max_attempts=1`) so every application
+invocation has an event. Application retries remain separately recorded.
+Provider request IDs are indexed non-uniquely: deduplicating on them can silently
+drop actual invocations. The ledger only inserts; it never updates prior events.
+This is application immutability, not a MongoDB authorization/retention guarantee.
+Existing historical quota records have no recoverable provider cost and are not
+backfilled. Missing scope and database write failures emit explicit error logs
+without breaking successful generation; outages can leave ledger gaps and need
+operational alerting. There is no durable outbox or automatic cost reconciliation.
+
 All authenticated routes are under `API_V1_PREFIX` (default `/api/v1`).
 
 - `POST /api/v1/auth/register` — create user + personal Starter workspace, returns JWT

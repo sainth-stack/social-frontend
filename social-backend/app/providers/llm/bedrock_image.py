@@ -10,6 +10,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.config import settings
 from app.providers.llm.bedrock_client import get_bedrock_runtime_client
+from app.providers.llm.metering import record_provider_usage
 from app.providers.llm.model_selection import SUPPORTED_IMAGE_MODEL_IDS, current_models, image_region
 
 logger = logging.getLogger(__name__)
@@ -90,13 +91,36 @@ def _invoke_raw(body: dict[str, Any], *, model_id: str) -> list[str]:
             contentType="application/json",
             accept="application/json",
         )
-    except (ClientError, BotoCoreError) as exc:
+    except Exception as exc:
+        record_provider_usage(
+            kind="image", model_id=model_id, region=region, status="error", quantity=0,
+            provider_request_id=getattr(exc, "response", {}).get("ResponseMetadata", {}).get("RequestId"),
+        )
+        if not isinstance(exc, (ClientError, BotoCoreError)):
+            raise
         logger.warning("Bedrock image invoke failed model=%s region=%s: %s", model_id, region, exc)
         raise _friendly_invoke_error(exc, model=model_id, region=region) from exc
 
-    payload = json.loads(response["body"].read())
-    images = payload.get("images") or []
-    reasons = [reason for reason in payload.get("finish_reasons", []) if reason]
+    provider_request_id = (response.get("ResponseMetadata") or {}).get("RequestId")
+    try:
+        payload = json.loads(response["body"].read())
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid image response")
+        images = payload.get("images") or []
+        raw_reasons = payload.get("finish_reasons") or []
+        if not isinstance(raw_reasons, list):
+            raise ValueError("Invalid image finish reasons")
+        reasons = [reason for reason in raw_reasons if reason]
+        returned_images = [image for image in images if isinstance(image, str) and image] if isinstance(images, list) else []
+    except Exception:
+        record_provider_usage(kind="image", model_id=model_id, region=region,
+                              status="error", quantity=0, provider_request_id=provider_request_id)
+        raise
+    record_provider_usage(
+        kind="image", model_id=model_id, region=region,
+        status="filtered" if reasons else ("success" if returned_images and len(returned_images) == len(images) else "error"),
+        quantity=len(returned_images), provider_request_id=provider_request_id,
+    )
     if reasons or not images or not all(isinstance(img, str) and img for img in images):
         err = payload.get("error") or payload.get("message") or "; ".join(map(str, reasons)) or "no images returned"
         raise RuntimeError(f"Bedrock image model returned no images: {err}")

@@ -51,13 +51,14 @@ describe("AdminOverview", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 
-  it("links all six admin shortcuts to existing admin routes", async () => {
+  it("links all seven admin shortcuts without inventing cost totals", async () => {
     setup();
     await screen.findByText("1,234");
     const nav = within(screen.getByRole("navigation", { name: "Admin shortcuts" }));
-    for (const [name, route] of [["Users", "users"], ["Workspaces", "workspaces"], ["Enquiries", "contacts"], ["Analytics", "analytics"], ["Plans", "pricing"], ["Coupons", "coupons"]]) {
+    for (const [name, route] of [["Users", "users"], ["Workspaces", "workspaces"], ["Enquiries", "contacts"], ["Analytics", "analytics"], ["AI Usage & Costs", "ai-usage"], ["Plans", "pricing"], ["Coupons", "coupons"]]) {
       expect(nav.getByRole("link", { name: new RegExp(`^${name}`) }).getAttribute("href")).toBe(`/admin/${route}`);
     }
+    expect(screen.queryByText(/\$[\d]/)).toBeNull();
   });
 
   it("reports failure without zero metrics or charts and retries", async () => {

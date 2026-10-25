@@ -5,6 +5,25 @@ import adminApi from "./admin.api";
 vi.mock("@/api/client", () => ({ default: { get: vi.fn(), patch: vi.fn(), post: vi.fn(), put: vi.fn() } }));
 beforeEach(() => vi.resetAllMocks());
 
+describe("admin AI usage API", () => {
+  it("forwards exact UTC scope, grouping, search, kind, sort, pagination and cancellation", async () => {
+    const signal = new AbortController().signal;
+    const params = { startDate: "2026-10-01", endDate: "2026-10-24", userId: "user", workspaceId: "workspace", groupBy: "model" as const, kind: "image" as const, search: "model [literal]", sort: "count" as const, order: "asc" as const, page: 3, pageSize: 50 };
+    const data = { summary: { estimatedKnownCostUsd: 0, totalCostUsd: null }, items: [], total: 101 };
+    vi.mocked(apiClient.get).mockResolvedValue({ data });
+    expect(await adminApi.getAIUsage(params, signal)).toBe(data);
+    expect(apiClient.get).toHaveBeenCalledWith("/api/v1/admin/ai-usage", { params, signal });
+    expect(apiClient.post).not.toHaveBeenCalled(); expect(apiClient.patch).not.toHaveBeenCalled();
+  });
+
+  it("preserves default server filters and propagates failures", async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ data: {} }).mockRejectedValueOnce(new Error("offline"));
+    await adminApi.getAIUsage();
+    expect(apiClient.get).toHaveBeenCalledWith("/api/v1/admin/ai-usage", { params: {}, signal: undefined });
+    await expect(adminApi.getAIUsage({ days: 90 })).rejects.toThrow("offline");
+  });
+});
+
 describe("admin marketing API", () => {
   it("returns camelCase marketing analytics and forwards cancellation", async () => {
     const signal = new AbortController().signal;

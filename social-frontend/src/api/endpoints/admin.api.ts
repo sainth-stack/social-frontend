@@ -1,6 +1,8 @@
 import apiClient from "@/api/client";
 import type { PlanTier } from "@/types/auth";
 import type {
+  AdminAIUsageFilters,
+  AdminAIUsageReport,
   AdminAnalytics,
   AdminOverviewStats,
   AdminUser,
@@ -17,6 +19,11 @@ import type {
 const base = "/api/v1/admin";
 
 export const adminApi = {
+  async getAIUsage(params: AdminAIUsageFilters = {}, signal?: AbortSignal): Promise<AdminAIUsageReport> {
+    const { data } = await apiClient.get<AdminAIUsageReport>(`${base}/ai-usage`, { params, signal });
+    return data;
+  },
+
   async getMarketingAnalytics(signal?: AbortSignal): Promise<MarketingAnalytics> {
     const { data } = await apiClient.get<MarketingAnalytics>(`${base}/marketing-analytics`, { signal });
     return data;

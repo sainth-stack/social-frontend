@@ -1201,7 +1201,8 @@ class SocialMediaService:
         return self._serialize_brand_voice(row)
 
     def test_brand_voice(
-        self, workspace: dict, payload: Optional[BrandVoiceUpdateRequest] = None
+        self, workspace: dict, payload: Optional[BrandVoiceUpdateRequest] = None,
+        user: Optional[dict] = None,
     ) -> BrandVoiceTestResponse:
         if payload is not None:
             voice = payload.model_dump()
@@ -1236,7 +1237,7 @@ class SocialMediaService:
         enforce_ai_text_limit(self.db, workspace)
 
         sample = generate_brand_voice_sample(brand_voice)
-        record_ai_usage(self.db, workspace["id"], "text")
+        record_ai_usage(self.db, workspace["id"], "text", user_id=user["id"] if user else None)
         return BrandVoiceTestResponse(**sample)
 
     def upload_logo(

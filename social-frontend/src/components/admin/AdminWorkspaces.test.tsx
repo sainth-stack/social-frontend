@@ -26,6 +26,12 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AdminWorkspaces", () => {
+  it("explains workspace boundaries and links workspace-scoped AI usage", async () => {
+    render(<AdminWorkspaces />); await ready();
+    expect(screen.getByText(/collaboration, billing and AI quota boundary/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: `AI usage for ${workspace.name}` }).getAttribute("href")).toBe("/admin/ai-usage?workspaceId=owned");
+    expect(screen.getByRole("button", { name: `Change plan for ${workspace.name}` })).toBeTruthy();
+  });
   it("uses a 21-row lookahead, renders 20 and never fabricates a total", async () => {
     const rows = Array.from({ length: 21 }, (_, i) => ({ ...workspace, id: `ws-${i}`, name: `Workspace ${i + 1}` }));
     vi.mocked(adminApi.listWorkspaces).mockResolvedValueOnce(rows).mockResolvedValueOnce(rows.slice(20));

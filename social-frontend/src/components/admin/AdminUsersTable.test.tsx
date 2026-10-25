@@ -35,6 +35,15 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("AdminUsersTable", () => {
+  it("explains primary workspace plans and links user-scoped AI usage without removing actions", async () => {
+    render(<AdminUsersTable />); await ready();
+    expect(screen.getByText(/Plans belong to workspaces, not users/)).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Primary workspace" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Primary workspace plan" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Manage all Workspaces" }).getAttribute("href")).toBe("/admin/workspaces");
+    expect(screen.getByRole("link", { name: `AI usage for ${person.email}` }).getAttribute("href")).toBe("/admin/ai-usage?userId=ada");
+    expect(screen.getByRole("button", { name: `Change plan for ${person.email}` })).toBeTruthy();
+  });
   it("loads 20 users per server page and reaches users beyond the first 20", async () => {
     const rows = Array.from({ length: 20 }, (_, i) => ({ ...person, id: `user-${i}`, email: `user${i}@example.com` }));
     vi.mocked(adminApi.listUsers).mockResolvedValueOnce(list(rows, 41)).mockResolvedValueOnce(list([{ ...person, name: "User twenty-one" }], 41, 2));
@@ -53,7 +62,7 @@ describe("AdminUsersTable", () => {
     vi.mocked(adminApi.listUsers).mockResolvedValue(list([person], 41));
     render(<AdminUsersTable />); await ready();
     fireEvent.click(screen.getByRole("button", { name: "Next" })); await ready();
-    await choose("Filter plan", "Pro"); await ready();
+    await choose("Primary workspace plan", "Pro"); await ready();
     await choose("Filter status", "Suspended"); await ready();
     const count = vi.mocked(adminApi.listUsers).mock.calls.length;
     fireEvent.change(screen.getByLabelText("Search users"), { target: { value: "Analytical" } });
@@ -79,7 +88,7 @@ describe("AdminUsersTable", () => {
     const stale = deferred<AdminUserListResponse>();
     vi.mocked(adminApi.listUsers).mockReturnValueOnce(stale.promise);
     render(<AdminUsersTable />); await waitFor(() => expect(adminApi.listUsers).toHaveBeenCalledTimes(1));
-    await choose("Filter plan", "Growth"); await ready();
+    await choose("Primary workspace plan", "Growth"); await ready();
     await act(async () => stale.reject(new Error("late error")));
     expect(screen.queryByRole("alert")).toBeNull();
   });

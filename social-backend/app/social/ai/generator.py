@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
@@ -537,6 +538,7 @@ def generate_platform_content(
     with ThreadPoolExecutor(max_workers=min(4, len(platform_keys))) as pool:
         futures = {
             pool.submit(
+                copy_context().run,
                 _generate_one_platform,
                 client=client,
                 model=model,

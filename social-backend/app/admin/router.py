@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from pymongo.database import Database
 
 from app.admin import service
+from app.admin.ai_usage import AIUsageReport, get_ai_usage
 from app.admin.schemas import (
     AdminAnalyticsOut,
     AdminOverviewOut,
@@ -42,6 +43,8 @@ router = APIRouter(
     tags=["admin"],
     dependencies=[Depends(require_platform_admin)],
 )
+
+router.add_api_route("/ai-usage", get_ai_usage, methods=["GET"], response_model=AIUsageReport)
 
 
 # ── Frontend dashboard API ──────────────────────────────────────────────────

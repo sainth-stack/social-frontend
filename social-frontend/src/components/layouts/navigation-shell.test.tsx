@@ -121,6 +121,7 @@ describe("Sidebar navigation", () => {
     expect(screen.getByRole("link", { name: "Back to workspace app" }).getAttribute("href")).toBe("/dashboard");
     expect(screen.getByRole("link", { name: "Users" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Workspaces" }).getAttribute("href")).toBe("/admin/workspaces");
+    expect(screen.getByRole("link", { name: "AI Usage & Costs" }).getAttribute("href")).toBe("/admin/ai-usage");
     expect(screen.queryByRole("region", { name: "Plan and usage" })).toBeNull();
     expect(mocks.fetch).not.toHaveBeenCalled();
   });

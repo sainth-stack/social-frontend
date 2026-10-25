@@ -12,7 +12,7 @@ export default function HomePage() {
   const structuredData = {
     "@context": "https://schema.org",
     "@graph": [
-      { "@type": "Organization", "@id": `${SITE_URL}/#organization`, name: brand.name, url: SITE_URL, logo: `${SITE_URL}/brand/earnedvoice-mark.svg` },
+      { "@type": "Organization", "@id": `${SITE_URL}/#organization`, name: brand.name, url: SITE_URL, logo: `${SITE_URL}/brand/earnedvoice-lockup.svg` },
       { "@type": "WebSite", "@id": `${SITE_URL}/#website`, name: brand.name, url: SITE_URL, publisher: { "@id": `${SITE_URL}/#organization` }, inLanguage: "en" },
       { "@type": "SoftwareApplication", name: brand.name, applicationCategory: "BusinessApplication", operatingSystem: "Web", url: SITE_URL, description: seo.description, publisher: { "@id": `${SITE_URL}/#organization` } },
     ],

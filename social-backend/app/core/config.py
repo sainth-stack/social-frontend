@@ -84,7 +84,7 @@ class Settings(BaseSettings):
         default=None, validation_alias="BEDROCK_AWS_SECRET_ACCESS_KEY"
     )
     bedrock_image_model_id: str = Field(
-        default="stability.sd3-5-large-v1:0",
+        default="stability.stable-image-ultra-v1:1",
         validation_alias="BEDROCK_IMAGE_MODEL_ID",
     )
     bedrock_image_quality: str = Field(
@@ -137,7 +137,7 @@ class Settings(BaseSettings):
         explicit = (self.bedrock_image_region or "").strip()
         if explicit:
             return explicit
-        model = (self.bedrock_image_model_id or "stability.sd3-5-large-v1:0").strip()
+        model = (self.bedrock_image_model_id or "stability.stable-image-ultra-v1:1").strip()
         if model.startswith("stability."):
             return "us-west-2"
         if "nova-canvas" in model.lower():

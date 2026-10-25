@@ -103,18 +103,22 @@ securely when prompted.
 
 ### Production (EC2 + PM2)
 
-API on **5000**, frontend on **5001**. Frontend folder is auto-detected as
-`social-frontend` or `frontend` next to the backend repo.
+API on **5000**, app on **5001**, marketing landing on **5002**. Folders are
+auto-detected as `social-frontend` / `social-landing` next to the backend repo.
 
 ```bash
-cd ../social-frontend && npm ci && npm run build && cd ../social-backend
+cd ../social-frontend && npm ci && npm run build
+cd ../social-landing && npm ci && npm run build
+cd ../social-backend
 ./scripts/pm2-start.sh
 ./scripts/pm2-stop.sh
 ```
 
+Override ports with `PORT`, `FRONTEND_PORT`, and `LANDING_PORT` when starting PM2.
+
 Use the same `.env` file everywhere — edit values per machine (laptop vs EC2). There is no separate “production mode” in code.
 
-Point nginx at `127.0.0.1:5000` (API) and `127.0.0.1:5001` (frontend).
+Point nginx at `127.0.0.1:5000` (API), `127.0.0.1:5001` (app), and `127.0.0.1:5002` (landing).
 
 ## API surface
 

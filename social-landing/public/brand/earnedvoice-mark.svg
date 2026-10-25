@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"><rect x="2" y="2" width="60" height="60" rx="17" fill="#4F46E5"/><path d="M20 19h24M20 32h17M20 45h24" stroke="white" stroke-width="6" stroke-linecap="round"/><path d="m40 27 7 5-7 5" stroke="#C7D2FE" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" fill="none" role="img" aria-label="EarnedVoice Ascent mark">
+  <path d="M9 27Q6 20 14 20H37L65 78L51 106Q48 111 44 103Z" fill="#312E81"/>
+  <path d="M51 106L88 20H109Q116 20 112 28L77 104Q75 110 68 110H55Q49 110 51 106Z" fill="#4F46E5"/>
+  <path d="M14 32H40L45 43H19ZM23 52H49L54 63H28Z" fill="#C7D2FE"/>
+</svg>

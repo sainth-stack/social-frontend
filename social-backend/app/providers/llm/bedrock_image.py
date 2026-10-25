@@ -15,7 +15,7 @@ from app.providers.llm.model_selection import SUPPORTED_IMAGE_MODEL_IDS, current
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_IMAGE_MODEL_ID = "stability.sd3-5-large-v1:0"
+DEFAULT_IMAGE_MODEL_ID = "stability.stable-image-ultra-v1:1"
 
 
 def image_generation_configured() -> bool:
@@ -149,7 +149,7 @@ def _stability_image_to_image_body(
         "strength": 0.65,
         "output_format": "png",
     }
-    if model_id == DEFAULT_IMAGE_MODEL_ID:
+    if model_id == "stability.sd3-5-large-v1:0":
         body["mode"] = "image-to-image"
     return body
 

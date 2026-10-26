@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from app.core.config import settings
 from app.social.ai.compositor import OverlayCopy, compose_creative
@@ -18,7 +18,10 @@ API = settings.api_v1_prefix
 
 def _png(size=(1024, 1024), color=(40, 90, 160), mode="RGB") -> bytes:
     out = BytesIO()
-    Image.new(mode, size, color).save(out, format="PNG")
+    image = Image.new(mode, size, color)
+    if color == (40, 90, 160):
+        ImageDraw.Draw(image).rectangle((size[0] // 4, size[1] // 4, size[0] // 2, size[1] // 2), fill=(60, 120, 180))
+    image.save(out, format="PNG")
     return out.getvalue()
 
 

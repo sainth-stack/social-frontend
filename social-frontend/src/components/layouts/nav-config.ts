@@ -48,6 +48,7 @@ export const dashboardNavSections: NavSection[] = [
         icon: ProductAIStudioIcon,
         minPermission: "editor",
       },
+      { label: "Content Planner", href: "/dashboard/content-studio/planner", icon: CalendarDays, minPermission: "editor" },
       { label: "Calendar", href: "/dashboard/calendar", icon: CalendarDays },
       { label: "Posts", href: "/dashboard/posts", icon: FileText },
     ],

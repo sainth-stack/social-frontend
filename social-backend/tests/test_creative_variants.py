@@ -13,7 +13,10 @@ from app.social.ai.creative import CreativeSpec, render_creative_variants
 
 def _png(size=(640, 800), color=(40, 90, 160, 255)):
     out = BytesIO()
-    Image.new("RGBA", size, color).save(out, format="PNG")
+    image = Image.new("RGBA", size, color)
+    if color == (40, 90, 160, 255):
+        ImageDraw.Draw(image).rectangle((size[0] // 4, size[1] // 4, size[0] // 2, size[1] // 2), fill=(60, 120, 180, 255))
+    image.save(out, format="PNG")
     return out.getvalue()
 
 
@@ -76,12 +79,12 @@ def test_saved_byte_base_skips_generation_and_is_deterministic(models):
     assert first["linkedin"].image == second["linkedin"].image
 
 
-def test_saved_base_with_auto_copy_directs_once_but_never_generates(models):
+def test_saved_base_with_auto_copy_never_calls_either_model(models):
     image, direction = models
     render_creative_variants(topic="Garden", style=None, spec=CreativeSpec(text_overlay=True),
                              platforms=["instagram", "linkedin"], brand={}, logo_bytes=None, base_image=_png())
     image.assert_not_called()
-    direction.assert_called_once()
+    direction.assert_not_called()
 
 
 @pytest.mark.parametrize("base", [b"", "https://example.com/base.png", {"imageB64": b"bytes"}, bytearray(b"bytes"), b"broken image"])

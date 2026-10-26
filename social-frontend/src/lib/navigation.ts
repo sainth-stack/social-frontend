@@ -2,6 +2,7 @@ const LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   admin: "Admin",
   "content-studio": "AI Studio",
+  planner: "Content Planner",
   generate: "AI Generate",
   media: "Media Library",
   drafts: "Drafts",
@@ -60,7 +61,7 @@ export function getBreadcrumbs(pathname: string): BreadcrumbItem[] {
     path += `/${segment}`;
     const isLast = index === segments.length - 1;
     crumbs.push({
-      label: formatSegment(segment),
+      label: segments[index - 1] === "planner" ? "Plan review" : segments[index - 1] === "items" && segments.includes("planner") ? "Post review" : formatSegment(segment),
       href: isLast ? undefined : path,
     });
   });

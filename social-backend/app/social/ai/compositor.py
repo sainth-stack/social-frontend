@@ -243,8 +243,12 @@ def compose_creative(
         raise ValueError("Output dimensions must be between 64 and 8192 pixels within 32 megapixels")
     if copy and sum(len(value) for value in (copy.headline, copy.subtext, copy.cta)) > 12000:
         raise ValueError("Overlay copy cannot fit safely; provide no more than 12000 characters")
-    base = ImageOps.contain(decode_image(image_bytes), (width, height), Image.LANCZOS)
-    canvas = Image.new("RGBA", (width, height), parse_hex(primary_color, (17, 24, 39)) + (255,))
+    from app.social.ai.image_quality import validate_image_content, validate_image_bytes
+
+    decoded = decode_image(image_bytes)
+    validate_image_content(decoded, stage="base")
+    base = ImageOps.contain(decoded, (width, height), Image.LANCZOS)
+    canvas = Image.new("RGBA", (width, height), parse_hex(primary_color, (255, 255, 255)) + (255,))
     canvas.alpha_composite(base, ((width - base.width) // 2, (height - base.height) // 2))
     draw = ImageDraw.Draw(canvas)
 
@@ -414,4 +418,6 @@ def compose_creative(
 
     out = BytesIO()
     canvas.convert("RGB").save(out, format="JPEG", quality=92, optimize=True, progressive=True)
-    return out.getvalue()
+    result = out.getvalue()
+    validate_image_bytes(result, stage="export")
+    return result

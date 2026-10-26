@@ -193,7 +193,7 @@ def test_image_usage_survives_downstream_decode_failure(db, monkeypatch):
     monkeypatch.setattr(bedrock_image, "image_region", lambda model: REGION)
     monkeypatch.setattr(bedrock_image, "_resolved_image_model_id", lambda: MODEL)
     with metering_scope(db, "w", "u", "image"):
-        with pytest.raises(ValueError):
+        with pytest.raises(bedrock_image.ImageProviderError):
             bedrock_image.generate_text_to_image(prompt="private")
     assert db.ai_provider_usage.find_one()["estimated_cost_usd"] == 0.04
 

@@ -432,6 +432,9 @@ class SocialMediaService:
         workspace: dict,
         user: dict,
         payload: CreateSocialPostRequest,
+        *,
+        planner_post_id: Optional[str] = None,
+        planner_metadata: Optional[dict] = None,
     ) -> SocialPostOut:
         from app.social.audit import write_social_audit
         from app.social.limits import enforce_posts_limit
@@ -439,7 +442,9 @@ class SocialMediaService:
         from app.social.models import SocialPermission
 
         require_permission(self.db, workspace, user, SocialPermission.EDITOR)
-        enforce_posts_limit(self.db, workspace)
+        existing_planner = self.db["social_posts"].find_one({"id": planner_post_id, "workspace_id": workspace["id"]}) if planner_post_id else None
+        if not existing_planner:
+            enforce_posts_limit(self.db, workspace)
         from app.social.media import ensure_public_image_url
 
         image_url = ensure_public_image_url(workspace["id"], payload.imageUrl)
@@ -448,7 +453,7 @@ class SocialMediaService:
             template_id = payload.templateId
 
         now = utcnow()
-        post_id = new_id()
+        post_id = planner_post_id or new_id()
         status_val = (
             payload.status.value if hasattr(payload.status, "value") else payload.status
         )
@@ -478,6 +483,8 @@ class SocialMediaService:
             "created_at": now,
             "updated_at": now,
         }
+        if planner_post_id and planner_metadata:
+            post.update(planner_metadata)
         platform_rows = self._prepare_platforms(post_id, workspace["id"], payload.platforms)
         if "copyApproval" in payload.generationOptions:
             post["studio_approval_version"] = 1
@@ -485,12 +492,21 @@ class SocialMediaService:
         if status_val not in ("draft", "scheduled"):
             raise HTTPException(status_code=400, detail="Create a draft or scheduled post before publishing")
         if status_val == "scheduled":
+            require_permission(self.db, workspace, user, SocialPermission.PUBLISHER)
             if not post["scheduled_at"] or post["scheduled_at"] <= datetime.now(timezone.utc):
                 raise HTTPException(status_code=400, detail="scheduledAt must be in the future")
             self._validate_ready_to_publish_dict(post, platform_rows, persist_accounts=False)
-        self.db["social_posts"].insert_one(post)
-        if platform_rows:
-            self.db["social_post_platforms"].insert_many(platform_rows)
+        if planner_post_id:
+            from uuid import NAMESPACE_URL, uuid5
+
+            self.db["social_posts"].update_one({"id": post_id, "workspace_id": workspace["id"]}, {"$setOnInsert": post}, upsert=True)
+            for row in platform_rows:
+                row["id"] = str(uuid5(NAMESPACE_URL, f"planner-platform:{post_id}:{row['platform']}"))
+                self.db["social_post_platforms"].update_one({"id": row["id"]}, {"$setOnInsert": row}, upsert=True)
+        else:
+            self.db["social_posts"].insert_one(post)
+            if platform_rows:
+                self.db["social_post_platforms"].insert_many(platform_rows)
         if status_val == "scheduled":
             self._enqueue_publish(post_id, eta=post["scheduled_at"])
         write_social_audit(
@@ -510,6 +526,11 @@ class SocialMediaService:
         workspace: dict,
         payload: UpdateSocialPostRequest,
     ) -> SocialPostOut:
+        if post.get("planner_visual_lock"):
+            active = self.db["social_posts"].find_one({"id": post["id"], "workspace_id": post["workspace_id"],
+                "planner_visual_lock": post["planner_visual_lock"], "planner_visual_lock_until": {"$gt": utcnow()}})
+            if not active:
+                raise HTTPException(status_code=409, detail="Planner edit lease expired; reload before saving")
         previous_status = post.get("status")
         previous_scheduled = post.get("scheduled_at")
         updates: dict = {"updated_at": utcnow()}
@@ -588,7 +609,12 @@ class SocialMediaService:
             for pp in platforms:
                 self.db["social_post_platforms"].update_one({"id": pp["id"]}, {"$set": {"social_account_id": pp.get("social_account_id")}})
 
-        self.db["social_posts"].update_one({"id": post["id"]}, {"$set": updates})
+        update = {"$set": updates}
+        if post.get("planner_run_id") and previous_status == "scheduled" and candidate.get("status") != "scheduled":
+            update["$unset"] = {"planner_schedule_token": "", "planner_scheduled_revision": "", "planner_dispatch_state": ""}
+        self.db["social_posts"].update_one({"id": post["id"]}, update)
+        if post.get("planner_run_id") and previous_status == "scheduled" and candidate.get("status") != "scheduled":
+            self.db["social_planner_slots"].delete_many({"post_id": post["id"]})
         post = self.db["social_posts"].find_one({"id": post["id"]})
 
         new_status = post.get("status")
@@ -894,13 +920,16 @@ class SocialMediaService:
             )
         self._validate_ready_to_publish_dict(post, platforms)
         now = utcnow()
+        publish_updates = {
+            "scheduled_at": post.get("scheduled_at") or now,
+            "updated_at": now,
+        }
+        if post.get("planner_text_first"):
+            publish_updates.update(status="scheduled", scheduled_at=now)
         self.db["social_posts"].update_one(
             {"id": post["id"]},
             {
-                "$set": {
-                    "scheduled_at": post.get("scheduled_at") or now,
-                    "updated_at": now,
-                }
+                "$set": publish_updates
             },
         )
         for pp in platforms:
@@ -959,10 +988,11 @@ class SocialMediaService:
                 {"$set": {"status": SocialPlatformPostStatus.PENDING.value, "next_retry_at": None}},
             )
             retried += 1
+            args = [str(pp["id"]), post.get("planner_schedule_token")] if post.get("planner_run_id") else [str(pp["id"])]
             try:
-                retry_failed_post.apply_async(args=[str(pp["id"])], queue="social_publish")
+                retry_failed_post.apply_async(args=args, queue="social_publish")
             except Exception:
-                retry_failed_post.run(str(pp["id"]))
+                retry_failed_post.run(*args)
 
         if retried == 0 and skipped > 0:
             raise HTTPException(
@@ -1011,10 +1041,14 @@ class SocialMediaService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Only scheduled posts can be cancelled",
             )
-        self.db["social_posts"].update_one(
-            {"id": post["id"]},
-            {"$set": {"status": SocialPostStatus.DRAFT.value, "scheduled_at": None, "updated_at": utcnow()}},
+        cancelled = self.db["social_posts"].update_one(
+            {"id": post["id"], "status": "scheduled"},
+            {"$set": {"status": SocialPostStatus.DRAFT.value, "scheduled_at": None, "updated_at": utcnow()},
+             "$unset": {"planner_schedule_token": "", "planner_scheduled_revision": "", "planner_dispatch_state": ""}},
         )
+        if not cancelled.modified_count:
+            raise HTTPException(status_code=409, detail="Post changed before cancellation")
+        self.db["social_planner_slots"].delete_many({"post_id": post["id"]})
         post = self.db["social_posts"].find_one({"id": post["id"]})
         return self._serialize_post(post)
 
@@ -1981,6 +2015,15 @@ class SocialMediaService:
         fingerprint = hashlib.sha256(json.dumps(copy, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         if post.get("planner_approved_fingerprint") != fingerprint:
             raise HTTPException(status_code=400, detail="Review and approve the latest planner copy before publishing")
+        settings = self.db["social_settings"].find_one({"workspace_id": post["workspace_id"]}) or {}
+        if settings.get("approval_required") and post.get("approval_status") != "approved":
+            raise HTTPException(status_code=400, detail="Team approval is required before publishing")
+        if post.get("planner_visual_pending"):
+            raise HTTPException(status_code=400, detail="Requested planner image is not ready; retry or explicitly choose text only")
+        if post.get("planner_image_intent") == "required" and (post.get("planner_visual_fingerprint") != fingerprint or not post.get("image_url")):
+            raise HTTPException(status_code=400, detail="Requested planner image must match the approved copy")
+        if post.get("planner_run_id") and post.get("planner_image_intent") != "text_only" and any(pp.get("platform") in ("facebook", "linkedin") for pp in platforms) and (post.get("planner_visual_fingerprint") != fingerprint or not post.get("image_url")):
+            raise HTTPException(status_code=400, detail="Choose text only or generate a current planner image before publishing")
         if any(pp.get("platform") == "instagram" for pp in platforms) and (post.get("planner_visual_fingerprint") != fingerprint or not post.get("image_url")):
             raise HTTPException(status_code=400, detail="Generate the approved planner visual before publishing to Instagram")
 

@@ -16,6 +16,8 @@ from app.providers.llm.bedrock_image import (
     image_generation_configured,
 )
 from app.providers.llm.model_selection import current_models, image_region
+from app.social.ai.image_quality import ImageReliabilityError, validate_image_bytes
+from app.social.ai.visual_prompt import compact_context
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ def _build_create_prompt(topic: str, style: Optional[str]) -> str:
     )
     return (
         "Create a business social visual grounded in the supplied message and explicit visual preferences. "
-        f"Subject: {topic}. Visual style: {style_line}. "
+        f"Subject: {compact_context(topic, 4000)}. Visual style: {compact_context(style_line, 900)}. "
         "One concrete visual idea, legible at mobile feed size, with the main subject inside a safe central crop. "
         "Do not fabricate product interfaces, customer evidence, performance charts or identifiable team members. "
         "Avoid generic corporate stock scenes unless requested. No clipped subjects, duplicated objects or distorted anatomy. "
@@ -40,8 +42,8 @@ def _build_create_prompt(topic: str, style: Optional[str]) -> str:
 def _build_edit_prompt(topic: str, style: Optional[str]) -> str:
     return (
         "Refine this social marketing image with a premium commercial finish. "
-        f"Change: {topic}. "
-        f"Style: {style or 'modern, minimal, professional, high-end lighting'}. "
+        f"Change: {compact_context(topic, 4000)}. "
+        f"Style: {compact_context(style or 'modern, minimal, professional, high-end lighting', 900)}. "
         "Keep composition brand-safe. No watermarks, no garbled text."
     )
 
@@ -102,25 +104,28 @@ def generate_post_image(
                 size=size,
                 quality=quality,
             )
+        validate_image_bytes(image_bytes, stage="base")
         return {"imageB64": image_bytes, "source": "ai_generated"}
 
     except HTTPException:
         raise
+    except ImageReliabilityError as exc:
+        raise HTTPException(status_code=502, detail={"code": exc.code, "stage": exc.stage, "message": str(exc)}) from exc
     except RuntimeError as exc:
-        logger.warning("Bedrock image generation failed model=%s: %s", model_id, exc)
+        logger.warning("Bedrock image generation failed model=%s code=%s", model_id, getattr(exc, "code", "IMAGE_PROVIDER_FAILED"))
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
+            detail={"code": getattr(exc, "code", "IMAGE_PROVIDER_FAILED"), "stage": "provider", "message": "Image provider could not return usable artwork; upload an image or explicitly request new artwork"},
         ) from exc
     except Exception as exc:
-        logger.warning("Image generation failed: %s", exc)
+        logger.warning("Image generation failed model=%s type=%s", model_id, type(exc).__name__)
         action = "refinement" if mode == "edit" else "generation"
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
+            detail={"code": "IMAGE_PROVIDER_FAILED", "stage": "provider", "message": (
                 f"Image {action} failed (model={model_id}). Enable the model in Bedrock "
                 f"({image_region(model_id)}) or upload an image instead."
-            ),
+            )},
         ) from exc
 
 

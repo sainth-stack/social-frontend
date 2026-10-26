@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
     max_retries=0,
     queue="social_publish",
 )
-def retry_failed_post(self, post_platform_id: str) -> dict:
+def retry_failed_post(self, post_platform_id: str, schedule_token: str | None = None) -> dict:
     """Retry a single failed platform row (manual or auto-scheduled)."""
     db = get_database()
 
@@ -75,6 +75,31 @@ def retry_failed_post(self, post_platform_id: str) -> dict:
     if post.get("status") == "archived":
         return {"ok": False, "reason": "archived"}
 
+    if post.get("planner_text_first"):
+        from app.social.service import SocialMediaService
+        from app.social.content_plan import ContentPlanService
+        from fastapi import HTTPException
+
+        if post.get("planner_run_id") and (not schedule_token or schedule_token != post.get("planner_schedule_token")):
+            return {"ok": False, "reason": "stale_schedule"}
+        if post.get("status") not in ("scheduled", "publishing", "failed", "published"):
+            return {"ok": False, "reason": "cancelled_schedule"}
+        scheduled = post.get("scheduled_at")
+        if scheduled and scheduled.replace(tzinfo=scheduled.tzinfo or timezone.utc) > datetime.now(timezone.utc):
+            return {"ok": False, "reason": "not_due"}
+        try:
+            if post.get("planner_run_id"):
+                workspace = db["workspaces"].find_one({"id": post["workspace_id"]})
+                if not workspace or workspace.get("is_active") is False:
+                    raise HTTPException(403, "Workspace is unavailable")
+            if post.get("planner_run_id") and (not post.get("planner_schedule_token") or ContentPlanService(db).copy_fingerprint(post) != post.get("planner_scheduled_revision")):
+                raise HTTPException(409, "Scheduled copy revision changed")
+            if post.get("planner_visual_lock_until") and post["planner_visual_lock_until"].replace(tzinfo=post["planner_visual_lock_until"].tzinfo or timezone.utc) > datetime.now(timezone.utc):
+                raise HTTPException(409, "Planner item is busy")
+            SocialMediaService(db)._validate_ready_to_publish_dict(post, list(db["social_post_platforms"].find({"post_id": post["id"]})), persist_accounts=False)
+        except HTTPException:
+            return {"ok": False, "reason": "planner_not_ready"}
+
     account = db["social_accounts"].find_one({"id": pp.get("social_account_id")})
     if not account or not account.get("is_active") or not account.get("access_token_enc"):
         db["social_post_platforms"].update_one(
@@ -111,6 +136,14 @@ def retry_failed_post(self, post_platform_id: str) -> dict:
             )
             return {"ok": False, "reason": "token_expired"}
 
+    if post.get("planner_text_first"):
+        parent = db["social_posts"].update_one(
+            {"id": post["id"], "status": post["status"], "updated_at": post.get("updated_at"),
+             "scheduled_at": post.get("scheduled_at"), "planner_schedule_token": post.get("planner_schedule_token"),
+             "$or": [{"planner_visual_lock_until": {"$exists": False}}, {"planner_visual_lock_until": {"$lte": utcnow()}}]},
+            {"$set": {"status": "publishing", "updated_at": utcnow()}})
+        if not parent.modified_count:
+            return {"ok": False, "reason": "post_changed_or_busy"}
     claimed = claim_platform(db, pp)
     if not claimed:
         return {"ok": True, "reason": "already_claimed"}
@@ -216,7 +249,9 @@ def schedule_platform_retry(pp: dict, db=None) -> None:
     eta = datetime.now(timezone.utc) + timedelta(seconds=delay)
     db["social_post_platforms"].update_one({"id": pp["id"]}, {"$set": {"next_retry_at": eta}})
     try:
-        retry_failed_post.apply_async(args=[str(pp["id"])], eta=eta, queue="social_publish")
+        post = db["social_posts"].find_one({"id": pp["post_id"]}) or {}
+        args = [str(pp["id"]), post.get("planner_schedule_token")] if post.get("planner_run_id") else [str(pp["id"])]
+        retry_failed_post.apply_async(args=args, eta=eta, queue="social_publish")
         logger.info(
             "Scheduled retry for platform row %s in %ss (attempt %s)",
             pp["id"], delay, pp.get("retry_count"),

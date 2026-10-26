@@ -7,9 +7,13 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Optional, Sequence
 
+from fastapi import HTTPException
+
 from app.social.ai.caption_sanitize import normalize_generated_text as clean_generated_text
-from app.social.ai.compositor import OverlayCopy, compose_creative, decode_image, load_logo, parse_hex
+from app.social.ai.compositor import OverlayCopy, compose_creative, load_logo, parse_hex
 from app.social.ai.image_generator import generate_post_image
+from app.social.ai.image_quality import ImageReliabilityError, validate_image_bytes
+from app.social.ai.visual_prompt import compact_context
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +83,7 @@ class CreativeSpec:
     slide_index: Optional[int] = None
     slide_count: Optional[int] = None
     include_emojis: bool = False
+    render_recipe: Optional[dict] = None
 
 
 @dataclass
@@ -171,9 +176,9 @@ def _brand_lines(brand: dict) -> list[str]:
     if brand.get("target_audience"):
         lines.append(f"Audience: {_clean(brand['target_audience'], 160)}")
     if brand.get("tones"):
-        lines.append(f"Voice: {', '.join(brand['tones'][:3])}")
+        lines.append(f"Voice: {_clean(', '.join(brand['tones'][:3]), 120)}")
     if brand.get("words_to_use"):
-        lines.append(f"Offer/keywords: {', '.join(brand['words_to_use'][:8])}")
+        lines.append(f"Offer/keywords: {_clean(', '.join(brand['words_to_use'][:8]), 240)}")
     return lines
 
 
@@ -191,14 +196,14 @@ def build_visual_prompt(subject: str, spec: CreativeSpec, brand: dict, style: Op
         "Brief and caption are primary: preserve their subject and constraints without inventing claims, products, offers or assets. "
         "Brand guides tone and palette only.",
         _composition(spec),
-        f"Subject: {_clean(subject)}.",
+        f"Subject: {compact_context(subject, 2200)}.",
     ]
     if spec.caption:
-        parts.append(f"Post caption (context only, not text to render): {_clean(spec.caption)}")
+        parts.append(f"Approved post caption (context only, not text to render): {compact_context(spec.caption, 2200)}")
     parts.append(_BUSINESS_DIRECTION)
     parts.append(_CHANNEL_DIRECTION.get(spec.platform or "", "Keep one central focal subject inside the middle 70% of the frame so square and portrait platform exports preserve the meaning."))
     parts.extend(_brand_lines(brand))
-    parts.append(f"Style: {_clean(style) if style else _DEFAULT_STYLE}.")
+    parts.append(f"Style: {compact_context(style, 700) if style else _DEFAULT_STYLE}.")
     if spec.format == "carousel":
         parts.append("Maintain the supplied series palette, medium, subject treatment and lighting across slides; vary only this slide's subject. Keep essential visual content in the central safe region for square and portrait exports.")
     palette = _palette_phrase(brand)
@@ -262,11 +267,11 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
     else:
         system_prompt += "Text overlays are disabled. Return only visual; do not generate headline, subtext or CTA copy."
     user_lines = [
-        f"Original brief: {_clean(topic)}",
+        f"Original brief: {compact_context(topic, 2200)}",
         f"Format: {spec.format} ({width}x{height}) for {spec.platform or 'social media'}",
     ]
     if spec.caption:
-        user_lines.append(f"Post caption: {_clean(spec.caption)}")
+        user_lines.append(f"Post caption: {compact_context(spec.caption, 2200)}")
     if wants_copy and spec.headline:
         user_lines.append(f"Preferred headline: {spec.headline}")
     if wants_copy and spec.subtext:
@@ -274,7 +279,7 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
     if wants_copy and spec.cta:
         user_lines.append(f"Call to action: {spec.cta}")
     if style:
-        user_lines.append(f"Visual style: {_clean(style)}")
+        user_lines.append(f"Visual style: {compact_context(style, 700)}")
     user_lines.extend(_brand_lines(brand))
     palette = _palette_phrase(brand)
     if palette:
@@ -313,9 +318,14 @@ def render_creative(
     logo_bytes: Optional[bytes] = None,
 ) -> CreativeResult:
     platform = spec.platform or ""
-    return render_creative_variants(
-        topic=topic, style=style, spec=spec, platforms=[platform], brand=brand, logo_bytes=logo_bytes,
-    )[platform]
+    try:
+        return render_creative_variants(
+            topic=topic, style=style, spec=spec, platforms=[platform], brand=brand, logo_bytes=logo_bytes,
+        )[platform]
+    except ImageReliabilityError as exc:
+        raise HTTPException(status_code=502, detail={"code": exc.code, "stage": exc.stage, "message": str(exc)}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "IMAGE_COMPOSE_FAILED", "stage": "compose", "message": "Creative layout could not be rendered; shorten overlay copy or change the layout"}) from exc
 
 
 def render_creative_variants(
@@ -343,20 +353,27 @@ def render_creative_variants(
     visual = ""
     copy = OverlayCopy(headline=spec.headline, subtext=spec.subtext, cta=spec.cta)
     wants_copy = spec.text_overlay or fmt == "quote"
-    if spec.auto_copy:
+    if spec.render_recipe:
+        copy = OverlayCopy(**spec.render_recipe["copy"])
+    elif spec.auto_copy and base_image is None:
         try:
             visual, directed = art_direct(topic, spec, policy_brand, style)
             if wants_copy:
                 copy = directed
         except Exception as exc:
-            logger.warning("Creative art direction failed, using fallback: %s", exc)
+            logger.warning("Creative art direction failed, using fallback type=%s", type(exc).__name__)
     if wants_copy and not copy.headline:
         copy = _fallback_copy(topic, spec, brand)
     copy = _sanitize_copy(copy, spec, policy_brand)
 
     prompt = build_visual_prompt(f"Original brief: {topic}", spec, brand, style)
     if visual:
-        prompt += f" Art direction (subordinate to the brief and caption): {visual}"
+        prompt += f" Art direction (subordinate to the brief and caption): {compact_context(visual, 1100)}"
+    if spec.render_recipe:
+        prompt = spec.render_recipe["prompt"]
+    recipe_callback = getattr(on_base_ready, "on_recipe_ready", None)
+    if recipe_callback is not None:
+        recipe_callback({"copy": {key: getattr(copy, key) for key in ("headline", "subtext", "cta")}, "prompt": prompt})
 
     if base_image is None:
         data = generate_post_image(
@@ -370,7 +387,7 @@ def render_creative_variants(
         if not isinstance(raw, (bytes, bytearray)) or not raw:
             raise RuntimeError("Image provider returned no bytes")
         base_image = bytes(raw)
-    decode_image(base_image)
+    validate_image_bytes(base_image, stage="base")
     if on_base_ready is not None:
         on_base_ready(base_image)
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Calendar,
@@ -105,6 +104,7 @@ import {
   updateSocialPost,
 } from "@/features/social-media/socialPostsThunks";
 import { canUseMultiVariations, planDisplayName } from "@/lib/plans";
+import { getStoredAccessToken } from "@/lib/auth/session";
 import { formatPostBody, normalizeGeneratedText, sanitizeCaptionAndHashtags } from "@/lib/socialCaption";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -132,11 +132,6 @@ import type {
 import { PLATFORM_CHAR_LIMITS, PLATFORM_LABELS } from "@/types/social-media.types";
 
 export type AIStudioTab = "generate" | "planner" | "brand" | "media";
-
-const ContentPlannerSection = dynamic(
-  () => import("@/components/social-media/planner/ContentPlannerSection").then((module) => module.ContentPlannerSection),
-  { loading: () => <Skeleton className="h-96 rounded-xl" /> },
-);
 
 const STUDIO_TABS = [
   { value: "generate", label: "Create", description: "Write and design a post", icon: ProductGenerateIcon },
@@ -531,7 +526,7 @@ function GenerateTab({
   const [logoPickerOpen, setLogoPickerOpen] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [outputView, setOutputView] = useState("edit");
-  const [pendingAction, setPendingAction] = useState<"generate" | "reset" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"generate" | "reset" | "artwork" | null>(null);
   const { logos, setLogos, loading: logosLoading } = useBrandLogos(orgId, brandVersion);
   const selectedLogo =
     logos.find((l) => l.id === logoId) ?? logos.find((l) => l.isDefault) ?? logos[0] ?? null;
@@ -542,6 +537,10 @@ function GenerateTab({
   const [tweets, setTweets] = useState<GeneratedTweet[]>([]);
   const [creativeItems, setCreativeItems] = useState<CreativeSetItem[]>([]);
   const [creativeRequest, setCreativeRequest] = useState<GenerateCreativeSetPayload | null>(null);
+  const [creativeProcessing, setCreativeProcessing] = useState(false);
+  const [retryUnavailable, setRetryUnavailable] = useState(false);
+  const [failedImageUrls, setFailedImageUrls] = useState<string[]>([]);
+  const creativeAbort = useRef<AbortController | null>(null);
   const creativeFingerprint = useRef<string | null>(null);
   const [visualsStale, setVisualsStale] = useState(false);
   const [visualMessage, setVisualMessage] = useState<string | null>(null);
@@ -552,7 +551,7 @@ function GenerateTab({
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; operation.current += 1; };
+    return () => { mounted.current = false; operation.current += 1; creativeAbort.current?.abort(); operationLocked.current = false; };
   }, []);
   const [slidesLoading, setSlidesLoading] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -609,6 +608,13 @@ function GenerateTab({
     if (!orgId || !draftId || draftLoadedRef.current === draftId) return;
     let cancelled = false;
     operation.current += 1;
+    creativeAbort.current?.abort();
+    operationLocked.current = false;
+    setImageLoading(false);
+    setSlidesLoading(false);
+    setLoading(false);
+    setCreativeProcessing(false);
+    setRetryUnavailable(false);
     setCopyApproval(null);
     draftLoadedRef.current = draftId;
     void dispatch(fetchSocialPost({ orgId, postId: draftId }))
@@ -789,7 +795,12 @@ function GenerateTab({
     (prefillMedia?.mediaType === "image" ? prefillMedia.url : null) ??
     null;
   const slideImages = (slides ?? []).map((slide) => creativeItems.find((item) => item.platform === previewPlatform && item.slideId === slide.id)?.imageUrl ?? null);
-  const previewSlides = type === "Carousel" ? (slides ?? []).map((slide, index) => ({ ...slide, imageUrl: slideImages[index], renderedAsset: true })) : undefined;
+  const previewSlides = type === "Carousel" ? (slides ?? []).map((slide, index) => ({ ...slide, imageUrl: failedImageUrls.includes(slideImages[index] ?? "") ? null : slideImages[index], renderedAsset: true })) : undefined;
+  const imageFailed = (url: string) => {
+    setFailedImageUrls((previous) => previous.includes(url) ? previous : [...previous, url]);
+    setVisualsStale(true);
+    setVisualMessage("Image preview could not load. Check the saved visual status to refresh its URL, or retry the saved request. No new artwork has been generated.");
+  };
   const previewVideoUrl =
     prefillMedia?.mediaType === "video" ? prefillMedia.url : null;
 
@@ -888,27 +899,32 @@ function GenerateTab({
     }
   };
 
-  const runCreativeSet = async (retry = false) => {
+  const runCreativeSet = async (retry = false, statusOnly = false) => {
     if (!copyApproved || !canApproveCopy) { toast.error("Review all selected captions and slides, then approve copy before generating visuals."); return; }
     const list = type === "Carousel" ? slides : null;
     const platforms = selectedPlatforms.filter((platform) => platform !== "x");
     if (!platforms.length || type === "Thread") return;
     const token = ++operation.current;
     const approvedFingerprint = fingerprint;
-    const current = () => mounted.current && operation.current === token && currentFingerprint.current === approvedFingerprint;
+    const session = getStoredAccessToken();
+    creativeAbort.current?.abort();
+    const controller = new AbortController();
+    creativeAbort.current = controller;
+    const current = () => mounted.current && !controller.signal.aborted && operation.current === token && currentFingerprint.current === approvedFingerprint && session === getStoredAccessToken();
     const captionContext = approvedCaptionContext(approvedPlatforms);
     const request: GenerateCreativeSetPayload = retry && creativeRequest && creativeFingerprint.current === fingerprint ? creativeRequest : {
       requestId: crypto.randomUUID(), topic: prompt.trim(), brief: `${prompt.trim()}\n\nTone: ${tone}. Content type: ${type}. Use all approved channel copy in caption and all ordered slides supplied with this request.${artDirection.trim() ? `\n\nVisual art direction (medium, subject, style, avoid):\n${artDirection.trim()}` : ""}`,
       style: artDirection.trim() || undefined,
       caption: captionContext, platforms, mode: "create", format: list?.length ? "carousel" : resolvedVisualFormat,
       slides: list?.length ? list.map(({ id, headline, body, imagePrompt }) => ({ id, headline, body, imagePrompt })) : undefined,
-      cta: cta.trim().slice(0, 40) || undefined, textOverlay: headlineOnImage,
+      textOverlay: headlineOnImage,
       autoCopy: !list?.length, includeEmojis: includeEmojis && !brandForbidsEmoji, includeLogo: includeLogo && Boolean(selectedLogo),
       logoId: selectedLogo?.id ?? null, logoPosition, useBrand: true,
     };
     const sameRequest = request.requestId === creativeRequest?.requestId;
     if (!sameRequest) {
       setCreativeItems([]);
+      setFailedImageUrls([]);
       setGeneratedImageUrl(null);
       setImageMeta(null);
     }
@@ -916,24 +932,47 @@ function GenerateTab({
     setCreativeRequest(request);
     creativeFingerprint.current = fingerprint;
     setVisualMessage(null);
+    setRetryUnavailable(false);
     setImageLoading(true);
     if (list?.length) setSlidesLoading(true);
     try {
-      const result = await socialMediaApi.generateCreativeSet(orgId, request);
+      let result = statusOnly ? await socialMediaApi.getCreativeSetStatus(orgId, request.requestId, controller.signal) : await socialMediaApi.generateCreativeSet(orgId, request);
+      let polls = 0;
+      while (current()) {
+        if (!Array.isArray(result.items)) throw new Error("The server did not return a creative set. Your current visuals have been kept.");
+        if (result.status === "completed") setFailedImageUrls([]);
+        setCreativeItems((previous) => result.status === "completed" ? result.items : mergeCreativeItems(previous, result.items));
+        setVisualsStale(result.status !== "completed");
+        setCreativeProcessing(result.status === "processing");
+        setRetryUnavailable(result.errors.some((error) => /RETRY_UNAVAILABLE/.test(error.code ?? "") || /new requestId/i.test(error.message ?? "")));
+        setVisualMessage(creativeResultMessage(result));
+        if (result.status !== "processing") break;
+        if (polls >= 60) {
+          setVisualMessage("Artwork is still processing. Check visual status to resume without generating again.");
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          const finish = () => { clearTimeout(timer); controller.signal.removeEventListener("abort", finish); resolve(); };
+          const timer = setTimeout(finish, Math.min(2_000 + polls * 1_000, 10_000));
+          controller.signal.addEventListener("abort", finish, { once: true });
+        });
+        if (!current()) return;
+        result = await socialMediaApi.getCreativeSetStatus(orgId, request.requestId, controller.signal);
+        polls += 1;
+      }
       if (!current()) return;
-      if (!Array.isArray(result.items)) throw new Error("The server did not return a creative set. Your current visuals have been kept.");
-      setCreativeItems((previous) => result.status === "completed" || !sameRequest ? result.items : mergeCreativeItems(previous, result.items));
-      setVisualsStale(result.status !== "completed");
-      setVisualMessage(creativeResultMessage(result));
       if (result.items.length) {
         setMediaSource("ai_generated");
         toast.success(`${result.items.length} platform visuals ready`);
       }
     } catch (err) {
       if (!current()) return;
+      const detail = (err as { response?: { data?: { detail?: { code?: string; message?: string } } } }).response?.data?.detail;
+      if (/RETRY_UNAVAILABLE/.test(detail?.code ?? "") || /new requestId/i.test(detail?.message ?? "")) setRetryUnavailable(true);
       setVisualMessage(extractPlanError(err, "Visual generation failed. Retry visuals to reuse this request and any saved artwork."));
     } finally {
-      if (mounted.current) { setImageLoading(false); setSlidesLoading(false); }
+      if (mounted.current && operation.current === token) { setImageLoading(false); setSlidesLoading(false); }
+      if (creativeAbort.current === controller) creativeAbort.current = null;
     }
   };
 
@@ -980,6 +1019,8 @@ function GenerateTab({
     }
     operationLocked.current = true;
     const token = ++operation.current;
+    setCopyApproval(null);
+    setCta("");
     const current = () => mounted.current && operation.current === token;
     setLoading(true);
     setError(null);
@@ -995,7 +1036,6 @@ function GenerateTab({
             topic: buildTopic(i),
             tone,
             platforms: platformsForGen,
-            cta: cta.trim() || undefined,
             includeHashtags,
             includeComment: false,
             format: formatKey,
@@ -1063,15 +1103,16 @@ function GenerateTab({
     operationLocked.current = false;
   };
 
-  const generateImage = async (retry = false) => {
+  const generateImage = async (retry = false, statusOnly = false, confirmed = false) => {
     if (operationLocked.current || loading || imageLoading || slidesLoading || saving) return;
+    if (!retry && !statusOnly && !confirmed && (creativeRequest || creativeItems.length || generatedImageUrl)) { setPendingAction("artwork"); return; }
     if (!copyApproved) { toast.error("Review all selected captions and slides, then approve copy before generating visuals."); return; }
     if (!orgId || prompt.trim().length < 5) {
       toast.error("Add a prompt (at least 5 characters) first");
       return;
     }
     operationLocked.current = true;
-    try { await runCreativeSet(retry); }
+    try { await runCreativeSet(retry || statusOnly, statusOnly); }
     finally { operationLocked.current = false; }
   };
 
@@ -1414,8 +1455,8 @@ function GenerateTab({
 
       <Dialog open={pendingAction !== null} onOpenChange={(open) => { if (!open) setPendingAction(null); }}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>{pendingAction === "reset" ? "Start a new post?" : "Replace your current copy?"}</DialogTitle><DialogDescription>{pendingAction === "reset" ? "This clears the current brief, copy and attached media. Save a draft first if you want to keep them." : "Generating again replaces your current copy after a successful response. Save a draft first to keep your edits."}</DialogDescription></DialogHeader>
-          <DialogFooter><Button variant="outline" onClick={() => setPendingAction(null)}>Keep editing</Button><Button onClick={() => { const action = pendingAction; setPendingAction(null); if (action === "reset") resetStudio(); else void generate(); }}>{pendingAction === "reset" ? "Start new post" : "Generate again"}</Button></DialogFooter>
+          <DialogHeader><DialogTitle>{pendingAction === "artwork" ? "Generate new artwork?" : pendingAction === "reset" ? "Start a new post?" : "Replace your current copy?"}</DialogTitle><DialogDescription>{pendingAction === "artwork" ? "This intentionally starts a new artwork request and may consume additional image credits. Retry the saved request instead to reuse any saved artwork. This does not publish or schedule your post." : pendingAction === "reset" ? "This clears the current brief, copy and attached media. Save a draft first if you want to keep them." : "Generating again replaces your current copy after a successful response. Save a draft first to keep your edits."}</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => setPendingAction(null)}>Keep editing</Button><Button onClick={() => { const action = pendingAction; setPendingAction(null); if (action === "reset") resetStudio(); else if (action === "artwork") void generateImage(false, false, true); else void generate(); }}>{pendingAction === "artwork" ? "Confirm new artwork credits" : pendingAction === "reset" ? "Start new post" : "Generate again"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1654,20 +1695,6 @@ function GenerateTab({
             </button>
             {showMore && (
               <div className="space-y-3 border-t border-border p-3">
-                <div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="studio-cta" className="text-xs text-muted-foreground">
-                      Call to action
-                    </Label>
-                    <Input
-                      id="studio-cta"
-                      placeholder="Shop now"
-                      maxLength={40}
-                      value={cta}
-                      onChange={(e) => setCta(e.target.value)}
-                    />
-                  </div>
-                </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs text-muted-foreground">Versions</Label>
@@ -1877,12 +1904,12 @@ function GenerateTab({
                     platform={previewPlatform}
                     caption={previewCaption}
                     hashtags={previewHashtags}
-                    imageUrl={previewImageUrl}
+                    imageUrl={failedImageUrls.includes(previewImageUrl ?? "") ? null : previewImageUrl}
                     videoUrl={previewVideoUrl}
                     brandName={brandKit?.brandName || "Your Brand"}
                     account={previewAccount}
                     slides={previewSlides}
-                    media={creativeRequest || creativeItems.length ? creativeMedia(creativeItems, previewPlatform, type === "Carousel" ? slides : null) : undefined}
+                    media={creativeRequest || creativeItems.length ? creativeMedia(creativeItems, previewPlatform, type === "Carousel" ? slides : null).filter((item) => !failedImageUrls.includes(item.url)) : undefined}
                     tweets={type === "Thread" ? tweets : undefined}
                   />
                 </ResponsivePhonePreview>
@@ -1940,7 +1967,10 @@ function GenerateTab({
 
           {(visualMessage || creativeRequest || visualsStale || (type === "Carousel" && slides?.length)) && <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
             {visualMessage && <p role="status" className="text-sm text-muted-foreground">{visualMessage}</p>}
-            <Button type="button" variant="outline" disabled={busy || saving || !copyApproved || !alsoGenerateImage || type === "Thread" || !prompt.trim()} onClick={() => void generateImage(true)}><RefreshCcw className="h-3.5 w-3.5" />{creativeRequest ? "Retry visuals" : "Regenerate visuals"}</Button>
+            {retryUnavailable && <p className="text-sm text-muted-foreground">Retry is unavailable for artwork without a saved base. New artwork requires your confirmation and may use additional image credits.</p>}
+            {creativeRequest && <Button type="button" variant="outline" disabled={busy || saving || !copyApproved || !alsoGenerateImage || retryUnavailable} onClick={() => void generateImage(true, creativeProcessing)}><RefreshCcw className="h-3.5 w-3.5" />{creativeProcessing ? "Check visual status" : "Retry visuals"}</Button>}
+            {creativeRequest && !creativeProcessing && <Button type="button" variant="outline" disabled={busy || saving || !copyApproved} onClick={() => void generateImage(true, true)}>Refresh saved visual status</Button>}
+            <Button type="button" variant="outline" disabled={busy || saving || !copyApproved || !alsoGenerateImage || type === "Thread" || !prompt.trim()} onClick={() => setPendingAction("artwork")}><RefreshCcw className="h-3.5 w-3.5" />Regenerate visuals</Button>
           </div>}
 
           {(imageLoading || previewImageUrl || slideImages.length > 0) && !prefillMedia && (
@@ -1970,7 +2000,7 @@ function GenerateTab({
                     size="sm"
                     variant="outline"
                     disabled={busy || saving || !copyApproved || !alsoGenerateImage}
-                    onClick={() => void generateImage()}
+                    onClick={() => setPendingAction("artwork")}
                   >
                     <RefreshCcw className={cn("mr-1 h-3.5 w-3.5", (imageLoading || slidesLoading) && "animate-spin")} />
                     Regenerate
@@ -2017,11 +2047,10 @@ function GenerateTab({
                           activeSlide === i ? "border-primary ring-2 ring-primary" : "border-border",
                         )}
                       >
-                        {url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={url} alt={`Slide ${i + 1}`} className="h-full w-full object-cover" loading="lazy" />
+                        {url && !failedImageUrls.includes(url) ? (
+                          <img src={url} alt={`Slide ${i + 1}`} className="h-full w-full object-cover" loading="lazy" onError={() => imageFailed(url)} />
                         ) : (
-                          <span className="absolute inset-0 animate-pulse bg-muted" />
+                          <span className="text-xs text-muted-foreground">{url ? "Preview unavailable" : "Image not ready"}</span>
                         )}
                         <span className="absolute bottom-1 left-1 rounded bg-background/80 px-1 text-[9px] font-semibold">
                           {i + 1}
@@ -2031,7 +2060,7 @@ function GenerateTab({
                   </div>
                 </div>
               ) : null}
-              {previewImageUrl && <img src={previewImageUrl} alt={type === "Carousel" ? `${PLATFORM_LABELS[previewPlatform]} slide ${activeSlide + 1} artwork` : `${PLATFORM_LABELS[previewPlatform]} artwork`} className="max-h-96 w-full rounded-lg object-contain" />}
+              {previewImageUrl && (failedImageUrls.includes(previewImageUrl) ? <p role="status" className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">Image preview unavailable. Refresh saved visual status before publishing.</p> : <img src={previewImageUrl} alt={type === "Carousel" ? `${PLATFORM_LABELS[previewPlatform]} slide ${activeSlide + 1} artwork` : `${PLATFORM_LABELS[previewPlatform]} artwork`} className="max-h-96 w-full rounded-lg object-contain" onError={() => imageFailed(previewImageUrl)} />)}
             </div>
           )}
         </CardContent>
@@ -3163,13 +3192,16 @@ export default function AIStudioPage({
 }: {
   initialTab?: AIStudioTab;
 }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const studioRouter = useRef(router);
+  studioRouter.current = router;
   const user = useAppSelector(selectUser);
   const orgId = user?.workspaceId ?? "";
   const tabParam = searchParams.get("tab");
   const requestedTab: AIStudioTab = tabParam === "generate" || tabParam === "planner" || tabParam === "brand" || tabParam === "media" ? tabParam : initialTab;
-  const [tab, setTab] = useState<AIStudioTab>(requestedTab);
-  const [visited, setVisited] = useState<Set<AIStudioTab>>(() => new Set([requestedTab]));
+  const [tab, setTab] = useState<AIStudioTab>(requestedTab === "planner" ? "generate" : requestedTab);
+  const [visited, setVisited] = useState<Set<AIStudioTab>>(() => new Set([requestedTab === "planner" ? "generate" : requestedTab]));
   const [prefillMedia, setPrefillMedia] = useState<PrefillMedia>(null);
   const sectionNavigation = useRef<HTMLDivElement>(null);
 
@@ -3184,12 +3216,13 @@ export default function AIStudioPage({
   }, []);
 
   const navigateTab = useCallback((next: AIStudioTab) => {
+    if (next === "planner") { router.push("/dashboard/content-studio/planner"); return; }
     changeTab(next);
     const navigation = sectionNavigation.current;
     if (navigation && navigation.getBoundingClientRect().top < 64) {
       navigation.scrollIntoView({ behavior: "instant", block: "start" });
     }
-  }, [changeTab]);
+  }, [changeTab, router]);
 
   const clearPrefillMedia = useCallback(() => setPrefillMedia(null), []);
   const [brandVersion, setBrandVersion] = useState(0);
@@ -3197,8 +3230,14 @@ export default function AIStudioPage({
   const openBrand = useCallback(() => navigateTab("brand"), [navigateTab]);
 
   useEffect(() => {
+    if (requestedTab === "planner") {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("tab");
+      studioRouter.current.replace(`/dashboard/content-studio/planner${params.size ? `?${params}` : ""}`);
+      return;
+    }
     changeTab(requestedTab);
-  }, [requestedTab, changeTab]);
+  }, [requestedTab, changeTab, searchParams]);
 
   return (
     <TooltipProvider key={orgId} delayDuration={200}>
@@ -3227,6 +3266,7 @@ export default function AIStudioPage({
           <TabsContent value="generate" forceMount className="data-[state=inactive]:hidden">
             {visited.has("generate") && (
               <GenerateTab
+                key={JSON.stringify([user?.id, orgId])}
                 orgId={orgId}
                 prefillMedia={prefillMedia}
                 onClearMedia={clearPrefillMedia}
@@ -3240,9 +3280,6 @@ export default function AIStudioPage({
                 onBrandChanged={bumpBrandVersion}
               />
             )}
-          </TabsContent>
-          <TabsContent value="planner" forceMount className="data-[state=inactive]:hidden">
-            {visited.has("planner") && <ContentPlannerSection orgId={orgId} />}
           </TabsContent>
           <TabsContent value="brand" forceMount className="data-[state=inactive]:hidden">
             {visited.has("brand") && <BrandTab orgId={orgId} onSaved={bumpBrandVersion} brandVersion={brandVersion} />}

@@ -2,6 +2,7 @@ import { AxiosError, AxiosHeaders, CanceledError, type AxiosAdapter, type Intern
 import { MOCK_ACCESS_TOKEN } from "./config";
 import { handleAdminMock } from "./admin";
 import { handleSocialMock } from "./social";
+import { handlePlannerMock } from "./planner";
 
 const identity = {
   user: { id: "mock-admin", email: "admin@gmail.com", full_name: "Demo Admin", is_active: true, is_platform_admin: true },
@@ -47,7 +48,8 @@ export const mockAdapter: AxiosAdapter = async config => {
       data = identity;
     } else {
       try {
-        data = handleSocialMock(path, method, params, body);
+        data = handlePlannerMock(path, method, params, body);
+        if (data === undefined) data = handleSocialMock(path, method, params, body);
         if (data === undefined) data = handleAdminMock(path, method, params, body);
       } catch (error) {
         failure(config, 400, error instanceof Error ? error.message : "Mock UI: this action is unavailable.");

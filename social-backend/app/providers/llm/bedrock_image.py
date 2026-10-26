@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_IMAGE_MODEL_ID = "stability.stable-image-ultra-v1:1"
 
 
+class ImageProviderError(RuntimeError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.stage = "provider"
+
+
 def image_generation_configured() -> bool:
     model = (current_models().image or settings.bedrock_image_model_id or DEFAULT_IMAGE_MODEL_ID).strip()
     return bool(
@@ -123,7 +130,7 @@ def _invoke_raw(body: dict[str, Any], *, model_id: str) -> list[str]:
     )
     if reasons or not images or not all(isinstance(img, str) and img for img in images):
         err = payload.get("error") or payload.get("message") or "; ".join(map(str, reasons)) or "no images returned"
-        raise RuntimeError(f"Bedrock image model returned no images: {err}")
+        raise ImageProviderError("IMAGE_PROVIDER_FILTERED" if reasons else "IMAGE_PROVIDER_EMPTY", f"Bedrock image model returned no images: {err}")
     return images
 
 
@@ -166,7 +173,7 @@ def generate_text_to_image(
     if model_id == "stability.stable-image-core-v1:1":
         body.pop("mode")
     b64_images = _invoke_raw(body, model_id=model_id)
-    return base64.b64decode(b64_images[0])
+    return _decode_output(b64_images[0])
 
 
 def generate_image_variation(
@@ -182,4 +189,11 @@ def generate_image_variation(
     source_b64 = base64.b64encode(source_image_bytes).decode("ascii")
     body = _stability_image_to_image_body(prompt=prompt, source_b64=source_b64, model_id=model_id)
     b64_images = _invoke_raw(body, model_id=model_id)
-    return base64.b64decode(b64_images[0])
+    return _decode_output(b64_images[0])
+
+
+def _decode_output(value: str) -> bytes:
+    try:
+        return base64.b64decode(value, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise ImageProviderError("IMAGE_PROVIDER_INVALID_ENCODING", "Image provider returned invalid encoded bytes") from exc

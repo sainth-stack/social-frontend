@@ -134,6 +134,25 @@ def _index_specs() -> dict[str, list[IndexModel]]:
             idx(("workspace_id", ASCENDING), ("updated_at", DESCENDING)),
         ],
         "social_post_platforms": [idx(("post_id", ASCENDING))],
+        "social_content_plan_runs": [
+            idx(("id", ASCENDING), unique=True),
+            idx(("workspace_id", ASCENDING), ("request_id", ASCENDING), unique=True),
+            idx(("workspace_id", ASCENDING), ("created_at", DESCENDING)),
+            idx(("status", ASCENDING), ("dispatch_at", ASCENDING)),
+        ],
+        "social_content_plan_items": [
+            idx(("id", ASCENDING), unique=True),
+            idx(("run_id", ASCENDING), ("slot_id", ASCENDING), unique=True),
+            idx(("workspace_id", ASCENDING), ("run_id", ASCENDING)),
+        ],
+        "social_planner_operations": [
+            idx(("id", ASCENDING), unique=True),
+            idx(("workspace_id", ASCENDING), ("run_id", ASCENDING)),
+        ],
+        "social_planner_slots": [
+            idx(("workspace_id", ASCENDING), ("account_id", ASCENDING), ("scheduled_at", ASCENDING), unique=True),
+            idx(("post_id", ASCENDING)),
+        ],
         "social_media_assets": [idx(("workspace_id", ASCENDING), ("created_at", DESCENDING))],
         "social_analytics_daily": [
             idx(

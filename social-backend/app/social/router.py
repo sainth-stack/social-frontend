@@ -85,6 +85,7 @@ from app.social.schemas import (
     UploadVideoResponse,
 )
 from app.social.service import SocialMediaService
+from app.social.planner_router import router as planner_router
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,7 @@ router = APIRouter(
     tags=["social-media"],
     dependencies=[Depends(_invalidate_dashboard_after_write)],
 )
+router.include_router(planner_router)
 
 # Public OAuth browser callback (Meta redirects here)
 oauth_callback_router = APIRouter(tags=["social-media"])
@@ -325,7 +327,15 @@ def update_post(
         require_permission(db, workspace, _, SocialPermission.EDITOR)
         planner = ContentPlanService(db)
         with planner.edit_lock(post) as fresh:
+            if fresh.get("status") in ("publishing", "published"):
+                raise HTTPException(status_code=409, detail="Publishing or published planner content cannot be edited")
+            if fresh.get("planner_run_id") and "imageUrl" in payload.model_fields_set and payload.imageUrl != fresh.get("image_url"):
+                raise HTTPException(status_code=409, detail="Use the planner image action or owned image attachment operation")
             next_status = payload.status.value if payload.status is not None else fresh.get("status")
+            if fresh.get("planner_run_id") and (next_status == "scheduled" and (fresh.get("status") != "scheduled" or payload.scheduledAt is not None)):
+                raise HTTPException(status_code=409, detail="Use planner schedule preview and explicit confirmation")
+            if next_status == "scheduled":
+                require_permission(db, workspace, _, SocialPermission.PUBLISHER)
             if payload.platforms is not None and next_status != "draft":
                 raise HTTPException(status_code=409, detail="Return this planner post to draft before editing copy; changed copy needs visual approval again.")
             fingerprint = planner.copy_fingerprint(fresh)
@@ -348,6 +358,8 @@ def regenerate_post_content(
         from app.social.permissions import require_permission
 
         require_permission(db, workspace, current_user, SocialPermission.EDITOR)
+        if post.get("planner_run_id"):
+            raise HTTPException(status_code=409, detail="Use the planner run regenerate-text or image operation")
         if payload.regenerateImage:
             raise HTTPException(status_code=409, detail="Review and save the latest copy, then approve it through the planner visual action.")
         planner = ContentPlanService(db)
@@ -404,6 +416,17 @@ def schedule_post(
     db: Database = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> SocialPostOut:
+    from app.social.models import SocialPermission
+    from app.social.permissions import require_permission
+    from app.social.content_plan import ContentPlanService
+
+    workspace = db["workspaces"].find_one({"id": post["workspace_id"]}) or {"id": post["workspace_id"]}
+    require_permission(db, workspace, _, SocialPermission.PUBLISHER)
+    if post.get("planner_run_id"):
+        raise HTTPException(409, "Use planner schedule preview and explicit confirmation")
+    if post.get("planner_text_first"):
+        with ContentPlanService(db).edit_lock(post) as fresh:
+            return SocialMediaService(db).schedule_post(fresh, payload)
     return SocialMediaService(db).schedule_post(post, payload)
 
 
@@ -413,6 +436,13 @@ def publish_now(
     db: Database = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> SocialPostOut:
+    from app.social.models import SocialPermission
+    from app.social.permissions import require_permission
+
+    workspace = db["workspaces"].find_one({"id": post["workspace_id"]}) or {"id": post["workspace_id"]}
+    require_permission(db, workspace, _, SocialPermission.PUBLISHER)
+    if post.get("planner_run_id"):
+        raise HTTPException(409, "Use planner schedule preview and explicit confirmation")
     return SocialMediaService(db).publish_now(post)
 
 
@@ -422,6 +452,15 @@ def cancel_schedule(
     db: Database = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> SocialPostOut:
+    from app.social.models import SocialPermission
+    from app.social.permissions import require_permission
+    from app.social.content_plan import ContentPlanService
+
+    workspace = db["workspaces"].find_one({"id": post["workspace_id"]}) or {"id": post["workspace_id"]}
+    require_permission(db, workspace, _, SocialPermission.PUBLISHER)
+    if post.get("planner_text_first"):
+        with ContentPlanService(db).edit_lock(post) as fresh:
+            return SocialMediaService(db).cancel_schedule(fresh)
     return SocialMediaService(db).cancel_schedule(post)
 
 
@@ -440,6 +479,11 @@ def retry_post(
     db: Database = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> RetryResponse:
+    from app.social.models import SocialPermission
+    from app.social.permissions import require_permission
+
+    workspace = db["workspaces"].find_one({"id": post["workspace_id"]}) or {"id": post["workspace_id"]}
+    require_permission(db, workspace, _, SocialPermission.PUBLISHER)
     return SocialMediaService(db).retry_post(post)
 
 
@@ -450,6 +494,10 @@ def bulk_retry(
     db: Database = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> BulkRetryResponse:
+    from app.social.models import SocialPermission
+    from app.social.permissions import require_permission
+
+    require_permission(db, workspace, _, SocialPermission.PUBLISHER)
     return SocialMediaService(db).bulk_retry(workspace, payload.postIds)
 
 
@@ -506,6 +554,8 @@ def approve_content_plan_visual(
 ) -> SocialPostOut:
     from app.social.content_plan import ContentPlanService
 
+    if post.get("planner_run_id"):
+        raise HTTPException(status_code=409, detail="Approve copy and request images through separate planner run operations")
     with metering_scope(db, workspace["id"], current_user["id"], "planner-visual"):
         return ContentPlanService(db).approve_and_generate_visual(workspace, current_user, post, payload.caption)
 
@@ -715,6 +765,18 @@ def generate_creative_set(
 ) -> GenerateCreativeSetResponse:
     with selected_models(models), metering_scope(db, workspace["id"], user["id"], "creative-set"):
         return SocialMediaService(db).generate_creative_set(workspace, user, payload)
+
+
+@router.get("/generate-creative-set/status", response_model=GenerateCreativeSetResponse)
+def get_creative_set_status(
+    requestId: str = Query(min_length=1, max_length=128),
+    workspace: dict = Depends(require_workspace_access),
+    db: Database = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> GenerateCreativeSetResponse:
+    from app.social.creative_sets import get_creative_set_status as read_status
+
+    return read_status(SocialMediaService(db), workspace, user, request_id=requestId)
 
 
 @router.post("/generate-image", response_model=GenerateImageResponse)

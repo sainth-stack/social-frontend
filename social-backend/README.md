@@ -101,6 +101,52 @@ securely when prompted.
 
 `./scripts/start.sh` starts api + worker + beat together.
 
+### Planner and creative-status deployment
+
+- Deploy the matching backend API, Celery workers and beat revision together before
+  enabling the new planner client. Apply MongoDB indexes via `./scripts/migrate.sh`
+  against the shared database. Restart workers so they register
+  `app.social.tasks.planner_runs`; consume `social_maintenance` for generation and
+  recovery and `social_publish` for scheduling/publishing. Keep one beat instance
+  active with the updated schedule: planner recovery and the due-post safety net
+  run every 60 seconds. API and workers must share database, broker, storage and
+  model configuration. Old workers cannot safely implement the new handoff.
+- The new `/api/v1/workspaces/{workspace_id}/social/content-plan` API previews exact
+  dates, accounts, local times and IANA timezone before creating durable runs.
+  Ranges and individually selected dates retain their exact slots; blocked dates
+  require explicit exclusion/correction, not silent replacement. DST gaps are
+  rejected and ambiguous times require an explicit UTC offset. Generation creates
+  text-only drafts. Approve copy separately, then explicitly request/retry an
+  image; Instagram requires a current image, while Facebook/LinkedIn can use
+  text-only intent. Changed copy invalidates approval and visual readiness.
+  Team approval remains separate. Scheduling requires publisher permission,
+  fresh schedule preview and explicit confirmation; generation, approval and
+  image creation never schedule automatically. Results are per item; pending
+  dispatch is not a confirmed scheduling success.
+- `GET /api/v1/workspaces/{workspace_id}/social/generate-creative-set/status?requestId=...`
+  requires authentication and workspace access (viewer allowed), with a required
+  1–128 character `requestId`. It returns `creativeSetId`, `status`, `items`,
+  `errors`, `warnings`, refreshes media URLs and never generates, uploads or
+  consumes AI credits. Requests are workspace-scoped; missing/foreign requests
+  return 404. Keep the synchronous creative POST available; polling GET is not
+  a replacement generation job or an automatic POST retry.
+- Recovery is bounded by persisted checkpoints, not an exactly-once guarantee.
+  Planner workers use a 30-minute run lease; beat reconciles expired runs, queued
+  dispatches and confirmed schedules awaiting broker acceptance. Saved text can
+  be reused through explicit failed/missing/checkpointed-item retry, but uncertain
+  paid attempts are not automatically replayed. Dispatch retry applies only to
+  already confirmed schedules; blocked drafts need correction and a new preview.
+  Creative processing has a 15-minute lease with a 30-second heartbeat. Expired
+  status returns failed/partial with `CREATIVE_LEASE_EXPIRED` without mutating it;
+  explicit POST of the original payload/request ID recovers saved bases/exports
+  and stale quota holds. Missing artwork after an attempted/unknown call requires
+  explicit new-artwork consent and a new request ID, not blind retry. Image calls
+  remain synchronous: leases cannot cancel in-flight providers. Crashes before
+  checkpoints can lose paid output; interrupted uploads can leave unattached
+  assets. There is no background creative-hold sweep, cross-collection transaction
+  or exactly-once external publication guarantee. Monitor uncertain operations
+  and broker/worker health; reconcile before authorizing another paid attempt.
+
 ### Production (EC2 + PM2)
 
 API on **5000**, app on **5001**, marketing landing on **5002**. Folders are

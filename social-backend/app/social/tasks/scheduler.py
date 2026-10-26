@@ -47,7 +47,8 @@ def enqueue_due_social_posts() -> dict:
         if not claimed.modified_count:
             continue
         try:
-            publish_post.delay(str(post["id"]))
+            args = [str(post["id"]), post.get("planner_schedule_token")] if post.get("planner_run_id") else [str(post["id"])]
+            publish_post.delay(*args)
         except Exception:
             db["social_posts"].update_one({"id": post["id"], "publish_enqueued_at": now}, {"$unset": {"publish_enqueued_at": ""}})
             logger.warning("Could not enqueue social post %s", post["id"])
@@ -106,7 +107,8 @@ def enqueue_due_social_posts() -> dict:
         ):
             db["social_posts"].update_one({"id": post["id"]}, {"$set": {"status": "published" if any(pp.get("status") == "published" for pp in platforms) else "failed", "updated_at": now}})
             continue
-        publish_post.delay(str(post["id"]))
+        args = [str(post["id"]), post.get("planner_schedule_token")] if post.get("planner_run_id") else [str(post["id"])]
+        publish_post.delay(*args)
         recovered += 1
         logger.info("Re-enqueued stuck publishing post %s", post["id"])
 

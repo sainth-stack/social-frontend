@@ -414,7 +414,7 @@ class ContentPlanService:
         scope = {"id": post["id"], "workspace_id": post["workspace_id"]}
         if self.copy_fingerprint(post) != previous_fingerprint:
             self.db["social_posts"].update_one(scope, {
-                "$set": {"image_url": None, "image_source": SocialImageSource.NONE.value},
+                "$set": {"image_url": None, "image_source": SocialImageSource.NONE.value, "approval_status": "not_required", "approved_by": None, "planner_visual_pending": False},
                 "$unset": {"planner_approved_fingerprint": "", "planner_approved_by": "", "planner_approved_at": "", "planner_visual_fingerprint": ""},
             })
         return SocialMediaService(self.db).get_post(self.db["social_posts"].find_one(scope))

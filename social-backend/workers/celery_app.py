@@ -36,6 +36,7 @@ celery_app = Celery(
         "app.social.tasks.analytics_sync",
         "app.social.tasks.maintenance",
         "app.social.tasks.content_plan",
+        "app.social.tasks.planner_runs",
     ],
 )
 
@@ -64,6 +65,7 @@ celery_app.conf.update(
         "app.social.tasks.analytics_sync.*": {"queue": "social_analytics"},
         "app.social.tasks.maintenance.*": {"queue": "social_maintenance"},
         "app.social.tasks.content_plan.*": {"queue": "social_maintenance"},
+        "app.social.tasks.planner_runs.*": {"queue": "social_maintenance"},
     },
     beat_schedule=beat_schedule,
 )

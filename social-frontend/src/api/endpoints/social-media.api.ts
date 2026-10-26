@@ -490,6 +490,14 @@ export const socialMediaApi = {
     return data;
   },
 
+  async getCreativeSetStatus(orgId: string, requestId: string, signal?: AbortSignal): Promise<GenerateCreativeSetResult> {
+    const { data } = await apiClient.get<GenerateCreativeSetResult>(
+      `${base(orgId)}/generate-creative-set/status`,
+      { params: { requestId }, signal, timeout: 30_000 },
+    );
+    return data;
+  },
+
   async uploadLogo(
     orgId: string,
     file: File,

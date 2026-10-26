@@ -1,12 +1,15 @@
 from io import BytesIO
+from datetime import timedelta
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
-from PIL import Image
+from PIL import Image, ImageDraw
 
-from app.social.creative_sets import _reserve
+from app.core.mongo_utils import utcnow
+from app.social.creative_sets import _reserve, get_creative_set_status
 from app.social.media import SocialBlobUpload
 from app.social.schemas import GenerateCreativeSetRequest
 from app.social.service import SocialMediaService
@@ -14,7 +17,9 @@ from app.social.service import SocialMediaService
 
 def _image(mime="PNG"):
     output = BytesIO()
-    Image.new("RGB", (32, 32), "blue").save(output, format=mime)
+    image = Image.new("RGB", (32, 32), "blue")
+    ImageDraw.Draw(image).rectangle((8, 8, 24, 24), fill="teal")
+    image.save(output, format=mime)
     return output.getvalue()
 
 
@@ -219,7 +224,9 @@ def test_brand_snapshot_survives_retry(creative_sets):
     service.db["social_brand_voices"].update_one({"workspace_id": workspace["id"]}, {"$set": {"brand_name": "Changed"}})
     renderer.side_effect = lambda *args, **kwargs: calls.append(kwargs) or {}
     _generate(creative_sets)
-    assert all(call["brand"]["brand_name"] == "Original" for call in calls)
+    assert not calls
+    assert renderer.call_count == 3
+    assert service.db["social_creative_sets"].find_one()["brand"]["brand_name"] == "Original"
 
 
 @pytest.mark.parametrize("change", [{"platforms": ["x"]}, {"platforms": ["instagram", "x"]}, {"mode": "edit"}, {"slides": [{"id": "only"}]}, {"format": "post"}])
@@ -318,3 +325,240 @@ def test_real_renderer_composition_retry_reuses_durable_base(creative_sets, monk
     assert image.call_count == 2
     assert service.db["plans_ai_usage"].count_documents({}) == 2
     assert all(call.kwargs["copy"] is None for call in compose.call_args_list)
+
+
+def test_status_lookup_is_workspace_scoped_and_does_no_generation(creative_sets):
+    service, workspace, _, renderer, *_ = creative_sets
+    result = _generate(creative_sets)
+    by_id = get_creative_set_status(service, workspace, {"id": "user"}, creative_set_id=result.creativeSetId)
+    by_request = get_creative_set_status(service, workspace, {"id": "user"}, request_id="request-1")
+    assert by_id == by_request == result
+    assert renderer.call_count == 3
+    with pytest.raises(HTTPException) as failure:
+        get_creative_set_status(service, {**workspace, "id": "other-workspace"}, {"id": "user"}, creative_set_id=result.creativeSetId)
+    assert failure.value.status_code == 404
+    with pytest.raises(HTTPException) as failure:
+        get_creative_set_status(service, workspace, {"id": "user"})
+    assert failure.value.status_code == 400
+
+
+def test_expired_claim_recovers_saved_bases_and_quota_hold(creative_sets, monkeypatch):
+    import app.social.media as media
+
+    service, workspace, _, renderer, calls, *_ = creative_sets
+    original = media.upload_social_image_bytes
+    monkeypatch.setattr(media, "upload_social_image_bytes", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("offline")) if kwargs["content_type"] == "image/jpeg" else original(*args, **kwargs))
+    failed = _generate(creative_sets)
+    assert failed.status == "failed"
+    assert len(service.db["social_creative_sets"].find_one()["bases"]) == 3
+    _reserve(service.db, workspace, 2, token="expired-owner")
+    service.db["social_creative_sets"].update_one({"id": failed.creativeSetId}, {"$set": {"status": "processing", "claim": "expired-owner", "lease_until": utcnow() - timedelta(seconds=1)}})
+    lookup = get_creative_set_status(service, workspace, {"id": "user"}, request_id="request-1")
+    assert lookup.status == "failed"
+    assert lookup.errors[-1]["code"] == "CREATIVE_LEASE_EXPIRED"
+    assert service.db["social_creative_quota"].find_one()["reserved"] == 2
+    monkeypatch.setattr(media, "upload_social_image_bytes", original)
+    recovered = _generate(creative_sets)
+    assert recovered.status == "completed"
+    assert renderer.call_count == 6
+    assert all(call["base_image"] == _image() for call in calls[3:])
+    quota = service.db["social_creative_quota"].find_one()
+    assert quota["reserved"] == 0 and quota["committed"] == 3
+    assert service.db["plans_ai_usage"].count_documents({}) == 3
+
+
+def test_expired_unknown_attempt_is_not_replayed(creative_sets):
+    service, _, _, renderer, *_ = creative_sets
+    renderer.side_effect = RuntimeError("connection lost after provider accepted request")
+    first = _generate(creative_sets)
+    service.db["social_creative_sets"].update_one({"id": first.creativeSetId}, {"$set": {"status": "processing", "claim": "expired-owner", "lease_until": utcnow() - timedelta(seconds=1)}})
+    retry = _generate(creative_sets)
+    assert retry.status == "failed"
+    assert renderer.call_count == 3
+    assert all("new requestId" in error["message"] for error in retry.errors)
+    assert service.db["social_creative_quota"].find_one()["reserved"] == 0
+
+
+def test_fenced_old_owner_cannot_save_base_or_change_replacement_status(creative_sets):
+    service, _, _, renderer, _, uploads, _ = creative_sets
+    original = renderer.side_effect
+
+    def replaced(*args, **kwargs):
+        service.db["social_creative_sets"].update_one({}, {"$set": {"claim": "replacement", "lease_until": utcnow() + timedelta(minutes=15)}})
+        return original(*args, **kwargs)
+
+    renderer.side_effect = replaced
+    result = _generate(creative_sets)
+    assert result.status == "processing"
+    row = service.db["social_creative_sets"].find_one()
+    assert row["claim"] == "replacement"
+    assert row["bases"] == {} and row["items"] == []
+    assert not uploads
+    assert service.db["plans_ai_usage"].count_documents({}) == 0
+    assert service.db["social_creative_quota"].find_one()["reserved"] == 0
+
+
+def test_fenced_upload_cannot_attach_export_after_claim_replacement(creative_sets, monkeypatch):
+    import app.social.media as media
+
+    service, _, _, _, _, uploads, _ = creative_sets
+    original = media.upload_social_image_bytes
+
+    def replace_during_upload(*args, **kwargs):
+        uploaded = original(*args, **kwargs)
+        if kwargs["content_type"] == "image/jpeg":
+            service.db["social_creative_sets"].update_one({}, {"$set": {"claim": "replacement", "lease_until": utcnow() + timedelta(minutes=15)}})
+        return uploaded
+
+    monkeypatch.setattr(media, "upload_social_image_bytes", replace_during_upload)
+    result = _generate(creative_sets)
+    assert result.status == "processing" and result.items == []
+    assert len(uploads) == 2
+    assert service.db["social_media_assets"].count_documents({}) == 1
+    assert service.db["plans_ai_usage"].count_documents({}) == 1
+
+
+def test_black_base_is_never_saved_or_retried_as_paid_artwork(creative_sets, monkeypatch):
+    from app.social.ai import creative
+
+    service, _, payload, _, _, uploads, _ = creative_sets
+    monkeypatch.setattr(service, "render_brand_creative_variants", SocialMediaService.render_brand_creative_variants.__get__(service))
+    black = BytesIO()
+    Image.new("RGB", (128, 128), "black").save(black, format="PNG")
+    generate = Mock(return_value={"imageB64": black.getvalue()})
+    monkeypatch.setattr(creative, "generate_post_image", generate)
+    request = payload.model_copy(update={"autoCopy": False})
+    first = _generate(creative_sets, request)
+    second = _generate(creative_sets, request)
+    assert first.status == second.status == "failed"
+    assert all(error["code"] == "IMAGE_NEAR_BLACK" and error["stage"] == "base" for error in first.errors)
+    assert generate.call_count == 3
+    assert not uploads
+    assert service.db["plans_ai_usage"].count_documents({}) == 0
+    assert service.db["social_creative_quota"].find_one()["reserved"] == 0
+
+
+def test_invalid_export_keeps_good_base_and_retry_never_calls_models(creative_sets, monkeypatch):
+    from app.social.ai import creative
+
+    service, _, payload, *_ = creative_sets
+    monkeypatch.setattr(service, "render_brand_creative_variants", SocialMediaService.render_brand_creative_variants.__get__(service))
+    generate = Mock(return_value={"imageB64": _image()})
+    direction = Mock(return_value=("Editorial workshop", creative.OverlayCopy("Repair together")))
+    monkeypatch.setattr(creative, "generate_post_image", generate)
+    monkeypatch.setattr(creative, "art_direct", direction)
+    original = creative.compose_creative
+    black = BytesIO()
+    Image.new("RGB", (128, 128), "black").save(black, format="JPEG")
+    monkeypatch.setattr(creative, "compose_creative", lambda *args, **kwargs: black.getvalue())
+    first = _generate(creative_sets)
+    assert first.status == "failed"
+    assert all(error["code"] == "IMAGE_NEAR_BLACK" and error["stage"] == "export" for error in first.errors)
+    assert len(service.db["social_creative_sets"].find_one()["recipes"]) == 3
+    monkeypatch.setattr(creative, "compose_creative", original)
+    second = _generate(creative_sets)
+    assert second.status == "completed"
+    assert generate.call_count == direction.call_count == 3
+    assert service.db["plans_ai_usage"].count_documents({}) == 3
+
+
+def test_status_url_failure_has_safe_recoverable_code(creative_sets, monkeypatch):
+    import app.social.media as media
+
+    service, workspace, *_ = creative_sets
+    _generate(creative_sets)
+    monkeypatch.setattr(media, "refresh_blob_url", Mock(side_effect=RuntimeError("private storage credentials")))
+    response = get_creative_set_status(service, workspace, {"id": "user"}, request_id="request-1")
+    assert response.status == "partial"
+    assert response.items == []
+    assert len(response.errors) == 9
+    assert all(error["code"] == "CREATIVE_URL_FAILED" and "private" not in str(error) for error in response.errors)
+
+
+def test_legacy_stale_processing_without_attempt_checkpoints_does_not_pay_again(creative_sets):
+    service, workspace, _, renderer, *_ = creative_sets
+    renderer.side_effect = RuntimeError("old process ended")
+    first = _generate(creative_sets)
+    service.db["social_creative_sets"].update_one({"id": first.creativeSetId}, {
+        "$set": {"status": "processing", "updated_at": utcnow() - timedelta(minutes=20)},
+        "$unset": {"attempts": "", "lease_until": "", "claim": ""},
+    })
+    status = get_creative_set_status(service, workspace, {"id": "user"}, request_id="request-1")
+    assert status.errors[-1]["code"] == "CREATIVE_LEASE_EXPIRED"
+    recovered = _generate(creative_sets)
+    assert recovered.status == "failed"
+    assert all(error["code"] == "CREATIVE_PROVIDER_UNCERTAIN" for error in recovered.errors)
+    assert renderer.call_count == 3
+
+
+def test_live_processing_heartbeat_renews_lease_during_render(creative_sets, monkeypatch):
+    import app.social.creative_sets as module
+
+    service, _, _, renderer, *_ = creative_sets
+    original = renderer.side_effect
+    collection = service.db["social_creative_sets"]
+    update = collection.update_one
+    renewed = Event()
+
+    def observed_update(query, changes, *args, **kwargs):
+        result = update(query, changes, *args, **kwargs)
+        if set(changes.get("$set", {})) == {"lease_until"} and result.matched_count:
+            renewed.set()
+        return result
+
+    monkeypatch.setattr(collection, "update_one", observed_update)
+    monkeypatch.setattr(module, "HEARTBEAT_SECONDS", 0.01)
+
+    def slow_render(*args, **kwargs):
+        assert renewed.wait(2)
+        return original(*args, **kwargs)
+
+    renderer.side_effect = slow_render
+    assert _generate(creative_sets).status == "completed"
+    assert renewed.is_set()
+
+
+def test_new_reservation_during_usage_record_does_not_double_count_base(creative_sets, monkeypatch):
+    service, workspace, *_ = creative_sets
+    usage = service.db["plans_ai_usage"]
+    update = usage.update_one
+    observed = []
+
+    def reserve_after_usage(*args, **kwargs):
+        result = update(*args, **kwargs)
+        if result.upserted_id:
+            _reserve(service.db, workspace, 1, token="competing")
+            observed.append(service.db["social_creative_quota"].find_one()["committed"])
+            from app.social.creative_sets import _release_hold
+
+            _release_hold(service.db, "competing")
+        return result
+
+    monkeypatch.setattr(usage, "update_one", reserve_after_usage)
+    assert _generate(creative_sets).status == "completed"
+    assert observed == [1, 2, 3]
+    assert service.db["social_creative_quota"].find_one()["committed"] == 3
+
+
+def test_recovery_reconciles_usage_if_process_stopped_after_base_checkpoint(creative_sets):
+    service, _, _, renderer, *_ = creative_sets
+    original = renderer.side_effect
+    failed = False
+
+    def interrupted(*args, **kwargs):
+        nonlocal failed
+        if not failed:
+            failed = True
+            kwargs["on_base_ready"](_image())
+            raise RuntimeError("composition interrupted")
+        return original(*args, **kwargs)
+
+    renderer.side_effect = interrupted
+    first = _generate(creative_sets)
+    assert first.status == "partial"
+    service.db["plans_ai_usage"].delete_one({"_id": {"$regex": ":slide-0$"}})
+    assert service.db["plans_ai_usage"].count_documents({}) == 2
+    second = _generate(creative_sets)
+    assert second.status == "completed"
+    assert service.db["plans_ai_usage"].count_documents({}) == 3
+    assert renderer.call_count == 4

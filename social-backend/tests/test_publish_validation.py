@@ -49,6 +49,47 @@ def test_publishable_platforms_have_canonical_limits():
     assert PUBLISHABLE_PLATFORMS == set(SocialPlatform)
 
 
+@pytest.mark.parametrize("platform", ["facebook", "linkedin"])
+@pytest.mark.parametrize("intent", [None, "optional", "required", "text_only"])
+@pytest.mark.parametrize("visual", ["missing", "stale", "ready", "pending"])
+def test_durable_planner_publish_requires_resolved_image_choice(db, platform, intent, visual):
+    from app.social.content_plan import ContentPlanService
+
+    post = _post(platform) | {"planner_text_first": True, "planner_run_id": "run"}
+    row = _platform(platform)
+    db.social_post_platforms.insert_one(deepcopy(row))
+    fingerprint = ContentPlanService(db).copy_fingerprint(post)
+    post.update(planner_approved_fingerprint=fingerprint, planner_visual_pending=visual == "pending")
+    if intent is not None:
+        post["planner_image_intent"] = intent
+    if visual != "missing":
+        post.update(image_url="https://cdn.test/image.jpg",
+            planner_visual_fingerprint="old-copy" if visual == "stale" else fingerprint)
+    service = SocialMediaService(db)
+    if visual != "pending" and (intent == "text_only" or visual == "ready"):
+        service._validate_ready_to_publish_dict(post, [row], persist_accounts=False)
+    else:
+        with pytest.raises(HTTPException) as exc:
+            service._validate_ready_to_publish_dict(post, [row], persist_accounts=False)
+        assert exc.value.status_code == 400
+        if intent in (None, "optional") and visual in ("missing", "stale"):
+            assert exc.value.detail == "Choose text only or generate a current planner image before publishing"
+
+
+@pytest.mark.parametrize("platform", ["facebook", "linkedin"])
+@pytest.mark.parametrize("intent", [None, "optional", "text_only"])
+def test_legacy_non_run_planner_text_only_remains_publishable(db, platform, intent):
+    from app.social.content_plan import ContentPlanService
+
+    post = _post(platform) | {"planner_text_first": True}
+    row = _platform(platform)
+    db.social_post_platforms.insert_one(deepcopy(row))
+    post["planner_approved_fingerprint"] = ContentPlanService(db).copy_fingerprint(post)
+    if intent is not None:
+        post["planner_image_intent"] = intent
+    SocialMediaService(db)._validate_ready_to_publish_dict(post, [row], persist_accounts=False)
+
+
 @pytest.mark.parametrize("platform", sorted(PLATFORM_LIMITS))
 @pytest.mark.parametrize(
     ("hashtags", "suffix"),

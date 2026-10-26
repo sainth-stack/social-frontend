@@ -25,4 +25,13 @@ describe("creative-set API contract", () => {
     await expect(socialMediaApi.generateCreativeSet("workspace", payload)).rejects.toBe(error);
     expect(apiClient.post).toHaveBeenCalledTimes(1);
   });
+
+  it("looks up status by the original request ID with an abortable workspace GET only", async () => {
+    const controller = new AbortController();
+    const result = { creativeSetId: "set", status: "processing", items: [], errors: [], warnings: [] };
+    vi.mocked(apiClient.get).mockResolvedValue({ data: result });
+    expect(await socialMediaApi.getCreativeSetStatus("workspace", "durable-request", controller.signal)).toEqual(result);
+    expect(apiClient.get).toHaveBeenCalledExactlyOnceWith("/api/v1/workspaces/workspace/social/generate-creative-set/status", { params: { requestId: "durable-request" }, signal: controller.signal, timeout: 30_000 });
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
 });

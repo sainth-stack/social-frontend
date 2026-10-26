@@ -178,7 +178,6 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   const [planPrompt, setPlanPrompt] = useState("");
   const [planGoal, setPlanGoal] = useState<string | null>(null);
   const [planTone, setPlanTone] = useState("");
-  const [planCta, setPlanCta] = useState("");
   const [skipFilledDays, setSkipFilledDays] = useState(true);
   const [planPlatforms, setPlanPlatforms] = useState<SocialPlatform[]>([]);
 
@@ -205,7 +204,6 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
   const [editSchedule, setEditSchedule] = useState("");
   const [regenPrompt, setRegenPrompt] = useState("");
   const [regenTone, setRegenTone] = useState("");
-  const [regenCta, setRegenCta] = useState("");
   const [postError, setPostError] = useState<string | null>(null);
   const [planNotes, setPlanNotes] = useState<string[]>([]);
   const [savingPost, setSavingPost] = useState(false);
@@ -495,7 +493,6 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         days: days as 1 | 7 | 15 | 30,
         prompt: promptSnapshot,
         tone: planTone.trim() || undefined,
-        cta: planCta.trim() || undefined,
         autoSchedule: false,
         generateImages: false,
         skipFilledDays: planTargetDate ? false : skipFilledDays,
@@ -700,7 +697,6 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
         regenerateCaption: true,
         regenerateImage: false,
         tone: regenTone.trim() || undefined,
-        cta: regenCta.trim() || undefined,
       });
       if (scopeRef.current !== orgId) return;
       applyPostUpdate(updated);
@@ -1090,16 +1086,6 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                 </div>
                 <p className="text-[11px] text-muted-foreground">Leave empty to use your brand tone.</p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="plan-cta">Call to action</Label>
-                <Input
-                  id="plan-cta"
-                  value={planCta}
-                  onChange={(e) => setPlanCta(e.target.value)}
-                  placeholder="Book a demo, shop now…"
-                  disabled={planning}
-                />
-              </div>
             </div>
 
             <div className="space-y-3 rounded-xl border border-border p-3">
@@ -1304,12 +1290,6 @@ export function ContentPlannerSection({ orgId }: { orgId: string }) {
                       value={regenTone}
                       onChange={(e) => setRegenTone(e.target.value)}
                       placeholder="Tone (optional)"
-                      disabled={!!regeneratingPostId}
-                    />
-                    <Input
-                      value={regenCta}
-                      onChange={(e) => setRegenCta(e.target.value)}
-                      placeholder="CTA (optional)"
                       disabled={!!regeneratingPostId}
                     />
                   </div>

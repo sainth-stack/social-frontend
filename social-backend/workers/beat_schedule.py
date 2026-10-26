@@ -3,6 +3,10 @@ from __future__ import annotations
 from celery.schedules import crontab
 
 beat_schedule = {
+    "recover-planner-runs": {
+        "task": "app.social.tasks.planner_runs.recover_planner_runs",
+        "schedule": 60.0,
+    },
     # ── Social media publishing ──────────────────────────────────────
     "enqueue-due-social-posts": {
         "task": "app.social.tasks.scheduler.enqueue_due_social_posts",

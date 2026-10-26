@@ -158,7 +158,7 @@ def invoke_publisher(db, post: dict, pp: dict, publisher, token: str, account: d
     max_retries=0,
     queue="social_publish",
 )
-def publish_post(self, post_id: str) -> dict:
+def publish_post(self, post_id: str, schedule_token: str | None = None) -> dict:
     """Publish a social post to all platform rows."""
     db = get_database()
 
@@ -169,6 +169,32 @@ def publish_post(self, post_id: str) -> dict:
 
     if post.get("status") in (SocialPostStatus.PUBLISHED.value, SocialPostStatus.ARCHIVED.value):
         return {"ok": True, "reason": "already_done"}
+
+    if post.get("planner_text_first"):
+        if (post.get("planner_run_id") or schedule_token is not None) and (not schedule_token or post.get("planner_schedule_token") != schedule_token):
+            return {"ok": False, "reason": "stale_schedule"}
+        scheduled = post.get("scheduled_at")
+        if post.get("status") not in ("scheduled", "publishing") or not scheduled:
+            return {"ok": False, "reason": "cancelled_schedule"}
+        if scheduled.replace(tzinfo=scheduled.tzinfo or timezone.utc) > datetime.now(timezone.utc):
+            return {"ok": False, "reason": "not_due"}
+        from app.social.service import SocialMediaService
+        from app.social.content_plan import ContentPlanService
+        from fastapi import HTTPException
+
+        try:
+            if post.get("planner_run_id"):
+                workspace = db["workspaces"].find_one({"id": post["workspace_id"]})
+                if not workspace or workspace.get("is_active") is False:
+                    raise HTTPException(403, "Workspace is unavailable")
+                if not post.get("planner_scheduled_revision"):
+                    raise HTTPException(409, "Planner schedule confirmation is missing")
+            if post.get("planner_scheduled_revision") and ContentPlanService(db).copy_fingerprint(post) != post["planner_scheduled_revision"]:
+                raise HTTPException(409, "Scheduled copy revision changed")
+            SocialMediaService(db)._validate_ready_to_publish_dict(post, list(db["social_post_platforms"].find({"post_id": post_id})), persist_accounts=False)
+        except HTTPException:
+            db["social_posts"].update_one({"id": post_id, "status": "scheduled", "scheduled_at": post["scheduled_at"]}, {"$set": {"status": "failed", "planner_dispatch_state": "blocked", "updated_at": utcnow()}})
+            return {"ok": False, "reason": "planner_not_ready"}
 
     if post.get("format") == "thread":
         db["social_posts"].update_one({"id": post_id}, {"$set": {"status": "failed", "updated_at": utcnow()}})
@@ -193,9 +219,16 @@ def publish_post(self, post_id: str) -> dict:
                 logger.info("publish_post: post %s already publishing", post_id)
                 return {"ok": True, "reason": "already_publishing"}
 
-    db["social_posts"].update_one(
-        {"id": post_id}, {"$set": {"status": SocialPostStatus.PUBLISHING.value, "updated_at": utcnow()}}
+    claim_scope = {"id": post_id}
+    if post.get("planner_text_first"):
+        claim_scope.update(status=post["status"], scheduled_at=post["scheduled_at"], updated_at=post.get("updated_at"))
+        claim_scope["planner_schedule_token"] = post.get("planner_schedule_token")
+        claim_scope["$or"] = [{"planner_visual_lock_until": {"$exists": False}}, {"planner_visual_lock_until": {"$lte": utcnow()}}]
+    claimed = db["social_posts"].update_one(
+        claim_scope, {"$set": {"status": SocialPostStatus.PUBLISHING.value, "updated_at": utcnow()}}
     )
+    if post.get("planner_text_first") and not claimed.modified_count:
+        return {"ok": False, "reason": "post_changed_or_busy"}
     platforms = list(db["social_post_platforms"].find({"post_id": post_id}))
 
     now = datetime.now(timezone.utc)

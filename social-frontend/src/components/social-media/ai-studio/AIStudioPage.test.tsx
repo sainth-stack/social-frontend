@@ -9,6 +9,9 @@ import apiClient from "@/api/client";
 import socialMediaApi from "@/api/endpoints/social-media.api";
 import type { BrandVoice, GeneratedContent, GenerateImageResult, GenerateCreativeSetPayload, SocialPost, StoredSlide } from "@/types/social-media.types";
 import AIStudioPage from "./AIStudioPage";
+import { copyFingerprint } from "./studioCreative";
+import { getBreadcrumbs } from "@/lib/navigation";
+import { dashboardNavSections, filterNavSections } from "@/components/layouts/nav-config";
 
 const context = vi.hoisted(() => ({ token: "studio-0", params: new URLSearchParams(), push: vi.fn(), replace: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ getStoredAccessToken: () => context.token }));
@@ -53,7 +56,7 @@ beforeEach(() => {
   vi.mocked(apiClient.put).mockResolvedValue(response(brand));
   vi.mocked(apiClient.patch).mockResolvedValue(response({ id: "draft-1", workspaceId: "studio", platforms: [] }));
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); sessionStorage.clear(); });
 
 function renderStudio(initialTab: "generate" | "brand" | "media" = "generate", workspaceId = "studio") {
   const store = configureStore({ reducer: {
@@ -74,6 +77,182 @@ describe("AIStudioPage", () => {
   const carouselSlides: StoredSlide[] = ["a", "b", "c"].map((id) => ({ id, headline: `Headline ${id}`, body: `Body ${id}`, imagePrompt: `Artwork ${id}` }));
   const carouselResponse: GeneratedContent = { format: "carousel", platforms: {}, prompt: "Useful carousel", caption: "## Intro\n**Useful** content 🚀", slides: carouselSlides, hashtags: ["Useful"] };
   const exportsFor = (request: GenerateCreativeSetPayload) => (request.slides ?? [{ id: "single" }]).flatMap((slide) => request.platforms.map((platform) => ({ ...creativeSet.items[0], platform, slideId: slide.id, imageUrl: `https://example.test/${platform}/${slide.id}.jpg`, assetId: `${platform}-${slide.id}`, blobKey: `social/studio/${platform}/${slide.id}.jpg` })));
+
+  it("routes Planner to its dedicated workspace and preserves other Studio tabs", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    const caption = await createCopy(user);
+    await user.click(screen.getByRole("tab", { name: "Content Planner" }));
+    expect(context.push).toHaveBeenCalledWith("/dashboard/content-studio/planner");
+    expect(screen.queryByText("Planner workspace")).toBeNull();
+    expect((caption as HTMLTextAreaElement).value).toBe(generated.platforms.linkedin!.caption);
+    await user.click(screen.getByRole("tab", { name: "Brand Profile" }));
+    await screen.findByLabelText("Default call to action");
+    await user.click(screen.getByRole("tab", { name: "Create" }));
+    expect((screen.getByLabelText("LinkedIn caption") as HTMLTextAreaElement).value).toBe(generated.platforms.linkedin!.caption);
+  });
+
+  it("redirects old planner deep links without mounting the legacy planner or dropping other parameters", async () => {
+    context.params = new URLSearchParams({ tab: "planner", topic: "Saved brief" });
+    renderStudio();
+    await waitFor(() => expect(context.replace).toHaveBeenCalledWith("/dashboard/content-studio/planner?topic=Saved+brief"));
+    expect(screen.queryByText("Planner workspace")).toBeNull();
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it("labels planner navigation and durable review breadcrumbs without exposing run IDs", () => {
+    const nav = dashboardNavSections.flatMap((section) => section.items);
+    expect(nav.find((item) => item.label === "Content Planner")).toMatchObject({ href: "/dashboard/content-studio/planner", minPermission: "editor" });
+    expect(filterNavSections(dashboardNavSections, null).flatMap((section) => section.items).some((item) => item.label === "Content Planner")).toBe(false);
+    expect(getBreadcrumbs("/dashboard/content-studio/planner/run-123")).toEqual([
+      { label: "Dashboard", href: "/dashboard" }, { label: "AI Studio", href: "/dashboard/content-studio" },
+      { label: "Content Planner", href: "/dashboard/content-studio/planner" }, { label: "Plan review", href: undefined },
+    ]);
+  });
+
+  it("omits template CTA overrides from new copy and artwork while retaining Brand default CTA", async () => {
+    context.params = new URLSearchParams({ templateId: "legacy-template" });
+    sessionStorage.setItem("studio-template", JSON.stringify({ templateId: "legacy-template", name: "Legacy", topic: "Share our latest business update", suggestedCta: "Old manual CTA", platforms: ["linkedin", "facebook"], generateImage: true }));
+    const user = userEvent.setup();
+    renderStudio();
+    await user.click(screen.getByRole("button", { name: /Advanced settings/ }));
+    expect(screen.queryByLabelText("Call to action")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
+    await user.click(await screen.findByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
+    await screen.findByRole("link", { name: "Download" });
+    const requests = vi.mocked(apiClient.post).mock.calls.map((call) => call[1]);
+    expect(requests).toHaveLength(2);
+    requests.forEach((request) => expect(request).not.toHaveProperty("cta"));
+    await user.click(screen.getByRole("tab", { name: "Brand Profile" }));
+    expect(await screen.findByLabelText("Default call to action")).toBeTruthy();
+  });
+
+  it("preserves hidden legacy CTA approval on restore but omits it from new artwork and clears it on intentional new copy", async () => {
+    const user = userEvent.setup();
+    const first = renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ id: "saved", platforms: [] }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(context.replace).toHaveBeenCalled());
+    const saved = vi.mocked(apiClient.post).mock.calls[1][1] as SocialPost;
+    const content = JSON.parse(saved.generationOptions!.copyApproval!.fingerprint).content;
+    saved.generationOptions = { ...saved.generationOptions, cta: "Legacy saved CTA", copyApproval: { version: 1, fingerprint: copyFingerprint({ ...content, cta: "Legacy saved CTA" }) } };
+    first.unmount();
+    context.params = new URLSearchParams({ draftId: "saved" });
+    vi.spyOn(socialMediaApi, "getPost").mockResolvedValue({ ...saved, id: "saved" });
+    renderStudio();
+    await screen.findByRole("button", { name: "Copy approved" });
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
+    await screen.findByRole("link", { name: "Download" });
+    expect(vi.mocked(apiClient.post).mock.calls.at(-1)![1]).not.toHaveProperty("cta");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(apiClient.patch).toHaveBeenCalled());
+    expect(vi.mocked(apiClient.patch).mock.calls.at(-1)![1]).toMatchObject({ generationOptions: { cta: "Legacy saved CTA" } });
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
+    await user.click(screen.getByRole("button", { name: "Generate again" }));
+    await screen.findByRole("button", { name: "Approve copy" });
+    expect(vi.mocked(apiClient.post).mock.calls.at(-1)![1]).not.toHaveProperty("cta");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(vi.mocked(apiClient.patch).mock.calls.at(-1)![1]).toMatchObject({ generationOptions: { cta: "" } }));
+  });
+
+  it("polls processing artwork using only GET with the original request ID", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ ...creativeSet, status: "processing", items: [] }));
+    const status = vi.spyOn(socialMediaApi, "getCreativeSetStatus").mockResolvedValue(creativeSet as Awaited<ReturnType<typeof socialMediaApi.getCreativeSetStatus>>);
+    vi.useFakeTimers();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Generate approved visuals" })); });
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(status).toHaveBeenCalledExactlyOnceWith("studio", (vi.mocked(apiClient.post).mock.calls[1][1] as GenerateCreativeSetPayload).requestId, expect.any(AbortSignal));
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("img", { name: "LinkedIn artwork" })).toBeTruthy();
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("bounds processing polling and resumes status checks without replaying POST", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    const processing = { ...creativeSet, status: "processing", items: [] } as Awaited<ReturnType<typeof socialMediaApi.getCreativeSetStatus>>;
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response(processing));
+    const status = vi.spyOn(socialMediaApi, "getCreativeSetStatus").mockResolvedValue(processing);
+    vi.useFakeTimers();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Generate approved visuals" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(610_000); });
+    expect(status).toHaveBeenCalledTimes(60);
+    expect(screen.getByText(/Artwork is still processing/)).toBeTruthy();
+    status.mockResolvedValue(creativeSet as Awaited<ReturnType<typeof socialMediaApi.getCreativeSetStatus>>);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Check visual status" })); });
+    expect(status).toHaveBeenCalledTimes(61);
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("img", { name: "LinkedIn artwork" })).toBeTruthy();
+  });
+
+  it.each(["unmount", "session"])("ignores pending status results after %s and aborts on unmount", async (change) => {
+    const user = userEvent.setup();
+    const view = renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ ...creativeSet, status: "processing", items: [] }));
+    let resolve!: (value: Awaited<ReturnType<typeof socialMediaApi.getCreativeSetStatus>>) => void;
+    const status = vi.spyOn(socialMediaApi, "getCreativeSetStatus").mockImplementation(() => new Promise((done) => { resolve = done; }));
+    vi.useFakeTimers();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Generate approved visuals" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    const signal = status.mock.calls[0][2]!;
+    if (change === "unmount") { view.unmount(); expect(signal.aborted).toBe(true); renderStudio("generate", "new-workspace"); }
+    else context.token = "new-session";
+    await act(async () => { resolve(creativeSet as Awaited<ReturnType<typeof socialMediaApi.getCreativeSetStatus>>); });
+    expect(screen.queryByRole("link", { name: "Download" })).toBeNull();
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires explicit credit consent for unavailable retries and new artwork", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ ...creativeSet, status: "failed", items: [], errors: [{ code: "CREATIVE_RETRY_UNAVAILABLE", message: "New artwork requires a new requestId" }] }));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
+    expect((await screen.findByRole("button", { name: "Retry visuals" }) as HTMLButtonElement).disabled).toBe(true);
+    const original = vi.mocked(apiClient.post).mock.calls[1][1] as GenerateCreativeSetPayload;
+    await user.click(screen.getByRole("button", { name: "Regenerate visuals" }));
+    expect(screen.getByText(/may consume additional image credits/)).toBeTruthy();
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole("button", { name: "Regenerate visuals" }));
+    await user.click(screen.getByRole("button", { name: "Confirm new artwork credits" }));
+    await screen.findByRole("link", { name: "Download" });
+    expect((vi.mocked(apiClient.post).mock.calls[2][1] as GenerateCreativeSetPayload).requestId).not.toBe(original.requestId);
+  });
+
+  it("shows an actionable neutral preview failure rather than a black image and blocks publishing", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
+    fireEvent.error(await screen.findByRole("img", { name: "LinkedIn artwork" }));
+    expect(screen.getByText(/Image preview unavailable/)).toBeTruthy();
+    expect(screen.queryByRole("img", { name: "LinkedIn artwork" })).toBeNull();
+    expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Copy approved" })).toBeTruthy();
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+  });
 
   it.each([2, 3, 8])("sends the accessible %i-slide selection and Professional emoji-off defaults", async (count) => {
     const user = userEvent.setup();
@@ -111,6 +290,7 @@ describe("AIStudioPage", () => {
     expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "Approve copy" }));
     await user.click(screen.getByRole("button", { name: "Regenerate visuals" }));
+    await user.click(screen.getByRole("button", { name: "Confirm new artwork credits" }));
     await waitFor(() => expect((screen.getByText("Publish now", { selector: "button" }) as HTMLButtonElement).disabled).toBe(false));
     const requests = vi.mocked(apiClient.post).mock.calls.filter(([url]) => String(url).endsWith("/generate-creative-set")).map((call) => call[1] as GenerateCreativeSetPayload);
     expect(requests[1].requestId).not.toBe(requests[0].requestId);
@@ -175,6 +355,7 @@ describe("AIStudioPage", () => {
     fireEvent.change(screen.getByLabelText("Slide 1 body"), { target: { value: "Changed artwork copy" } });
     await user.click(screen.getByRole("button", { name: "Approve copy" }));
     await user.click(screen.getByRole("button", { name: "Regenerate visuals" }));
+    await user.click(screen.getByRole("button", { name: "Confirm new artwork credits" }));
     await screen.findByText(/Some visuals are missing/);
     await user.click(screen.getByRole("button", { name: "Retry visuals" }));
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(4));
@@ -195,7 +376,7 @@ describe("AIStudioPage", () => {
     expect(requests[3]).toEqual(requests[1]);
   });
 
-  it.each(["partial", "processing", "completed-missing-facebook"])("blocks every publishing entry point for a %s single-image set until a complete retry", async (status) => {
+  it.each(["partial", "completed-missing-facebook"])("blocks every publishing entry point for a %s single-image set until a complete retry", async (status) => {
     const user = userEvent.setup();
     let attempts = 0;
     vi.mocked(apiClient.post).mockImplementation(async (url) => {

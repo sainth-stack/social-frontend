@@ -9,13 +9,16 @@ import { platformBrand } from "@/lib/brand";
 afterEach(cleanup);
 
 describe("EarnedVoice branding", () => {
-  it("uses the Ascent lockup SVG with one accessible label", async () => {
+  it("uses the theme-aware Ascent symbol with one accessible label", async () => {
     const { container } = render(<EarnedVoiceLogo size={36} className="text-sm" priority />);
     const logo = screen.getByRole("img", { name: "EarnedVoice" });
     expect(screen.getAllByRole("img")).toHaveLength(1);
-    expect(logo.getAttribute("src")).toBe("/brand/earnedvoice-lockup.svg");
-    expect(logo.getAttribute("width")).toBe(String(Math.round(36 * platformBrand.lockupAspect)));
-    expect(logo.getAttribute("height")).toBe("36");
+    expect(logo.querySelector("svg")?.getAttribute("width")).toBe("36");
+    expect(logo.querySelector("svg")?.getAttribute("height")).toBe("36");
+    expect(logo.querySelector("svg")?.getAttribute("viewBox")).toBe("4 16 112 98");
+    expect(logo.querySelector("img, svg text")).toBeNull();
+    expect(logo.querySelector(".earnedvoice-wordmark")?.textContent).toBe("EarnedVoice");
+    expect(logo.querySelector("path")?.getAttribute("fill")).toBe("var(--brand-ribbon-deep)");
     expect(logo.className).toContain("text-sm");
     expect((await axe(container, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
   });
@@ -23,16 +26,16 @@ describe("EarnedVoice branding", () => {
   it.each([EarnedVoiceLogo, PlatformLogo])("keeps compact marks accessible without visible text", (Logo) => {
     render(<Logo compact size={24} />);
     const logo = screen.getByRole("img", { name: "EarnedVoice" });
-    expect(logo.getAttribute("src")).toBe("/brand/earnedvoice-mark.svg");
-    expect(logo.getAttribute("width")).toBe("24");
+    expect(logo.querySelector("svg")?.getAttribute("width")).toBe("24");
+    expect(logo.querySelector(".earnedvoice-wordmark")).toBeNull();
   });
 
   it("preserves the legacy platform logo tone and size props without MUI", () => {
     render(<PlatformLogo tone="light" size={28} priority />);
     const logo = screen.getByRole("img", { name: "EarnedVoice" });
-    expect(logo.className).toContain("text-primary-foreground");
+    expect(logo.className).toContain("earnedvoice-logo-inverse");
     expect(logo.className).toContain("text-sm");
-    expect(logo.getAttribute("height")).toBe("28");
+    expect(logo.style.height).toBe("28px");
   });
 
   it("preserves organization initials and compact behavior", () => {
@@ -42,6 +45,14 @@ describe("EarnedVoice branding", () => {
     rerender(<OrgBrand name="Acme Studio" compact />);
     expect(screen.queryByText("Acme Studio")).toBeNull();
     expect(container.textContent).toBe("AS");
+  });
+
+  it.each(["light", "dark"])("keeps the same symbol and accessible name in %s mode", theme => {
+    const { container } = render(<div className={theme}><EarnedVoiceLogo size={32} /></div>);
+    expect(screen.getByRole("img", { name: "EarnedVoice" })).toBeTruthy();
+    expect(container.querySelectorAll("path")).toHaveLength(3);
+    expect(container.querySelector("path:nth-child(2)")?.getAttribute("fill")).toBe("var(--brand-ribbon)");
+    expect(container.querySelector(".earnedvoice-wordmark")?.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("preserves uploaded organization logos", () => {

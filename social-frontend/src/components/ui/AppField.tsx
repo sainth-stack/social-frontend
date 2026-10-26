@@ -48,7 +48,7 @@ export const outlinedInputSx = (compact = false, multiline = false) => ({
   "&.Mui-focused fieldset": {
     borderColor: colors.primary,
     borderWidth: 1,
-    boxShadow: "0 0 0 2px rgb(79 70 229 / 0.15)",
+    boxShadow: "0 0 0 2px color-mix(in srgb, var(--ring) 15%, transparent)",
   },
   "&.Mui-error fieldset": {
     borderColor: colors.error,

@@ -28,9 +28,9 @@ type AppThemeProviderProps = {
 
 export default function AppThemeProvider({ children }: AppThemeProviderProps) {
   const [mode, setMode] = useState<ThemeMode>("light");
-  const [preference, setPreference] = useState<ThemePreference>("system");
+  const [preference, setPreference] = useState<ThemePreference>("light");
   const [themeError, setThemeError] = useState<string | null>(null);
-  const preferenceRef = useRef<ThemePreference>("system");
+  const preferenceRef = useRef<ThemePreference>("light");
   const mediaRef = useRef<MediaQueryList | null>(null);
 
   const apply = useCallback((next: ThemePreference, systemDark = mediaRef.current?.matches ?? false) => {
@@ -53,7 +53,7 @@ export default function AppThemeProvider({ children }: AppThemeProviderProps) {
     const onStorage = (event: StorageEvent) => {
       if (event.storageArea && event.storageArea !== window.localStorage) return;
       if (event.key !== THEME_STORAGE_KEY && event.key !== null) return;
-      apply(event.newValue === "light" || event.newValue === "dark" ? event.newValue : "system");
+      apply(event.newValue === "light" || event.newValue === "dark" || event.newValue === "system" ? event.newValue : "light");
       setThemeError(null);
     };
     media?.addEventListener?.("change", onSystemChange);
@@ -68,8 +68,7 @@ export default function AppThemeProvider({ children }: AppThemeProviderProps) {
   const setTheme = useCallback((next: ThemePreference) => {
     apply(next);
     try {
-      if (next === "system") window.localStorage.removeItem(THEME_STORAGE_KEY);
-      else window.localStorage.setItem(THEME_STORAGE_KEY, next);
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
       setThemeError(null);
     } catch {
       setThemeError("Theme applied for this visit. Your browser could not remember it on this device.");

@@ -1,6 +1,3 @@
-import Image from "next/image";
-
-import { platformBrand } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 type EarnedVoiceLogoProps = {
@@ -14,34 +11,15 @@ export function EarnedVoiceLogo({
   className,
   size = 32,
   compact = false,
-  priority = false,
 }: EarnedVoiceLogoProps) {
-  if (compact) {
-    return (
-      <Image
-        src={platformBrand.mark}
-        alt="EarnedVoice"
-        width={size}
-        height={size}
-        priority={priority}
-        className={cn("shrink-0 object-contain", className)}
-        style={{ width: size, height: size }}
-      />
-    );
-  }
-
-  const height = size;
-  const width = Math.round(size * platformBrand.lockupAspect);
-
   return (
-    <Image
-      src={platformBrand.lockup}
-      alt="EarnedVoice"
-      width={width}
-      height={height}
-      priority={priority}
-      className={cn("h-auto w-auto max-h-[var(--ev-logo-h)] shrink-0 object-contain object-left", className)}
-      style={{ ["--ev-logo-h" as string]: `${height}px`, maxWidth: width }}
-    />
+    <span role="img" aria-label="EarnedVoice" className={cn("earnedvoice-logo", className)} style={{ height: size, gap: size * 0.22 }}>
+      <svg width={size} height={size} viewBox="4 16 112 98" fill="none" aria-hidden="true" focusable="false" className="earnedvoice-symbol">
+        <path d="M9 27Q6 20 14 20H37L65 78L51 106Q48 111 44 103Z" fill="var(--brand-ribbon-deep)" />
+        <path d="M51 106L88 20H109Q116 20 112 28L77 104Q75 110 68 110H55Q49 110 51 106Z" fill="var(--brand-ribbon)" />
+        <path d="M14 32H40L45 43H19ZM23 52H49L54 63H28Z" fill="var(--brand-cutout)" />
+      </svg>
+      {!compact && <span aria-hidden="true" className="earnedvoice-wordmark" style={{ fontSize: size * 0.76 }}>EarnedVoice</span>}
+    </span>
   );
 }

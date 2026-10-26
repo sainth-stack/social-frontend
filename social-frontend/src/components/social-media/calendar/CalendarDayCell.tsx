@@ -52,7 +52,7 @@ export default function CalendarDayCell({
           alignItems: "center",
           justifyContent: "center",
           bgcolor: isToday ? colors.primary : "transparent",
-          color: isToday ? "#fff" : colors.textSecondary,
+          color: isToday ? "var(--primary-foreground)" : colors.textSecondary,
           mb: 0.5,
         }}
       >

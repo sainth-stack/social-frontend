@@ -2642,7 +2642,7 @@ export function BrandTab({
         <div className="rounded-xl border border-success/30 bg-success/10 p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-success text-white">
+              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-success text-success-foreground">
                 <Mic2 className="h-3.5 w-3.5" />
               </span>
               <h2 className="text-sm font-semibold">Voice preview</h2>

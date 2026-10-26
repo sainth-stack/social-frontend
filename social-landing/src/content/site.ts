@@ -14,28 +14,32 @@ export const LOGIN_URL = `${APP_URL}/login`;
 export const CONTACT_SALES_URL = "#contact";
 
 export const seo = {
-  title: "EarnedVoice: Social Content for Product-Focused Teams",
-  description: "Plan product campaigns, create on-brand content and schedule posts on Instagram, Facebook and LinkedIn. More integrations coming soon. Start free with EarnedVoice.",
+  title: "EarnedVoice: Give Your Expertise a Voice",
+  description: "Turn your expertise into on-brand content and a clear weekly plan. Publish on Instagram, Facebook and LinkedIn. More integrations coming soon. Start free with EarnedVoice.",
 };
 
 export const brand = {
   name: "EarnedVoice",
-  tagline: "Social content planning, publishing and analytics for startups, software teams and growing businesses.",
+  tagline: "Turn the work you know into content people understand. Planning, brand-guided drafts and publishing for founders, consultants and teams.",
 };
+
+export const companySocialLinks = [
+  { name: "LinkedIn", href: "https://www.linkedin.com/company/opsbrainai/", label: "Follow OpsBrain AI on LinkedIn (opens in a new tab)" },
+];
 
 export type PlatformStatus = "available" | "coming-soon";
 export type Platform = { id: string; name: string; status: PlatformStatus; color: string };
 
 export const platforms: Platform[] = [
-  { id: "instagram", name: "Instagram", status: "available", color: "oklch(0.6 0.22 0)" },
-  { id: "facebook", name: "Facebook", status: "available", color: "oklch(0.55 0.2 260)" },
-  { id: "linkedin", name: "LinkedIn", status: "available", color: "oklch(0.5 0.14 245)" },
-  { id: "x", name: "X", status: "coming-soon", color: "oklch(0.2 0 0)" },
-  { id: "threads", name: "Threads", status: "coming-soon", color: "oklch(0.2 0 0)" },
-  { id: "youtube", name: "YouTube", status: "coming-soon", color: "oklch(0.58 0.24 27)" },
-  { id: "tiktok", name: "TikTok", status: "coming-soon", color: "oklch(0.2 0 0)" },
-  { id: "pinterest", name: "Pinterest", status: "coming-soon", color: "oklch(0.55 0.22 22)" },
-  { id: "bluesky", name: "Bluesky", status: "coming-soon", color: "oklch(0.62 0.17 245)" },
+  { id: "instagram", name: "Instagram", status: "available", color: "var(--platform-instagram)" },
+  { id: "facebook", name: "Facebook", status: "available", color: "var(--platform-facebook)" },
+  { id: "linkedin", name: "LinkedIn", status: "available", color: "var(--platform-linkedin)" },
+  { id: "x", name: "X", status: "coming-soon", color: "var(--platform-monochrome)" },
+  { id: "threads", name: "Threads", status: "coming-soon", color: "var(--platform-monochrome)" },
+  { id: "youtube", name: "YouTube", status: "coming-soon", color: "var(--platform-youtube)" },
+  { id: "tiktok", name: "TikTok", status: "coming-soon", color: "var(--platform-monochrome)" },
+  { id: "pinterest", name: "Pinterest", status: "coming-soon", color: "var(--platform-pinterest)" },
+  { id: "bluesky", name: "Bluesky", status: "coming-soon", color: "var(--platform-bluesky)" },
 ];
 
 export const featureLinks = [
@@ -48,6 +52,7 @@ export const featureLinks = [
 ];
 
 export const navLinks = [
+  { label: "Why EarnedVoice", href: "#why" },
   { label: "How it works", href: "#how-it-works" },
   { label: "Pricing", href: "#pricing" },
   { label: "Contact", href: CONTACT_SALES_URL },
@@ -79,7 +84,10 @@ export const plans: Plan[] = [
 export const formatINR = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
 export const faqs = [
-  { q: "What is EarnedVoice?", a: "EarnedVoice helps startups, software teams and businesses turn product updates and campaign briefs into on-brand social content, a weekly plan and a coordinated publishing workflow." },
+  { q: "What is EarnedVoice?", a: "EarnedVoice helps founders, consultants and teams communicate what they know. Turn your expertise, project lessons and business updates into brand-guided social drafts, a weekly content plan and a coordinated publishing workflow." },
+  { q: "Is this a reputation management or PR agency service?", a: "EarnedVoice is a self-service content planning, drafting and publishing product, not a managed PR agency. It helps you communicate consistently, but does not guarantee enquiries, press coverage or professional opportunities." },
+  { q: "Do I need to connect a social account to start?", a: "You can start with brand context, planning and editable drafts before connecting a social account. Connecting an available integration is required to schedule or publish through EarnedVoice." },
+  { q: "What should I check before publishing AI content?", a: "Check facts, claims, names, permissions and tone before you publish. Do not include confidential client or personal information in your brief. AI output can be inaccurate and is not an automated fact-checking or confidentiality service." },
   { q: "Can it help me decide what to post?", a: "Yes. Start with your business, audience and goal to generate content ideas and a seven-day starting plan. Review and edit the drafts before you schedule them." },
   { q: "Does it generate a full week of content?", a: "Yes. Set your business, audience and goal to create a seven-day content plan with topics, captions and suggested formats. Edit each draft and choose when it goes live. Generation allowances depend on your plan." },
   { q: "Which platforms can I use?", a: "Instagram, Facebook and LinkedIn are available now. X, Threads, YouTube, TikTok, Pinterest and Bluesky are coming soon and cannot be connected yet. Supported post formats and analytics vary by platform and account permissions." },

@@ -46,6 +46,7 @@ describe("AppThemeProvider", () => {
   });
 
   it("follows system changes only while system is selected and cleans up", () => {
+    localStorage.setItem("opsbrain-theme", "system");
     const view = render(<AppThemeProvider><Probe /></AppThemeProvider>);
     expect(screen.getByRole("status").textContent).toBe("system/dark/dark");
     systemChange(false);
@@ -55,7 +56,7 @@ describe("AppThemeProvider", () => {
     expect(screen.getByRole("status").textContent).toBe("dark/dark/dark");
     fireEvent.click(screen.getByRole("button", { name: "system" }));
     expect(screen.getByRole("status").textContent).toBe("system/light/light");
-    expect(localStorage.getItem("opsbrain-theme")).toBeNull();
+    expect(localStorage.getItem("opsbrain-theme")).toBe("system");
     view.unmount();
     expect(listeners.size).toBe(0);
   });
@@ -65,14 +66,14 @@ describe("AppThemeProvider", () => {
     const write = vi.spyOn(Storage.prototype, "setItem");
     const sync = (key: string | null, newValue: string | null) => act(() => window.dispatchEvent(new StorageEvent("storage", { key, newValue })));
     sync("unrelated", "light");
-    expect(screen.getByRole("status").textContent).toBe("system/dark/dark");
+    expect(screen.getByRole("status").textContent).toBe("light/light/light");
     sync("opsbrain-theme", "light");
     expect(screen.getByRole("status").textContent).toBe("light/light/light");
     sync("opsbrain-theme", null);
-    expect(screen.getByRole("status").textContent).toBe("system/dark/dark");
+    expect(screen.getByRole("status").textContent).toBe("light/light/light");
     sync("opsbrain-theme", "light");
     sync(null, null);
-    expect(screen.getByRole("status").textContent).toBe("system/dark/dark");
+    expect(screen.getByRole("status").textContent).toBe("light/light/light");
     expect(write).not.toHaveBeenCalled();
   });
 

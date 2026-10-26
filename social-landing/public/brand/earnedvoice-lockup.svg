@@ -1,10 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="660" height="144" viewBox="0 0 660 144" fill="none" role="img" aria-labelledby="title desc">
-  <title id="title">EarnedVoice — Ascent</title>
-  <desc id="desc">A sculpted V made from two ascending ribbons with a cut-in E motif, paired with a confident dark wordmark.</desc>
+  <title id="title">EarnedVoice Ascent</title>
+  <desc id="desc">A sculpted V made from two ascending orange ribbons with a cut-in E motif, paired with a solid burnt orange wordmark.</desc>
+  <style>
+    .ascent-left { fill: #9a3412; }
+    .ascent-right { fill: #ea580c; }
+    .ascent-detail { fill: #fed7aa; }
+    .wordmark { fill: #c2410c; }
+    @media (prefers-color-scheme: dark) {
+      .ascent-left { fill: #fdba74; }
+      .ascent-right { fill: #fb923c; }
+      .ascent-detail { fill: #7c2d12; }
+      .wordmark { fill: #fb923c; }
+    }
+  </style>
   <g transform="translate(12 12)">
-    <path d="M9 27Q6 20 14 20H37L65 78L51 106Q48 111 44 103Z" fill="#312E81"/>
-    <path d="M51 106L88 20H109Q116 20 112 28L77 104Q75 110 68 110H55Q49 110 51 106Z" fill="#4F46E5"/>
-    <path d="M14 32H40L45 43H19ZM23 52H49L54 63H28Z" fill="#C7D2FE"/>
+    <path class="ascent-left" d="M9 27Q6 20 14 20H37L65 78L51 106Q48 111 44 103Z"/>
+    <path class="ascent-right" d="M51 106L88 20H109Q116 20 112 28L77 104Q75 110 68 110H55Q49 110 51 106Z"/>
+    <path class="ascent-detail" d="M14 32H40L45 43H19ZM23 52H49L54 63H28Z"/>
   </g>
-  <text x="158" y="94" fill="#171B2D" font-family="Inter, Arial, sans-serif" font-size="69" font-weight="700" letter-spacing="-3.2">EarnedVoice</text>
+  <text x="158" y="94" class="wordmark" font-family="Inter, Arial, sans-serif" font-size="69" font-weight="700" letter-spacing="-3.2">EarnedVoice</text>
 </svg>

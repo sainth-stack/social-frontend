@@ -6,7 +6,7 @@ Standalone Next.js 16 App Router landing page with React 19, TypeScript, Tailwin
 
 Use Node.js 20.9 or newer (Node.js 22 recommended). Run `npm ci --legacy-peer-deps`, then `npm run dev` from this directory. The landing runs at http://localhost:3002, separately from the dashboard at port 3001.
 
-Use `npm run build` for production, followed by `npm run start`. Deploy as a Next.js application, not a Vite application or a static dist folder. The main page, sitemap, robots file and generated social image are prerendered; Next.js handles optimized brand images.
+Use `npm run build` for production, followed by `npm run start`. Production defaults to port 5002, with LANDING_PORT taking precedence over PORT. An explicit `npm run start -- --port 3007` overrides both. The Node launcher works on Windows and Unix without shell-specific environment interpolation. Deploy as a Next.js application, not a Vite application or a static dist folder. The main page, sitemap, robots file and generated social image are prerendered; Next.js handles optimized brand images.
 
 The connected Lovable project may not preview a Next.js application. Use a Next.js-capable host or local development; do not regenerate the old TanStack runtime to repair a Lovable preview. Git history has not been rewritten.
 
@@ -41,11 +41,13 @@ Marketing events contain only page_view, signup_click or contact_click and a fix
 ## Design and content
 
 - The shared EarnedVoice mark is stored locally at public/brand/earnedvoice-mark.svg and used by metadata and organization structured data. Product previews are original HTML/CSS/SVG, not copied assets or fabricated customer results.
-- Positioning focuses on startups, software teams and growing businesses. The Northstar product-workspaces launch is a fictional illustration, not a customer, testimonial or claim of product results.
-- Page order is Hero, platforms, workflow bridge, weekly planner, Content Studio, brand voice, calendar, analytics and teams, how it works, audience, pricing, FAQ, contact and final call to action. Existing section anchor IDs remain stable.
+- Positioning connects professional expertise to consistent social content for founders, consultants and teams. EarnedVoice remains a self-service product, not a managed PR service or a promise of reputation outcomes. Workshop examples and the interactive Northstar sample are fictional, not customers or claims of results.
+- Page order is Hero, platforms, Why EarnedVoice, how it works, Content Studio, publishing, weekly planner, brand voice, analytics, team review, responsible publishing, pricing, FAQ, contact and final call to action. Existing section anchor IDs remain stable.
+- Feature illustrations use responsive HTML text and decorative graphics rather than text scaled inside SVG dashboards. Example analytics are clearly distinguished from customer results.
+- Company follow links are separate from product integrations. Only the verified OpsBrain AI LinkedIn company page is published; ambiguous handles and generic platform homepages are not used. Keep this list in the site content module and confirm ownership before adding another profile.
 - Colors, typography and reusable layout rules are centralized in the stylesheet.
 - Platform status, pricing and FAQs are maintained in the site content module.
-- Instagram, Facebook and LinkedIn are available; six other integrations are marked coming soon. Account limits are not network counts. Publishing formats and metrics depend on platform permissions.
+- Instagram, Facebook and LinkedIn are available; the platform strip shows all nine logos, while the FAQ and metadata explain the six upcoming integrations. Account limits are not network counts. Publishing formats and metrics depend on platform permissions.
 - Pricing shows Free ₹0, Pro ₹499, Growth ₹999 and Scale ₹4,999 per month in INR. Every plan includes unlimited social accounts and brand voice. Monthly post/text/image allowances remain Free 10/30/5, Pro 100/300/50 and Growth 500/1,500/200. Approvals are included on Pro, Growth and Scale, not Free. Scale is sales-assisted with tailored allowances, not self-service checkout or invented numerical quotas; confirm allocations with the billing owner.
 - Inter is used for body text, headings and controls, with system-font fallbacks. The original Lovable prompt is historical; the site content module is the current source of truth.
 - The weekly planner uses prepared, labeled sample data. Caption/time edits are local; applying a new plan or resetting asks before discarding them. The Content Studio section illustrates a fictional software-launch brief and draft, not live generation.

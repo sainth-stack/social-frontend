@@ -18,7 +18,7 @@ export const INPUT_RADIUS = radiusTokens.md;
 export const displayFont = fontTokens.display;
 
 export const colors = {
-  primary: brandTokens.primary,
+  primary: "var(--primary)",
   primaryLight: "var(--accent)",
   primaryDark: "var(--legacy-primary-hover)",
   accent: "var(--success)",
@@ -33,7 +33,7 @@ export const colors = {
   textSecondary: "var(--legacy-text-secondary)",
   textMuted: "var(--muted-foreground)",
   ink: "var(--foreground)",
-  success: brandTokens.accent,
+  success: "var(--success)",
   successLight: "var(--legacy-success-surface)",
   warning: "var(--legacy-warning-text)",
   warningLight: "var(--legacy-warning-surface)",
@@ -51,12 +51,12 @@ export const colors = {
   chipSuccessText: "var(--legacy-success-text)",
   chipWarningBg: "var(--legacy-warning-surface)",
   chipWarningText: "var(--legacy-warning-text)",
-  chipInfoBg: "var(--accent)",
+  chipInfoBg: "color-mix(in srgb, var(--info) 12%, var(--card))",
   chipInfoText: "var(--legacy-info-text)",
   chipErrorBg: "var(--legacy-error-surface)",
   chipErrorText: "var(--legacy-error-text)",
   chipProspectBg: "var(--accent)",
-  chipProspectText: "var(--legacy-info-text)",
+  chipProspectText: "var(--accent-foreground)",
   chipNegotiationBg: "var(--legacy-warning-surface)",
   chipNegotiationText: "var(--legacy-warning-text)",
   fieldLabel: "var(--legacy-text-secondary)",
@@ -75,7 +75,7 @@ export const statusChipColors = {
   failed: { bg: colors.chipErrorBg, color: colors.chipErrorText, dot: colors.error },
   warning: { bg: colors.chipWarningBg, color: colors.chipWarningText, dot: colors.warning },
   success: { bg: colors.chipSuccessBg, color: colors.chipSuccessText, dot: colors.success },
-  prospecting: { bg: colors.chipProspectBg, color: colors.chipProspectText, dot: "#7C3AED" },
+  prospecting: { bg: colors.chipProspectBg, color: colors.chipProspectText, dot: colors.primary },
   negotiation: { bg: colors.chipNegotiationBg, color: colors.chipNegotiationText, dot: "#CA8A04" },
 } as const;
 
@@ -124,7 +124,7 @@ export function createAppTheme(mode: ThemeMode) {
       main: palette.primary,
       light: palette.primaryLight,
       dark: palette.primaryHover,
-      contrastText: mode === "dark" ? palette.surfaceMuted : "#FFFFFF",
+      contrastText: mode === "dark" ? "#24140b" : "#FFFFFF",
     },
     success: {
       main: palette.accent,
@@ -140,9 +140,9 @@ export function createAppTheme(mode: ThemeMode) {
       light: mode === "dark" ? "#421c27" : "#FEE2E2",
     },
     info: {
-      main: palette.primary,
-      light: palette.primaryLight,
-      dark: palette.primaryHover,
+      main: mode === "dark" ? "#7dd3fc" : "#0369a1",
+      light: mode === "dark" ? "#123448" : "#e0f2fe",
+      dark: mode === "dark" ? "#bae6fd" : "#075985",
     },
     background: {
       default: palette.surfaceMuted,
@@ -202,7 +202,7 @@ export function createAppTheme(mode: ThemeMode) {
         },
         "::selection": {
           backgroundColor: colors.primary,
-          color: "#fff",
+          color: "var(--primary-foreground)",
         },
       },
     },
@@ -310,7 +310,7 @@ export function createAppTheme(mode: ThemeMode) {
           "&.Mui-focused fieldset": {
             borderColor: colors.primary,
             borderWidth: 1,
-            boxShadow: `0 0 0 2px rgb(79 70 229 / 0.15)`,
+            boxShadow: "0 0 0 2px color-mix(in srgb, var(--primary) 15%, transparent)",
           },
           "&.MuiInputBase-multiline": {
             height: "auto",
@@ -554,7 +554,7 @@ export const authPageSx = {
     width: "50%",
     height: "50%",
     borderRadius: "50%",
-    background: `radial-gradient(circle, rgb(79 70 229 / 0.08) 0%, transparent 70%)`,
+    background: "radial-gradient(circle, color-mix(in srgb, var(--primary) 8%, transparent) 0%, transparent 70%)",
     pointerEvents: "none",
   },
   "&::after": {

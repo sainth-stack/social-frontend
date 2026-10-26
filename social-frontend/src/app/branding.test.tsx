@@ -13,11 +13,11 @@ import { metadata as loginMetadata } from "./login/page";
 import { metadata as registerMetadata } from "./register/page";
 
 describe("dashboard brand metadata", () => {
-  it("uses EarnedVoice and the shared SVG favicon without changing privacy or palette", () => {
+  it("uses EarnedVoice and theme-aware browser colors without changing privacy", () => {
     expect(metadata.title).toEqual({ default: "EarnedVoice — Social Media Manager", template: "%s · EarnedVoice" });
     expect(metadata.icons).toEqual({ icon: "/brand/earnedvoice-mark.svg" });
     expect(metadata.robots).toMatchObject({ index: false, follow: false, googleBot: { index: false, follow: false } });
-    expect(viewport.themeColor).toBe("#4f46e5");
+    expect(viewport.themeColor).toEqual([{ media: "(prefers-color-scheme: light)", color: "#fffaf5" }, { media: "(prefers-color-scheme: dark)", color: "#181411" }]);
   });
 
   it.each([

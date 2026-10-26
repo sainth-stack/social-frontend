@@ -7,6 +7,7 @@ import { FAQ, FinalCTA, Pricing, SiteFooter } from "@/components/landing/Closing
 import { brand, SITE_URL, seo } from "@/content/site";
 import { ContactForm } from "@/components/landing/ContactForm";
 import { MarketingAnalytics } from "@/components/landing/MarketingAnalytics";
+import { PublishingTrust, WhyEarnedVoice } from "@/components/landing/PositioningSections";
 
 export default function HomePage() {
   const structuredData = {
@@ -24,10 +25,10 @@ export default function HomePage() {
     <MarketingAnalytics />
     <SiteHeader />
     <main id="main" tabIndex={-1}>
-      <Hero /><PlatformGrid /><ProductJourney />
+      <Hero /><PlatformGrid /><WhyEarnedVoice /><ProductJourney />
       <CreationFeature /><PublishingFeature /><WeeklyPlannerDemo />
       <BrandFeature /><AnalyticsFeature /><ReviewFeature />
-      <Pricing /><FAQ /><ContactForm /><FinalCTA />
+      <PublishingTrust /><Pricing /><FAQ /><ContactForm /><FinalCTA />
     </main>
     <SiteFooter />
   </>;

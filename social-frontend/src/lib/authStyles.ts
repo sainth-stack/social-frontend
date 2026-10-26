@@ -52,9 +52,9 @@ export const authPrimaryButtonSx: SxProps<Theme> = {
   fontSize: "0.9375rem",
   fontWeight: 600,
   textTransform: "none",
-  boxShadow: "0 1px 2px rgb(79 70 229 / 0.2)",
+  boxShadow: "0 1px 2px color-mix(in srgb, var(--primary) 20%, transparent)",
   "&:hover": {
-    boxShadow: "0 4px 12px rgb(79 70 229 / 0.28)",
+    boxShadow: "0 4px 12px color-mix(in srgb, var(--primary) 28%, transparent)",
   },
 };
 

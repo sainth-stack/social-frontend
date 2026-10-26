@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import HomePage from "@/app/page";
 import { WeeklyPlannerDemo } from "@/components/landing/WeeklyPlannerDemo";
 import { buildPlan } from "@/content/planner";
-import { CONTACT_SALES_URL, faqs, plans, platforms, seo, SIGNUP_URL, SITE_URL } from "@/content/site";
+import { companySocialLinks, CONTACT_SALES_URL, faqs, plans, platforms, seo, SIGNUP_URL, SITE_URL } from "@/content/site";
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 
@@ -13,7 +13,7 @@ describe("Landing page structure and search content", () => {
   it("renders one useful H1, all section destinations and four INR plans", () => {
     const { container } = render(<HomePage />);
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Your ideas deserve");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Build the reputation");
     expect(screen.queryByText("AI-powered social media. Human-led.")).not.toBeInTheDocument();
     for (const link of container.querySelectorAll<HTMLAnchorElement>('a[href^="#"]')) {
       expect(container.querySelector(link.getAttribute("href")!)).not.toBeNull();
@@ -104,7 +104,7 @@ describe("Landing page structure and search content", () => {
     expect(screen.getByLabelText("Illustrative EarnedVoice campaign workspace")).toBeInTheDocument();
     expect(screen.getByText("A good week starts with a plan.")).toBeInTheDocument();
     expect(document.querySelector('img[src*="coffee"], img[src*="brand-interior"]')).toBeNull();
-    expect(document.body.textContent).not.toMatch(/OpsBrain|Corner Café|Form & Field/);
+    expect(document.body.textContent).not.toMatch(/Corner Café|Form & Field/);
     expect(screen.getAllByRole("link", { name: "EarnedVoice home" })).toHaveLength(2);
   });
 
@@ -114,9 +114,10 @@ describe("Landing page structure and search content", () => {
     expect(within(hero).getByText("Content Studio")).toBeInTheDocument();
     expect(within(hero).getByText("Ready to review")).toBeInTheDocument();
     expect(within(hero).getByRole("link", { name: /Get started free/ })).toHaveAttribute("href", SIGNUP_URL);
-    expect(hero.querySelector(".hero-social-post svg[role=img]")).toBeNull();
-    expect(container.querySelectorAll('#how-it-works svg[data-detail="compact"]')).toHaveLength(4);
-    expect(container.querySelectorAll('.feature-art svg[data-detail="full"]')).toHaveLength(5);
+    expect(hero.querySelector(".hero-social-post svg[role=img]:not(.earnedvoice-symbol)")).toBeNull();
+    expect(container.querySelectorAll('#how-it-works .journey-visual')).toHaveLength(4);
+    expect(container.querySelectorAll('.feature-art [data-scene]')).toHaveLength(5);
+    expect(container.querySelectorAll('.feature-art svg text')).toHaveLength(0);
     const content = container.cloneNode(true) as HTMLElement;
     content.querySelectorAll("script, style").forEach(node => node.remove());
     expect(content.textContent).not.toMatch(/[—–]|--/);
@@ -126,6 +127,30 @@ describe("Landing page structure and search content", () => {
   it("generates canonical sitemap and robots URLs", () => {
     expect(sitemap()[0]?.url).toBe(SITE_URL);
     expect(robots().sitemap).toBe(`${SITE_URL}/sitemap.xml`);
+  });
+
+  it("explains the reputation-led workflow without inventing a PR service or automated safeguards", () => {
+    const { container } = render(<HomePage />);
+    expect(container.querySelector("#why")).toHaveTextContent("Good work should not");
+    const trust = container.querySelector("#trust")!;
+    expect(trust).toHaveTextContent("Generating a plan does not publish it");
+    expect(trust).toHaveTextContent("Pro, Growth and Scale");
+    expect(trust).toHaveTextContent("does not provide automated fact-checking or confidentiality screening");
+    expect(faqs.find(faq => faq.q === "Is this a reputation management or PR agency service?")?.a).toContain("does not guarantee");
+    expect(document.body.textContent).not.toMatch(/Proof Vault|founder pilot|limited seats|guaranteed leads/i);
+  });
+
+  it("separates verified company social profiles from informational integration logos", () => {
+    render(<HomePage />);
+    const profiles = screen.getByRole("navigation", { name: "OpsBrain AI social profiles" });
+    expect(within(profiles).getAllByRole("link")).toHaveLength(companySocialLinks.length);
+    for (const { label, href } of companySocialLinks) {
+      const link = within(profiles).getByRole("link", { name: label });
+      expect(link).toHaveAttribute("href", href);
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    }
+    expect(companySocialLinks.map(link => link.href)).toEqual(["https://www.linkedin.com/company/opsbrainai/"]);
   });
 
   it("keeps the Content Studio interactive within the complete landing page", () => {

@@ -1,4 +1,5 @@
 import billingApi from "@/api/endpoints/billing.api";
+import { brandTokens } from "@/lib/tokens";
 import type { CheckoutSession } from "@/types/billing";
 
 declare global {
@@ -82,7 +83,7 @@ export async function openSocialCheckoutSession(
         name: "EarnedVoice",
         description: `Social Media — ${planLabel}`,
         order_id: session.orderId,
-        theme: { color: "#4F46E5" },
+        theme: { color: getComputedStyle(document.documentElement).getPropertyValue("--primary").trim() || brandTokens.primary },
         handler: async (response: {
           razorpay_order_id: string;
           razorpay_payment_id: string;

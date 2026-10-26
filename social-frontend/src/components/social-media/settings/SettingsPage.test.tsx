@@ -211,7 +211,7 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: "Dark" }).getAttribute("aria-pressed")).toBe("true");
     await userEvent.setup().click(screen.getByRole("button", { name: "System" }));
     expect(screen.getByRole("button", { name: "System" }).getAttribute("aria-pressed")).toBe("true");
-    expect(localStorage.getItem("opsbrain-theme")).toBeNull();
+    expect(localStorage.getItem("opsbrain-theme")).toBe("system");
     expect(controls.save).not.toHaveBeenCalled();
   });
 

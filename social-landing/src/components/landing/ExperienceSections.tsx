@@ -1,7 +1,8 @@
 import { ArrowRight, Check } from "lucide-react";
 import type { ReactNode } from "react";
 import { SIGNUP_URL } from "@/content/site";
-import { ProductIllustration, type IllustrationKind } from "./ProductIllustration";
+import type { IllustrationKind } from "./ProductIllustration";
+import { JourneyVisual, WorkflowVisual } from "./WorkflowVisual";
 import { StudioDemo } from "./StudioDemo";
 
 const journey = [
@@ -14,20 +15,20 @@ const journey = [
 export function ProductJourney() {
   return <section id="how-it-works" className="section-y journey-section" aria-labelledby="journey-heading"><div className="container-page">
     <div className="section-lead"><p className="eyebrow">A more connected content rhythm</p><h2 id="journey-heading" className="section-heading mt-4">Less starting over.<br />More moving forward.</h2><p className="section-intro mt-4">From the first idea to the next campaign, keep your content, team and decisions in one place.</p></div>
-    <ol className="journey-grid">{journey.map(item => <li key={item.step} className="journey-item"><div className="journey-art"><ProductIllustration kind={item.kind} detail="compact" /></div><div className="journey-step"><span>{item.step}</span>{item.label}</div><h3>{item.title}</h3><p>{item.body}</p></li>)}</ol>
+    <ol className="journey-grid">{journey.map(item => <li key={item.step} className="journey-item"><JourneyVisual kind={item.kind} /><div className="journey-step"><span>{item.step}</span>{item.label}</div><h3>{item.title}</h3><p>{item.body}</p></li>)}</ol>
     <a href="#weekly-planner" className="journey-link">Try the interactive planner <ArrowRight className="size-4" aria-hidden="true" /></a>
   </div></section>;
 }
 
-function Feature({ id, eyebrow, title, description, benefits, kind, reverse = false, tone = "indigo", link, children, note }: { id: string; eyebrow: string; title: string; description: string; benefits: string[]; kind: IllustrationKind; reverse?: boolean; tone?: string; link?: { href: string; label: string }; children?: ReactNode; note?: string }) {
+function Feature({ id, eyebrow, title, description, benefits, kind, reverse = false, tone = "brand", link, children, note }: { id: string; eyebrow: string; title: string; description: string; benefits: string[]; kind: IllustrationKind; reverse?: boolean; tone?: string; link?: { href: string; label: string }; children?: ReactNode; note?: string }) {
   return <section id={id} className="section-y feature-section" aria-labelledby={`${id}-heading`}><div className={`container-page feature-layout ${reverse ? "feature-reverse" : ""}`}>
     <div className="feature-copy"><p className="eyebrow">{eyebrow}</p><h2 id={`${id}-heading`} className="section-heading mt-4">{title}</h2><p className="section-intro mt-5">{description}</p><ul className="feature-benefits">{benefits.map(benefit => <li key={benefit}><Check className="size-4" aria-hidden="true" /><span>{benefit}</span></li>)}</ul>{link && <a href={link.href} className="feature-link">{link.label}<ArrowRight className="size-4" aria-hidden="true" /></a>}{children}</div>
-    <figure className={`feature-art feature-art-${tone}`}><ProductIllustration kind={kind} /><figcaption>{note ?? "Illustrative product view · EarnedVoice example campaign"}</figcaption></figure>
+    <figure className={`feature-art feature-art-${tone}`}><WorkflowVisual kind={kind} /><figcaption>{note ?? "Illustrative workflow, not a screenshot · Example content"}</figcaption></figure>
   </div></section>;
 }
 
 export function CreationFeature() {
-  return <Feature id="ai-content-studio" eyebrow="AI Content Studio" title="A clear brief. A stronger first draft." description="Turn the details you know into content your audience can understand. Bring the product context; let AI help with the starting point." benefits={["Generate hooks, captions and hashtags from one brief.", "Adapt drafts for each channel’s format.", "Create AI images within your plan’s allowance."]} kind="studio" link={{ href: SIGNUP_URL, label: "Create your first draft" }}>
+  return <Feature id="ai-content-studio" eyebrow="AI Content Studio" title="Your experience. A stronger first draft." description="Bring a lesson from your work, a useful explanation or a business update. Add the audience and context, then shape the AI draft into something worth sharing." benefits={["Generate hooks, captions and hashtags from one brief.", "Adapt drafts for each channel’s format.", "Create AI images within your plan’s allowance."]} kind="studio" link={{ href: SIGNUP_URL, label: "Create your first draft" }}>
     <details className="studio-disclosure"><summary>Explore an interactive sample <span aria-hidden="true">+</span></summary><div className="studio-disclosure-body"><StudioDemo /></div></details>
   </Feature>;
 }

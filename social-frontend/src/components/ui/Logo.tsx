@@ -23,7 +23,7 @@ export function PlatformLogo({
       compact={compact}
       className={cn(
         size >= 32 ? "text-lg" : "text-sm",
-        tone === "light" ? "text-primary-foreground [&_span.text-primary]:text-primary-foreground/80" : "text-foreground",
+        tone === "light" ? "earnedvoice-logo-inverse" : "text-foreground",
       )}
     />
   );

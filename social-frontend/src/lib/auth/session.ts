@@ -1,4 +1,5 @@
 import { AUTH_STORAGE_KEY } from "@/lib/auth/constants";
+import { MOCK_ACCESS_TOKEN, MOCK_UI_ENABLED } from "@/lib/mock-ui/config";
 import type { User } from "@/types/auth";
 
 export type AuthSession = {
@@ -26,6 +27,7 @@ export function readSession(): AuthSession | null {
     if (!raw) return null;
 
     const parsed = JSON.parse(raw) as LegacySessionShape;
+    if (parsed.accessToken === MOCK_ACCESS_TOKEN && !MOCK_UI_ENABLED) return null;
     if (parsed.accessToken && parsed.user?.email) {
       return { user: parsed.user, accessToken: parsed.accessToken };
     }

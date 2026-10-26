@@ -131,10 +131,10 @@ export default function PlatformAnalytics() {
                   <XAxis dataKey="date" tick={chartAxisTick} axisLine={false} tickLine={false} />
                   <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={36} />
                   <Tooltip contentStyle={chartTooltipStyle} />
-                  <Line type="monotone" dataKey="impressions" stroke={colors.primary} strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="reach" stroke={colors.success} strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="engagement" stroke="#D97706" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="clicks" stroke="#7C3AED" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="impressions" stroke="var(--chart-1)" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="reach" stroke="var(--chart-2)" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="engagement" stroke="var(--chart-3)" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="clicks" stroke="var(--chart-4)" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -147,7 +147,7 @@ export default function PlatformAnalytics() {
                   <XAxis dataKey="type" tick={chartAxisTick} axisLine={false} tickLine={false} />
                   <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={28} />
                   <Tooltip contentStyle={chartTooltipStyle} />
-                  <Bar dataKey="count" fill={colors.primary} radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="count" fill="var(--chart-1)" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>

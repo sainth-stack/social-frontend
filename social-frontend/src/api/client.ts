@@ -1,6 +1,7 @@
 import axios, { CanceledError, type InternalAxiosRequestConfig } from "axios";
 
 import { clearSession, getStoredAccessToken } from "@/lib/auth/session";
+import { MOCK_ACCESS_TOKEN, MOCK_UI_ENABLED } from "@/lib/mock-ui/config";
 
 type RetryConfig = InternalAxiosRequestConfig & {
   apiRetry?: {
@@ -59,6 +60,11 @@ const apiClient = axios.create({
 });
 
 apiClient.interceptors.request.use((config) => {
+  if (MOCK_UI_ENABLED) {
+    config.adapter = async request => (await import("@/lib/mock-ui/adapter")).mockAdapter(request);
+  } else if (config.headers.get("Authorization") === `Bearer ${MOCK_ACCESS_TOKEN}` || getStoredAccessToken() === MOCK_ACCESS_TOKEN) {
+    throw new CanceledError("Mock UI sessions cannot access the backend.", config);
+  }
   const retryConfig = config as RetryConfig;
   const token = getStoredAccessToken();
   if (retryConfig.apiRetry?.attempted) {

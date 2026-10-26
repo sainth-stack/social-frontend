@@ -320,7 +320,7 @@ function CarouselOutput({
         <Box sx={{ display: "flex", border: `1.5px solid ${colors.border}`, borderRadius: "8px", overflow: "hidden", mb: 2 }}>
           {(["content", "design"] as const).map((t) => (
             <Box key={t} onClick={() => setStyleTab(t)} sx={{ flex: 1, py: 0.875, textAlign: "center", cursor: "pointer", bgcolor: styleTab === t ? colors.primary : "transparent", transition: "background 0.15s" }}>
-              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, color: styleTab === t ? "#fff" : colors.textSecondary, textTransform: "capitalize" }}>{t}</Typography>
+              <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, color: styleTab === t ? "var(--primary-foreground)" : colors.textSecondary, textTransform: "capitalize" }}>{t}</Typography>
             </Box>
           ))}
         </Box>
@@ -452,7 +452,7 @@ function CarouselOutput({
               sx={{ display: "flex", alignItems: "center", gap: 1, cursor: "pointer", py: 0.875, px: 1.25, borderRadius: "8px", border: `1.5px solid ${applyToAll ? colors.primary : colors.border}`, bgcolor: applyToAll ? colors.primaryLight : "transparent", transition: "all 0.15s" }}
             >
               <Box sx={{ width: 16, height: 16, borderRadius: "4px", border: `1.5px solid ${applyToAll ? colors.primary : colors.border}`, bgcolor: applyToAll ? colors.primary : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {applyToAll && <Typography sx={{ color: "#fff", fontSize: "0.625rem", lineHeight: 1 }}>✓</Typography>}
+                {applyToAll && <Typography sx={{ color: "var(--primary-foreground)", fontSize: "0.625rem", lineHeight: 1 }}>✓</Typography>}
               </Box>
               <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500, color: applyToAll ? colors.primary : colors.textSecondary }}>Apply style to all slides</Typography>
             </Box>

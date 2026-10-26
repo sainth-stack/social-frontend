@@ -155,7 +155,7 @@ export function BrandVoice() {
                 <p className="text-xs font-semibold text-muted-foreground">Brand colors</p>
                 <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
                 {[
-                  { name: "Indigo", color: "bg-primary" },
+                  { name: "Burnt orange", color: "bg-primary" },
                   { name: "Cloud", color: "bg-primary-soft" },
                   { name: "Slate", color: "bg-muted-foreground" },
                   { name: "Ink", color: "bg-ink" },

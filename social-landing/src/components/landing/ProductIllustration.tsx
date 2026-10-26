@@ -13,7 +13,7 @@ const labels: Record<IllustrationKind, string> = {
 };
 
 function Text({ x, y, children, size = 18, muted = false, weight = 500 }: { x: number; y: number; children: ReactNode; size?: number; muted?: boolean; weight?: number }) {
-  return <text x={x} y={y} fill={muted ? "var(--muted-foreground)" : "var(--ink)"} fontSize={size} fontWeight={weight}>{children}</text>;
+  return <text x={x} y={y} fill={muted ? "var(--muted-foreground)" : "var(--foreground)"} fontSize={size} fontWeight={weight}>{children}</text>;
 }
 
 function Avatar({ x, y, initials, mint = false }: { x: number; y: number; initials: string; mint?: boolean }) {
@@ -101,7 +101,7 @@ function Plan() {
 }
 
 function Panel({ x, y, w, h, children }: { x: number; y: number; w: number; h: number; children: ReactNode }) {
-  return <g transform={`translate(${x} ${y})`} className="illustration-panel"><rect width={w} height={h} rx="22" fill="var(--background)" stroke="var(--border)" />{children}</g>;
+  return <g transform={`translate(${x} ${y})`} className="illustration-panel"><rect width={w} height={h} rx="22" fill="var(--card)" stroke="var(--border)" />{children}</g>;
 }
 
 function Badge({ x, y, text, tone = "primary" }: { x: number; y: number; text: string; tone?: "primary" | "mint" }) {

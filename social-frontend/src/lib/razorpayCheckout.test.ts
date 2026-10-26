@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import billingApi from "@/api/endpoints/billing.api";
 import { loadRazorpayScript, openSocialCheckoutSession } from "./razorpayCheckout";
+import { brandTokens } from "@/lib/tokens";
 import type { CheckoutSession } from "@/types/billing";
 
 vi.mock("@/api/endpoints/billing.api", () => ({ default: { confirmPayment: vi.fn() } }));
@@ -18,7 +19,7 @@ function deferred<T>() {
 }
 
 function installGateway() {
-  let config!: { handler: (value: typeof response) => Promise<void>; modal: { ondismiss: () => void } };
+  let config!: { handler: (value: typeof response) => Promise<void>; modal: { ondismiss: () => void }; theme: { color: string } };
   const open = vi.fn();
   const on = vi.fn();
   window.Razorpay = class {
@@ -35,6 +36,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  document.documentElement.style.removeProperty("--primary");
+  document.documentElement.classList.remove("dark");
   document.querySelectorAll(`script[src="${src}"]`).forEach((script) => script.remove());
   delete window.Razorpay;
 });
@@ -111,6 +114,29 @@ describe("loadRazorpayScript", () => {
 });
 
 describe("openSocialCheckoutSession", () => {
+  it.each([
+    { mode: "light", color: "#c2410c" },
+    { mode: "dark", color: "#fb923c" },
+  ])("resolves the active $mode primary color for the external gateway", async ({ mode, color }) => {
+    document.documentElement.classList.toggle("dark", mode === "dark");
+    document.documentElement.style.setProperty("--primary", color);
+    const gateway = installGateway();
+    const pending = openSocialCheckoutSession(session, options);
+    await vi.waitFor(() => expect(gateway.open).toHaveBeenCalledTimes(1));
+    expect(gateway.config.theme.color).toBe(color);
+    await gateway.config.handler(response);
+    await pending;
+  });
+
+  it("uses the shared brand token when document theme styles are unavailable", async () => {
+    const gateway = installGateway();
+    const pending = openSocialCheckoutSession(session, options);
+    await vi.waitFor(() => expect(gateway.open).toHaveBeenCalledTimes(1));
+    expect(gateway.config.theme.color).toBe(brandTokens.primary);
+    await gateway.config.handler(response);
+    await pending;
+  });
+
   it("confirms a fully discounted session before success", async () => {
     const onSuccess = vi.fn();
     await openSocialCheckoutSession({ ...session, mode: "free", amountPaise: 0 }, { ...options, onSuccess });

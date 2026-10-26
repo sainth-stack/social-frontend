@@ -5,10 +5,10 @@ export const THEME_STORAGE_KEY = "opsbrain-theme";
 export const THEME_MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
 export function initializeTheme() {
-  let preference: "light" | "dark" | "system" = "system";
+  let preference: "light" | "dark" | "system" = "light";
   try {
     const saved = window.localStorage.getItem("opsbrain-theme");
-    if (saved === "light" || saved === "dark") preference = saved;
+    if (saved === "light" || saved === "dark" || saved === "system") preference = saved;
   } catch {}
   let systemDark = false;
   try {

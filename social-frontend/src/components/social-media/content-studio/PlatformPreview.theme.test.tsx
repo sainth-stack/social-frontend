@@ -34,7 +34,7 @@ describe.each(["light", "dark"] as const)("%s preview theme", (mode) => {
       <PlatformPreview platform={platform} caption="Original caption" hashtags={["brand"]} imageUrl={artworkUrl} brandName="Example Brand" pollOptions={["First choice", "Second choice"]} />
     </ThemeProvider>);
     const root = container.firstElementChild!;
-    expect(getComputedStyle(document.documentElement).getPropertyValue("--card").trim()).toBe(mode === "dark" ? "oklch(0.21 0.025 265)" : "oklch(1 0 0)");
+    expect(getComputedStyle(document.documentElement).getPropertyValue("--card").trim()).toBe(mode === "dark" ? "#241e19" : "oklch(1 0 0)");
     expect(getComputedStyle(root).backgroundColor).toBe(["linkedin", "facebook"].includes(platform) ? "var(--background)" : "var(--card)");
     expect(getComputedStyle(root).color).toBe("var(--foreground)");
     expect(getComputedStyle(root.firstElementChild!).backgroundColor).toBe("var(--card)");

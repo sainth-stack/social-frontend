@@ -16,10 +16,10 @@ export default function LoadingState({
   if (variant === "card") {
     return (
       <Box sx={{ ...surfaceSx, p: 2 }}>
-        <Skeleton variant="text" width="40%" height={20} sx={{ mb: 2, bgcolor: `${colors.primary}10` }} />
-        <Skeleton variant="rounded" height={48} sx={{ mb: 1.5, borderRadius: 2, bgcolor: `${colors.primary}08` }} />
-        <Skeleton variant="rounded" height={48} sx={{ mb: 1.5, borderRadius: 2, bgcolor: `${colors.primary}08` }} />
-        <Skeleton variant="rounded" height={48} sx={{ borderRadius: 2, bgcolor: `${colors.primary}08` }} />
+        <Skeleton variant="text" width="40%" height={20} sx={{ mb: 2, bgcolor: "color-mix(in srgb, var(--primary) 6%, transparent)" }} />
+        <Skeleton variant="rounded" height={48} sx={{ mb: 1.5, borderRadius: 2, bgcolor: "color-mix(in srgb, var(--primary) 3%, transparent)" }} />
+        <Skeleton variant="rounded" height={48} sx={{ mb: 1.5, borderRadius: 2, bgcolor: "color-mix(in srgb, var(--primary) 3%, transparent)" }} />
+        <Skeleton variant="rounded" height={48} sx={{ borderRadius: 2, bgcolor: "color-mix(in srgb, var(--primary) 3%, transparent)" }} />
       </Box>
     );
   }

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Demo sample visual</title>
+  <desc id="desc">Offline editorial placeholder. No AI provider, customer data, or real performance claims.</desc>
+  <rect width="1080" height="1080" rx="48" fill="#fff7ed"/>
+  <circle cx="820" cy="240" r="210" fill="#fed7aa"/>
+  <path d="M140 690 360 370 570 690Z" fill="#c2410c"/>
+  <path d="m450 690 180-260 180 260Z" fill="#fb923c"/>
+  <text x="100" y="830" font-family="sans-serif" font-size="64" font-weight="700" fill="#431407">DEMO SAMPLE VISUAL</text>
+  <text x="100" y="910" font-family="sans-serif" font-size="32" fill="#7c2d12">Offline placeholder - no AI provider used</text>
+</svg>

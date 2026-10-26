@@ -56,7 +56,7 @@ const AppButton = forwardRef<HTMLButtonElement, AppButtonProps>(function AppButt
       sx={{
         minWidth: variant === "secondary" ? 88 : undefined,
         ...(variant === "secondary" && {
-          borderColor: `${colors.primary}40`,
+          borderColor: "color-mix(in srgb, var(--primary) 25%, transparent)",
           color: colors.primary,
           bgcolor: colors.paper,
           "&:hover": {

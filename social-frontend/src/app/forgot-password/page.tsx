@@ -81,7 +81,7 @@ export default function ForgotPasswordPage() {
               width: 56,
               height: 56,
               borderRadius: "50%",
-              bgcolor: `${colors.success}22`,
+              bgcolor: colors.successLight,
               color: colors.success,
             }}
           >

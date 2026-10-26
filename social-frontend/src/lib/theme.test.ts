@@ -20,30 +20,30 @@ describe("theme initialization", () => {
     expect(document.documentElement.style.colorScheme).toBe(mode);
   });
 
-  it.each([null, "invalid", "system"])("uses system fallback for %s", (saved) => {
+  it.each([null, "invalid"])("defaults to light for %s even on dark devices", (saved) => {
     if (saved) localStorage.setItem("opsbrain-theme", saved);
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
-    expect(initializeTheme()).toEqual({ preference: "system", mode: "dark" });
+    expect(initializeTheme()).toEqual({ preference: "light", mode: "light" });
   });
 
-  it("uses system fallback when storage is blocked", () => {
+  it("defaults to light when storage is blocked", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("Blocked"); });
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
     new Function(themeInitializationScript)();
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
   });
 
   it("works without storage or matchMedia access", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("Blocked"); });
     vi.stubGlobal("matchMedia", undefined);
-    expect(initializeTheme()).toEqual({ preference: "system", mode: "light" });
+    expect(initializeTheme()).toEqual({ preference: "light", mode: "light" });
   });
 });
 
 describe("shared theme surfaces", () => {
-  it("provides dynamic MUI palettes with indigo branding", () => {
+  it("provides dynamic MUI palettes with burnt orange branding", () => {
     expect(appThemes.light.palette.mode).toBe("light");
-    expect(appThemes.light.palette.primary.main).toBe("#4f46e5");
+    expect(appThemes.light.palette.primary.main).toBe("#c2410c");
     expect(appThemes.dark.palette.mode).toBe("dark");
     expect(appThemes.dark.palette.background.paper).toBe(darkBrandTokens.surfaceWhite);
     expect(appThemes.dark.palette.text.primary).toBe(darkBrandTokens.textPrimary);
@@ -58,6 +58,7 @@ describe("shared theme surfaces", () => {
     expect(chartTooltipStyle.color).toBe("var(--foreground)");
     expect(chartColors.primary).toBe("var(--chart-1)");
     expect(chartColors.secondary).toBe("var(--chart-2)");
-    expect(`${colors.primary}40`).toBe("#4f46e540");
+    expect(colors.primary).toBe("var(--primary)");
+    expect(colors.success).toBe("var(--success)");
   });
 });

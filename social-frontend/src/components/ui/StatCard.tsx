@@ -61,8 +61,8 @@ export default function StatCard({
         gap: 0.75,
         transition: "box-shadow 0.15s ease, border-color 0.15s ease",
         "&:hover": {
-          boxShadow: "0 4px 12px rgb(79 70 229 / 0.06)",
-          borderColor: `${colors.primary}30`,
+          boxShadow: "0 4px 12px color-mix(in srgb, var(--primary) 6%, transparent)",
+          borderColor: "color-mix(in srgb, var(--primary) 19%, transparent)",
         },
       }}
     >

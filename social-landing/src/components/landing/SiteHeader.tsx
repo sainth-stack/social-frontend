@@ -5,6 +5,7 @@ import { ArrowRight, AudioLines, CalendarDays, CalendarRange, ChartNoAxesCombine
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { BrandLockup } from "./Brand";
+import { ThemeControl } from "./ThemeControl";
 import { brand, featureLinks, LOGIN_URL, navLinks, SIGNUP_URL } from "@/content/site";
 
 const featureDetails = {
@@ -76,7 +77,7 @@ export function SiteHeader() {
       <div className="container-page flex h-20 items-center justify-between gap-4">
         <a href="#top" aria-label={`${brand.name} home`}><BrandLockup /></a>
 
-        <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
+        <nav aria-label="Main" className="hidden items-center gap-1 xl:flex">
           <DropdownMenu modal={false} open={featuresOpen} onOpenChange={changeFeaturesOpen}>
             <DropdownMenuTrigger
               ref={featuresTrigger}
@@ -151,12 +152,14 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-2 lg:flex">
-          <a href={LOGIN_URL} className="btn text-sm text-foreground hover:text-primary">Sign in</a>
-          <a href={SIGNUP_URL} className="btn btn-primary">Start free</a>
-        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <ThemeControl />
+          <div className="hidden items-center gap-2 xl:flex">
+            <a href={LOGIN_URL} className="btn text-sm text-foreground hover:text-primary">Sign in</a>
+            <a href={SIGNUP_URL} className="btn btn-primary">Start free</a>
+          </div>
 
-        <div className="flex items-center gap-2 lg:hidden">
+        <div className="flex items-center gap-2 xl:hidden">
           <a href={SIGNUP_URL} className="btn btn-primary hidden px-4 sm:inline-flex">Start free</a>
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger className="btn btn-outline px-3" aria-label="Open menu"><Menu className="h-5 w-5" /></SheetTrigger>
@@ -184,6 +187,7 @@ export function SiteHeader() {
               </nav>
             </SheetContent>
           </Sheet>
+        </div>
         </div>
       </div>
     </header>

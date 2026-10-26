@@ -202,7 +202,7 @@ export default function StudioSidebar(props: StudioSidebarProps) {
             width: 6,
             height: 6,
             borderRadius: "50%",
-            bgcolor: colors.primary,
+            bgcolor: "currentColor",
           }}
         />
       )}
@@ -277,6 +277,10 @@ export default function StudioSidebar(props: StudioSidebarProps) {
             fontSize: "0.8125rem",
             fontWeight: 600,
             textTransform: "none",
+            "&.Mui-selected": {
+              bgcolor: colors.primary,
+              color: "var(--primary-foreground)",
+            },
           },
         }}
       >

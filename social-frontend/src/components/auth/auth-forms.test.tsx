@@ -96,7 +96,7 @@ describe("authentication shell", () => {
     expect(screen.getByRole("img", { name: "EarnedVoice" })).toBeTruthy();
     expect(screen.queryByRole("img", { name: /Illustration of an EarnedVoice workspace/ })).toBeNull();
     expect(screen.queryByText(/Your next great idea starts here|One workspace\. Every channel\.|Visit website/)).toBeNull();
-    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector("svg:not(.earnedvoice-symbol)")).toBeNull();
     expect(screen.queryByRole("tablist")).toBeNull();
     expect(screen.getByText("Account form")).toBeTruthy();
     expect(screen.getByRole("link", { name: footerLabel }).getAttribute("href")).toBe(footerHref);

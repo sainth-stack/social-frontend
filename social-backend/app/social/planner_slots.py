@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 
-from app.social.content_plan import WEEKDAY_KEYS, _occupied_plan_dates, _plan_cap
+from app.social.content_plan import WEEKDAY_KEYS, _plan_cap
 from app.social.planner_schemas import PlannerSelection, PlannerSlot, SlotPreview
 from app.social.polish import DEFAULT_POSTING_TIMES
 
@@ -29,7 +29,7 @@ def slot_settings(db, workspace):
     return {
         "timezone": row.get("timezone") or "Asia/Kolkata",
         "blackoutDates": row.get("blackout_dates") or [],
-        "defaultPostingTimes": row.get("default_posting_times", DEFAULT_POSTING_TIMES),
+        "defaultPostingTimes": row.get("default_posting_times") or DEFAULT_POSTING_TIMES,
     }
 
 
@@ -112,7 +112,6 @@ def preview_slots(db, workspace, payload: PlannerSelection, *, now=None) -> Slot
     except (ValueError, ZoneInfoNotFoundError) as exc:
         raise HTTPException(422, "invalid_timezone") from exc
     days = selected_dates(payload, _plan_cap(workspace))
-    occupied = _occupied_plan_dates(db, workspace["id"], payload.timezone)
     accounts = list(db.social_accounts.find({"workspace_id": workspace["id"], "is_active": True}).sort([("is_default", -1), ("created_at", 1)]))
     overrides = {(entry.date, entry.platform): entry for entry in payload.overrides}
     if len(overrides) != len(payload.overrides) or any(day not in days or platform not in payload.platforms for day, platform in overrides):
@@ -142,8 +141,6 @@ def preview_slots(db, workspace, payload: PlannerSelection, *, now=None) -> Slot
             else:
                 slot.reasons.append("posting_day_disabled")
             slot.reasons.extend(slot_reasons(db, workspace, slot, now=now))
-            if day in occupied:
-                slot.reasons.append("occupied_date")
             slots.append(slot)
     values = [slot.model_dump() for slot in slots]
     return SlotPreview(timezone=payload.timezone, selectedDateCount=len(days), dateCap=_plan_cap(workspace), expectedTextUnits=len(slots), previewToken=digest(values), slots=slots)

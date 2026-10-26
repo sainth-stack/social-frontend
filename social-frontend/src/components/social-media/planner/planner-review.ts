@@ -4,6 +4,25 @@ export const plannerPath = "/dashboard/content-studio/planner";
 export const plannerPlatforms = ["facebook", "instagram", "linkedin"] as const;
 export const plannerControl = "min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
+export function slotReasonLabel(reason: string): string {
+  const labels: Record<string, string> = {
+    past_slot: "This posting time has already passed. Choose a later time or date",
+    time_in_past: "This posting time has already passed. Choose a later time or date",
+    slot_occupied: "This account already has a scheduled or publishing post at this exact time",
+    slot_reserved: "This account and time are reserved by another scheduling operation",
+    blackout_date: "This date is blocked in workspace schedule settings",
+    posting_day_disabled: "No default posting time is enabled for this weekday. Enter a time",
+    missing_time: "Choose a posting time",
+    account_disconnected: "Reconnect or select an active account",
+    account_missing: "Select a connected account",
+    workspace_timezone_changed: "The workspace timezone changed. Refresh the planner",
+    ambiguous_local_time_choose_utc_offset: "This time occurs twice due to daylight saving. Choose its UTC offset",
+    nonexistent_local_time: "This local time does not exist due to daylight saving. Choose another time",
+    invalid_utc_offset: "The UTC offset does not match this local time",
+  };
+  return labels[reason] ?? reason.replaceAll("_", " ");
+}
+
 export function plannerError(error: unknown): string {
   const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
   if (typeof detail === "string") return detail;

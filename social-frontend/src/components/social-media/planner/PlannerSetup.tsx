@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { contentPlanDayCap } from "@/lib/plans";
 import type { PlannerPlatform, PlannerSelection, RunCreate, RunList, SlotOverride, SlotPreview } from "@/types/planner";
 import type { SocialAccount, SocialSettings } from "@/types/social-media.types";
-import { displayTime, plannerControl, plannerError, plannerPath, plannerPlatforms } from "./planner-review";
+import { displayTime, plannerControl, plannerError, plannerPath, plannerPlatforms, slotReasonLabel } from "./planner-review";
 
 export default function PlannerSetup({ workspaceId, canEdit, plan }: { workspaceId: string; canEdit: boolean; plan?: string }) {
   const router = useRouter();
@@ -128,7 +128,7 @@ export default function PlannerSetup({ workspaceId, canEdit, plan }: { workspace
             const override = overrides.find(value => value.date === slot.date && value.platform === slot.platform);
             return <div key={slot.slotId} className="rounded-lg border p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-medium capitalize">{slot.date} · {slot.platform}</p><p className="break-words text-sm text-muted-foreground">{accounts.find(row => row.id === slot.accountId)?.accountName ?? slot.accountId ?? "No account"} · {displayTime(slot.proposedAt, slot.timezone)}</p></div><label className="flex min-h-11 items-center gap-3 text-sm"><input className="size-5 accent-primary" type="checkbox" checked={excluded.includes(slot.slotId)} onChange={event => setExcluded(values => event.target.checked ? [...values, slot.slotId] : values.filter(value => value !== slot.slotId))} />Exclude this slot</label></div>
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="space-y-2 text-sm">Time for {slot.date} {slot.platform}<Input type="time" className="min-h-11" value={override?.time ?? slot.time ?? ""} onChange={event => overrideSlot(slot.date, slot.platform, event.target.value, override?.utcOffsetMinutes ?? slot.utcOffsetMinutes)} /></label><label className="space-y-2 text-sm">UTC offset minutes (only for ambiguous times)<Input type="number" className="min-h-11" min={-840} max={840} value={override?.utcOffsetMinutes ?? ""} onChange={event => overrideSlot(slot.date, slot.platform, override?.time ?? slot.time ?? "", event.target.value === "" ? null : Number(event.target.value))} /></label></div>
-              {!!slot.reasons.length && <p className="mt-3 text-sm text-destructive">Blocked: {slot.reasons.join(" · ").replaceAll("_", " ")}. Correct and preview again, or explicitly exclude.</p>}
+              {!!slot.reasons.length && <p className="mt-3 text-sm text-destructive">Blocked: {slot.reasons.map(slotReasonLabel).join(" · ")}. Correct and preview again, or explicitly exclude.</p>}
             </div>;
           })}</div>
           <p className="text-sm text-muted-foreground">Generate text uses your plan’s text allowance. It does not create images, schedule, or publish. Images are a separate action after text approval.</p>

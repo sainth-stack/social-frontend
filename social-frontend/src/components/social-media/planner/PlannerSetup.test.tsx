@@ -31,6 +31,22 @@ async function fillRange() {
 }
 
 describe("planner exact setup", () => {
+  it.each([
+    ["past_slot", "This posting time has already passed. Choose a later time or date"],
+    ["time_in_past", "This posting time has already passed. Choose a later time or date"],
+    ["slot_occupied", "This account already has a scheduled or publishing post at this exact time"],
+    ["posting_day_disabled", "No default posting time is enabled for this weekday. Enter a time"],
+  ])("explains the actual %s blocker", async (reason, message) => {
+    const preview = testPreview();
+    preview.slots[0].reasons = [reason];
+    vi.mocked(plannerApi.previewSlots).mockResolvedValue(preview);
+    render(<PlannerSetup workspaceId="workspace" canEdit plan="growth" />);
+    await fillRange();
+    fireEvent.click(screen.getByRole("button", { name: "Preview exact slots" }));
+    expect(await screen.findByText(`Blocked: ${message}. Correct and preview again, or explicitly exclude.`)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Generate text for 1 posts" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("uses workspace timezone and final token, then navigates to the durable run", async () => {
     const user = userEvent.setup();
     render(<PlannerSetup workspaceId="workspace" canEdit plan="growth" />);

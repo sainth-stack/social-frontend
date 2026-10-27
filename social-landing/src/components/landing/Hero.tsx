@@ -14,19 +14,19 @@ function ProductPreview() {
     <div className="hero-product-stage">
       <div className="hero-product-window">
         <div className="hero-product-topbar"><span className="hero-product-brand"><BrandMark size={25} />Content Studio</span><span className="hero-product-draft"><span />Draft saved</span></div>
-        <div className="hero-product-heading"><span>From a real lesson to a useful post.</span><span className="hero-product-preview-label">ILLUSTRATIVE WORKFLOW</span></div>
-        <div className="hero-source-note"><span className="scene-label">YOUR BRIEF</span><p>Share three lessons from our onboarding workshop. Helpful, specific and written for product leaders.</p></div>
-        <div className="hero-social-post">
-          <div className="hero-social-author"><BrandMark size={32} /><div><strong>EarnedVoice</strong><span>Example LinkedIn draft</span></div><PlatformIcon name="LinkedIn" color="var(--primary)" size={30} /></div>
-          <div className="hero-editorial-art"><span>FIELD NOTES / 01</span><strong>Better handoffs.<br />Stronger teams.</strong><div className="hero-editorial-steps" aria-hidden="true"><span>Clarify</span><ArrowRight /><span>Own</span><ArrowRight /><span>Review</span></div><p>Three lessons from an onboarding workshop.</p></div>
-          <p className="hero-social-caption">A good handoff is more than a document. Give the next person a clear decision, an owner and a next step. Here is what our latest workshop reminded us.</p>
-          <div className="hero-social-channels"><span>Tailored for</span>{["Instagram", "Facebook", "LinkedIn"].map(name => <span key={name} title={name}><PlatformIcon name={name} color="var(--primary)" size={28} /><span className="sr-only">{name}</span></span>)}<span className="hero-social-ready"><Check className="size-3.5" />Ready to review</span></div>
+        <div className="hero-preview-body">
+          <div className="hero-brief-inline"><span className="scene-label">YOUR BRIEF</span><p>Turn our workshop lessons into a useful post for product leaders.</p><span className="hero-brief-tone">Helpful & direct</span></div>
+          <div className="hero-draft-connector"><ArrowDown className="size-3.5" aria-hidden="true" /><span>Brand-guided draft</span></div>
+          <div className="hero-social-post">
+            <div className="hero-social-author"><BrandMark size={28} /><div><strong>EarnedVoice</strong><span>Example LinkedIn draft</span></div><PlatformIcon name="LinkedIn" color="var(--primary)" size={28} /></div>
+            <div className="hero-draft-content"><p className="hero-draft-title">Better handoffs.<br />Stronger teams.</p><p>A good handoff gives the next person a clear decision, an owner and a next step.</p><div className="hero-draft-checklist"><span><Check aria-hidden="true" />Clarify the decision</span><span><Check aria-hidden="true" />Name the owner</span><span><Check aria-hidden="true" />Agree the next step</span></div></div>
+            <div className="hero-social-channels"><span className="hero-channel-icons" aria-label="Drafts for Instagram, Facebook and LinkedIn">{["Instagram", "Facebook", "LinkedIn"].map(name => <span key={name} title={name}><PlatformIcon name={name} color="var(--primary)" size={26} /><span className="sr-only">{name}</span></span>)}</span><span className="hero-social-ready"><Check className="size-3.5" aria-hidden="true" />Ready to review</span></div>
+          </div>
         </div>
-        <div className="hero-week-summary"><span className="hero-week-icon"><CalendarDays className="size-5" /></span><div><strong>A good week starts with a plan.</strong><span>Ideas, drafts and scheduled posts. Together.</span></div><div className="hero-mini-week" aria-hidden="true">{["M", "T", "W", "T", "F"].map((day, i) => <span key={i} className={i === 2 ? "is-selected" : ""}>{day}</span>)}</div></div>
+        <div className="hero-preview-footer"><CalendarDays className="size-4" aria-hidden="true" /><span>A good week starts with a plan.</span><span>Draft → Review → Schedule</span></div>
       </div>
-      <div className="hero-product-footnote"><CheckCheck className="size-4" /><span>Your voice. Your timing. Your final say.</span></div>
     </div>
-    <figcaption>EarnedVoice example workspace · Illustrative content</figcaption>
+    <figcaption>Illustrative workflow · Your voice. Your timing. Your final say.</figcaption>
   </figure>;
 }
 

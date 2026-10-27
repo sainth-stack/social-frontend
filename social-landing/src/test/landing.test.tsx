@@ -129,6 +129,18 @@ describe("Landing page structure and search content", () => {
     expect(robots().sitemap).toBe(`${SITE_URL}/sitemap.xml`);
   });
 
+  it("keeps the hero focused on a compact brief-to-draft workspace", () => {
+    const { container } = render(<HomePage />);
+    const hero = container.querySelector("#top")! as HTMLElement;
+    expect(hero.querySelectorAll(".hero-brief-inline")).toHaveLength(1);
+    expect(hero.querySelectorAll(".hero-social-post")).toHaveLength(1);
+    expect(hero.querySelector(".hero-editorial-art, .hero-week-summary, .hero-source-note")).toBeNull();
+    expect(within(hero).getByText("Brand-guided draft")).toBeInTheDocument();
+    expect(within(hero).getByText("Draft → Review → Schedule")).toBeInTheDocument();
+    expect(hero.querySelector("figcaption")).toHaveTextContent("Illustrative workflow");
+    expect(within(hero).getByRole("link", { name: /See how it works/ })).toHaveAttribute("href", "#weekly-planner");
+  });
+
   it("explains the reputation-led workflow without inventing a PR service or automated safeguards", () => {
     const { container } = render(<HomePage />);
     expect(container.querySelector("#why")).toHaveTextContent("Good work should not");

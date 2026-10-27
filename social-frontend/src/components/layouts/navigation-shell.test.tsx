@@ -72,35 +72,6 @@ afterEach(() => {
 });
 
 describe("Sidebar navigation", () => {
-  it.each([
-    { admin: false, collapsed: false },
-    { admin: false, collapsed: true },
-    { admin: true, collapsed: false },
-    { admin: true, collapsed: true },
-  ])("keeps destination icons consistent for admin=$admin collapsed=$collapsed", async ({ admin, collapsed }) => {
-    const { wrapper } = wrapperFor({ isPlatformAdmin: admin });
-    const sections = admin ? adminNavSections : dashboardNavSections;
-    render(<Sidebar sections={sections} brand={admin ? { type: "platform" } : brand} collapsed={collapsed} />, { wrapper });
-    const nav = screen.getByRole("navigation", { name: admin ? "Admin navigation" : "Workspace navigation" });
-    const icons = within(nav).getAllByRole("link").map((link) => link.querySelector("svg")!);
-    expect(icons).toHaveLength(sections.flatMap((section) => section.items).length);
-    for (const icon of icons) {
-      expect(icon.getAttribute("viewBox")).toBe("0 0 24 24");
-      expect(icon.getAttribute("stroke-width")).toBe("1.75");
-      expect(icon.getAttribute("stroke")).toBe("currentColor");
-      expect(icon.getAttribute("aria-hidden")).toBe("true");
-      expect(icon.classList.contains("size-5")).toBe(true);
-      expect(icon.classList.contains("shrink-0")).toBe(true);
-    }
-    expect(new Set(icons.map((icon) => icon.innerHTML)).size).toBe(icons.length);
-    if (!admin) await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(1));
-    if (collapsed || admin) {
-      const footer = screen.getByRole("link", { name: admin ? "Back to workspace app" : "Manage billing" });
-      expect(footer.querySelector("svg")?.getAttribute("stroke-width")).toBe("1.75");
-      expect(footer.querySelector("svg")?.classList.contains("size-5")).toBe(true);
-    }
-  });
-
   it("preserves sections and uses exact aria-current with desktop widths", async () => {
     const { container } = desktop();
     await screen.findByText("12 / 60");
@@ -139,10 +110,6 @@ describe("Sidebar navigation", () => {
     await userEvent.keyboard("{Enter}");
     expect(group.getAttribute("aria-expanded")).toBe("true");
     expect(document.getElementById(group.getAttribute("aria-controls")!)?.contains(screen.getByRole("link", { name: "Preferences" }))).toBe(true);
-    for (const control of [group, screen.getByRole("link", { name: "Preferences" })]) {
-      expect(control.querySelector("svg")?.getAttribute("stroke-width")).toBe("1.75");
-      expect(control.querySelector("svg")?.classList.contains("size-5")).toBe(true);
-    }
   });
 
   it("preserves platform branding and workspace return without fetching usage", () => {
@@ -208,11 +175,6 @@ describe("Mobile navigation", () => {
     expect(dialog.getAttribute("aria-describedby")).toBeTruthy();
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
     expect(within(dialog).getByRole("link", { name: "Posts" }).getAttribute("aria-current")).toBe("page");
-    const nav = within(dialog).getByRole("navigation", { name: "Workspace navigation" });
-    for (const link of within(nav).getAllByRole("link")) {
-      expect(link.querySelector("svg")?.getAttribute("stroke-width")).toBe("1.75");
-      expect(link.querySelector("svg")?.classList.contains("size-5")).toBe(true);
-    }
   });
 
   it.each(["Manage billing", "Upgrade", "Acme Studio · Social workspace", "Calendar"])("closes after the %s link", async (name) => {

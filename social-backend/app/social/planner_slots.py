@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import HTTPException
 
 from app.social.content_plan import WEEKDAY_KEYS, _plan_cap
-from app.social.planner_schemas import PlannerSelection, PlannerSlot, SlotPreview
+from app.social.planner_schemas import PlannerSelection, PlannerSlot, SlotPreview, SlotWarning
 from app.social.polish import DEFAULT_POSTING_TIMES
 
 
@@ -81,26 +81,67 @@ def selected_dates(payload: PlannerSelection, cap: int) -> list[str]:
 def slot_reasons(db, workspace, slot: PlannerSlot, *, post_id: str | None = None, now=None) -> list[str]:
     reasons = []
     settings = slot_settings(db, workspace)
+    current = now or datetime.now(timezone.utc)
+    if slot.date < current.astimezone(ZoneInfo(settings["timezone"])).date().isoformat():
+        reasons.append("past_date")
     if slot.timezone != settings.get("timezone", "UTC"):
         reasons.append("workspace_timezone_changed")
     if slot.date in {str(day)[:10] for day in settings.get("blackoutDates", [])}:
         reasons.append("blackout_date")
     if slot.proposedAt is None:
         reasons.append("missing_time")
-    elif datetime.fromisoformat(slot.proposedAt) <= (now or datetime.now(timezone.utc)):
+    elif datetime.fromisoformat(slot.proposedAt) <= current:
         reasons.append("past_slot")
     account = db.social_accounts.find_one({"id": slot.accountId, "workspace_id": workspace["id"], "platform": slot.platform, "is_active": True})
     if not account:
         reasons.append("account_disconnected")
     if slot.proposedAt:
-        reservation = db.social_planner_slots.find_one({"workspace_id": workspace["id"], "account_id": slot.accountId,
-            "scheduled_at": datetime.fromisoformat(slot.proposedAt), "post_id": {"$ne": post_id}})
-        if reservation:
-            reasons.append("slot_reserved")
-        conflicting = db.social_posts.find({"workspace_id": workspace["id"], "id": {"$ne": post_id}, "status": {"$in": ["scheduled", "publishing"]}, "scheduled_at": datetime.fromisoformat(slot.proposedAt)})
-        if any(db.social_post_platforms.find_one({"post_id": post["id"], "social_account_id": slot.accountId}) for post in conflicting):
-            reasons.append("slot_occupied")
+        for reservation in db.social_planner_slots.find({"workspace_id": workspace["id"], "account_id": slot.accountId,
+                "scheduled_at": datetime.fromisoformat(slot.proposedAt), "post_id": {"$ne": post_id}}):
+            locked = db.social_posts.find_one({"id": reservation["post_id"], "workspace_id": workspace["id"],
+                "planner_visual_lock_until": {"$gt": current}})
+            if locked:
+                reasons.append("slot_edit_locked")
+                break
     return reasons
+
+
+def slot_warnings(db, workspace, slot: PlannerSlot, *, post_id: str | None = None) -> list[SlotWarning]:
+    if not slot.proposedAt or not slot.accountId:
+        return []
+    instant = datetime.fromisoformat(slot.proposedAt)
+    local = instant.astimezone(ZoneInfo(slot.timezone))
+    account = db.social_accounts.find_one({"id": slot.accountId, "workspace_id": workspace["id"]}) or {}
+    warnings = []
+    posts = db.social_posts.find({"workspace_id": workspace["id"], "id": {"$ne": post_id},
+        "status": {"$in": ["scheduled", "publishing"]}, "scheduled_at": instant}).sort("id", 1)
+    for post in posts:
+        row = db.social_post_platforms.find_one({"post_id": post["id"], "social_account_id": slot.accountId})
+        if not row:
+            continue
+        excerpt = " ".join(str(row.get("caption") or post.get("title") or "").split())[:160]
+        values = {"postId": post["id"], "accountId": slot.accountId,
+            "accountName": account.get("display_name") or account.get("account_name") or account.get("name") or slot.platform,
+            "status": post["status"], "scheduledAt": iso(instant), "localDate": local.date().isoformat(),
+            "localTime": local.strftime("%H:%M"), "timezone": slot.timezone,
+            "utcOffsetMinutes": int(local.utcoffset().total_seconds() // 60), "excerpt": excerpt}
+        warnings.append(SlotWarning(**values, fingerprint=digest(values)))
+    return warnings
+
+
+def annotate_warnings(db, workspace, slot, acknowledgments=(), *, post_id=None):
+    slot.warnings = slot_warnings(db, workspace, slot, post_id=post_id)
+    slot.warningFingerprint = digest({"workspaceId": workspace["id"], "slotId": slot.slotId,
+        "date": slot.date, "accountId": slot.accountId, "platform": slot.platform, "proposedAt": slot.proposedAt,
+        "timezone": slot.timezone, "warnings": [warning.fingerprint for warning in slot.warnings]}) if slot.warnings else None
+    slot.acknowledgmentRequired = bool(slot.warnings) and not any(
+        ack.slotId == slot.slotId and ack.warningFingerprint == slot.warningFingerprint for ack in acknowledgments)
+    return slot
+
+
+def require_acknowledgment(slot):
+    if slot.acknowledgmentRequired:
+        raise HTTPException(409, {"code": "conflict_acknowledgment_required", "slot": slot.model_dump()})
 
 
 def preview_slots(db, workspace, payload: PlannerSelection, *, now=None) -> SlotPreview:
@@ -141,6 +182,7 @@ def preview_slots(db, workspace, payload: PlannerSelection, *, now=None) -> Slot
             else:
                 slot.reasons.append("posting_day_disabled")
             slot.reasons.extend(slot_reasons(db, workspace, slot, now=now))
+            annotate_warnings(db, workspace, slot, payload.conflictAcknowledgments)
             slots.append(slot)
-    values = [slot.model_dump() for slot in slots]
+    values = [slot.model_dump(exclude={"acknowledgmentRequired"}) for slot in slots]
     return SlotPreview(timezone=payload.timezone, selectedDateCount=len(days), dateCap=_plan_cap(workspace), expectedTextUnits=len(slots), previewToken=digest(values), slots=slots)

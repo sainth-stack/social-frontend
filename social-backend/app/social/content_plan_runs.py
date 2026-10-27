@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4, uuid5, NAMESPACE_URL
 
@@ -14,7 +15,7 @@ from app.social.planner_schemas import (
     CopyEdit, ImageAction, PlannerRun, PlannerSlot, RunCreate, RunItem, RunList,
     ScheduleOutcome, SchedulePreview, ScheduleResult,
 )
-from app.social.planner_slots import digest, iso, local_instant, preview_slots, slot_reasons
+from app.social.planner_slots import annotate_warnings, digest, iso, local_instant, preview_slots, require_acknowledgment, slot_reasons
 from app.social.schemas import CreateSocialPostRequest, GenerateCreativeSetRequest, SocialPostPlatformIn, UpdateSocialPostRequest
 from app.social.service import SocialMediaService
 from app.providers.llm.model_selection import ModelSelection, current_models, selected_models
@@ -82,6 +83,10 @@ class ContentPlanRuns:
         return list(dict.fromkeys(reasons))
 
     def serialize_item(self, workspace, item):
+        from app.social.planner_images import reconcile
+
+        image_operation = self.operations.find_one({"id": item.get("image_operation_id"), "workspace_id": workspace["id"]}) or {}
+        image_operation = reconcile(self, image_operation)
         post = self.db.social_posts.find_one({"id": item["post_id"], "workspace_id": workspace["id"]})
         revision = self.copy.copy_fingerprint(post) if post else None
         approved = bool(post and post.get("planner_approved_fingerprint") == revision)
@@ -94,20 +99,28 @@ class ContentPlanRuns:
         elif visual_state == "ready":
             visual_state = "stale"
         active_lock = bool(post and post.get("planner_visual_lock_until") and iso(post["planner_visual_lock_until"]) > iso(now()))
-        if visual_state == "processing" and not active_lock:
+        current_attachment = bool(post and post.get("image_url") and visual_revision == revision and not post.get("planner_visual_pending"))
+        if image_operation.get("async") and image_operation.get("state") in ("queued", "processing") and not current_attachment:
+            visual_state = "processing"
+        elif image_operation.get("async") and image_operation.get("state") == "failed" and not current_attachment:
+            visual_state = "failed"
+        elif visual_state == "processing" and not active_lock:
             visual_state = "failed"
         text_state = item.get("text_state", "idle")
         if text_state == "processing" and not active_lock:
             text_state = "uncertain"
         reasons = self.ready_reasons(workspace, item, post) if post else ["draft_not_created"]
-        image_operation = self.operations.find_one({"id": item.get("image_operation_id"), "workspace_id": workspace["id"]}) or {}
+        slot = annotate_warnings(self.db, workspace, PlannerSlot.model_validate(item["slot"]), post_id=item["post_id"])
         return RunItem(
-            id=item["id"], slot=PlannerSlot.model_validate(item["slot"]), generationState=item["state"],
+            id=item["id"], slot=slot, generationState=item["state"],
             error=item.get("error"), postId=item["post_id"], post=self.social.get_post(post) if post else None,
             revision=revision, copyApproved=approved, approvedRevision=post.get("planner_approved_fingerprint") if post else None,
             approvedBy=post.get("planner_approved_by") if post else None, approvedAt=iso(post.get("planner_approved_at")) if post else None,
             visualState=visual_state, visualRevision=visual_revision, imageOperationId=item.get("image_operation_id"),
             imageRequestId=image_operation.get("request_id"), textState=text_state, textRequestId=item.get("text_request_id"),
+            imageStage=image_operation.get("stage"), imageError=image_operation.get("error"),
+            imageRetryable=bool(image_operation.get("retryable")), imageUpdatedAt=iso(image_operation.get("updated_at")),
+            imageDirection=image_operation.get("image_direction"), imageWarnings=image_operation.get("warnings") or [],
             imageIntent=post.get("planner_image_intent", "required" if item["slot"]["platform"] == "instagram" else "optional") if post else "optional",
             proposedAt=item["slot"].get("proposedAt"), isScheduled=bool(post and post["status"] in ("scheduled", "publishing", "published")),
             canSchedule=not reasons, reasons=reasons, scheduleState=post.get("planner_dispatch_state") if post else None,
@@ -119,6 +132,7 @@ class ContentPlanRuns:
             id=run["id"], requestId=run["request_id"], status=run["status"], dispatchState=run["dispatch_state"],
             prompt=run["prompt"], timezone=run["timezone"], createdAt=iso(run["created_at"]), createdBy=run["created_by"],
             cancelled=bool(run.get("cancelled")),
+            includeComment=bool(run.get("include_comment", False)),
             items=[self.serialize_item(workspace, item) for item in self.items.find({"run_id": run_id, "workspace_id": workspace["id"]}).sort("order", 1)],
         )
 
@@ -130,7 +144,12 @@ class ContentPlanRuns:
     def create(self, workspace, user, payload: RunCreate):
         self.require(workspace, user)
         scope = {"workspace_id": workspace["id"], "request_id": payload.requestId}
-        request_hash = digest(payload.model_dump(exclude={"previewToken"}))
+        request_values = payload.model_dump(exclude={"previewToken"})
+        if payload.includeComment is None:
+            request_values.pop("includeComment")
+        if not payload.conflictAcknowledgments:
+            request_values.pop("conflictAcknowledgments")
+        request_hash = digest(request_values)
         existing = self.runs.find_one(scope)
         if existing:
             if existing["request_hash"] != request_hash:
@@ -147,10 +166,15 @@ class ContentPlanRuns:
         selected = [slot for slot in preview.slots if slot.slotId not in excluded]
         if not selected or any(slot.reasons for slot in selected):
             raise HTTPException(409, "Explicitly exclude blocked slots or correct their times/accounts")
+        for slot in selected:
+            require_acknowledgment(slot)
         run = {**scope, "id": str(uuid4()), "request_hash": request_hash, "status": "queued", "dispatch_state": "pending",
                "prompt": payload.prompt, "tone": payload.tone, "timezone": payload.timezone, "created_at": now(),
                "created_by": user["id"], "cancelled": False, "slots": [slot.model_dump() for slot in preview.slots],
                "excluded": list(excluded), "brand": self.social._brand_voice_dict(workspace["id"]),
+               "include_comment": self.social.resolve_include_comment(workspace, payload.includeComment),
+               "conflict_acknowledgment": {"actor": user["id"], "at": now(),
+                   "slots": [slot.model_dump() for slot in selected if slot.warnings]},
                "models": {"text": current_models().text, "image": current_models().image}}
         try:
             self.runs.insert_one(run)
@@ -261,8 +285,9 @@ class ContentPlanRuns:
                 paid_started = True
                 with selected_models(ModelSelection(**run.get("models", {}))), metering_scope(self.db, workspace["id"], user["id"], "planner"):
                     result = generate_platform_content(topic=topic, tone=run.get("tone") or "Professional", platforms=[slot.platform],
-                        audience=brand.get("target_audience"), cta=None, include_hashtags=True, include_comment=False, brand_voice=brand, content_series_mode=True)
+                        audience=brand.get("target_audience"), cta=None, include_hashtags=True, include_comment=bool(run.get("include_comment", False)), brand_voice=brand, content_series_mode=True)
                 generated = result.get(slot.platform) or {}
+                generated = {**generated, "firstComment": (generated.get("firstComment") or generated.get("first_comment") or "") if run.get("include_comment", False) else ""}
                 record_ai_usage(self.db, workspace["id"], "text", user_id=user["id"])
                 if not (generated.get("caption") or "").strip():
                     self.items.update_one({"id": item["id"], "claim": token}, {"$set": {"state": "failed", "error": "empty_caption"}})
@@ -287,8 +312,9 @@ class ContentPlanRuns:
     def persist_draft(self, workspace, user, run, item, generated):
         slot = item["slot"]
         payload = CreateSocialPostRequest(title=f"Planner: {generated['caption'][:70]}", scheduledAt=slot["proposedAt"], aiPrompt=run["prompt"],
+            generationOptions={"includeComment": bool(run.get("include_comment", False))},
             platforms=[SocialPostPlatformIn(platform=slot["platform"], socialAccountId=slot["accountId"], caption=generated["caption"],
-                hashtags=generated.get("hashtags") or [], firstComment=generated.get("firstComment") or generated.get("first_comment") or "")])
+                hashtags=generated.get("hashtags") or [], firstComment=(generated.get("firstComment") or generated.get("first_comment") or "") if run.get("include_comment", False) else "")])
         metadata = {
             "planner_text_first": True, "planner_run_id": run["id"], "planner_item_id": item["id"], "planner_timezone": run["timezone"],
             "planner_image_intent": "required" if slot["platform"] == "instagram" else "optional"}
@@ -355,22 +381,42 @@ class ContentPlanRuns:
         return self.serialize_item(workspace, self.item(workspace, run_id, item_id))
 
     def image(self, workspace, user, run_id, item_id, payload: ImageAction):
+        from app.social.ai.image_progress import image_progress
+
         self.require(workspace, user)
         item = self.item(workspace, run_id, item_id)
         operation_id = digest([workspace["id"], item_id, "image", payload.requestId])
+        operation = self.operations.find_one({"id": operation_id})
+        if operation and operation.get("async") and operation["state"] != "completed":
+            raise HTTPException(409, "Use image/start to retry this asynchronous image operation")
+
+        def progress(stage):
+            self.operations.update_one({"id": operation_id, "state": "processing"},
+                {"$set": {"stage": stage, "updated_at": now()}})
+
         with self.copy.edit_lock(self.post(workspace, item)) as post:
             item = self.item(workspace, run_id, item_id)
-            self.image_locked(workspace, user, run_id, item, post, operation_id, payload)
+            with image_progress(progress, art_direction=True):
+                self.image_locked(workspace, user, run_id, item, post, operation_id, payload)
         return self.serialize_item(workspace, self.item(workspace, run_id, item_id))
 
     def image_locked(self, workspace, user, run_id, item, post, operation_id, payload):
+        from app.social.ai.image_progress import report_image_stage
+        from app.social.ai.visual_prompt import compact_context
+        from app.social.planner_images import validate_binding
+
         revision = self.revision(post, payload.expectedRevision)
         if post["status"] != "draft" or post.get("planner_approved_fingerprint") != revision:
             raise HTTPException(409, "Approve the current draft revision before generating an image")
         current_id = item.get("image_operation_id")
         operation = self.operations.find_one({"id": operation_id})
-        if operation and (operation["revision"] != revision or (payload.mode != "retry" and operation["mode"] != payload.mode)):
-            raise HTTPException(409, "Image requestId was used for different content or action")
+        validate_binding(operation, payload, revision)
+        if operation and operation.get("async") and operation["state"] != "processing" and operation["state"] != "completed":
+            raise HTTPException(409, "Image operation is not claimed")
+        if current_id and current_id != operation_id:
+            current = self.operations.find_one({"id": current_id}) or {}
+            if current.get("async") and current.get("state") in ("queued", "processing"):
+                raise HTTPException(409, "An image operation is already active")
         if payload.mode == "retry" and current_id != operation_id:
             raise HTTPException(409, "Retry must reuse the current image operation requestId")
         if payload.mode == "regenerate" and not operation and (not payload.creditsConfirmed or current_id == operation_id):
@@ -382,17 +428,26 @@ class ContentPlanRuns:
         if not operation:
             self.operations.insert_one({"id": operation_id, "workspace_id": workspace["id"], "revision": revision,
                 "mode": payload.mode, "state": "processing", "request_id": payload.requestId,
+                "image_direction": (payload.imageDirection or "").strip(), "stage": "concept", "updated_at": now(),
                 "models": {"text": current_models().text, "image": current_models().image}})
+        elif not operation.get("async"):
+            self.operations.update_one({"id": operation_id}, {"$set": {"state": "processing", "updated_at": now()}})
         self.items.update_one({"id": item["id"]}, {"$set": {"image_operation_id": operation_id, "visual_state": "processing"}})
         self.db.social_posts.update_one({"id": post["id"]}, {"$set": {"planner_image_intent": "required", "planner_visual_pending": True}})
         row = self.db.social_post_platforms.find_one({"post_id": post["id"]})
         operation = self.operations.find_one({"id": operation_id})
+        fence = {"id": operation_id, "state": "processing"}
+        if operation.get("async"):
+            fence.update(claim=operation["claim"], generation=operation["generation"])
         if not operation.get("creative_request"):
+            brief = self.load(workspace, run_id)["prompt"]
+            direction = operation.get("image_direction") or "Clean editorial artwork, one clear focal subject, balanced contrast and brand accents. Use a light or neutral setting; dark brand colours are accents, not a dark background. Avoid generic dark code-texture wallpaper, terminal text, unreadable pseudo text and irrelevant tech motifs."
             request = GenerateCreativeSetRequest(
-                topic=self.load(workspace, run_id)["prompt"], brief=self.load(workspace, run_id)["prompt"], caption=row["caption"],
+                topic=compact_context(row["caption"], 1800), brief=compact_context(brief, 1800), caption=compact_context(row["caption"], 2200),
+                style=direction,
                 platforms=[row["platform"]], platform=row["platform"], format="post", autoCopy=False, textOverlay=False,
                 requestId=f"planner:{operation_id}")
-            self.operations.update_one({"id": operation_id}, {"$set": {"creative_request": request.model_dump(mode="json")}})
+            self.operations.update_one(fence, {"$set": {"creative_request": request.model_dump(mode="json")}})
         else:
             request = GenerateCreativeSetRequest.model_validate(operation["creative_request"])
         try:
@@ -400,24 +455,45 @@ class ContentPlanRuns:
 
             with selected_models(ModelSelection(**operation.get("models", {}))), metering_scope(self.db, workspace["id"], user["id"], "planner"):
                 result = self.social.generate_creative_set(workspace, user, request)
+            self.operations.update_one(fence, {"$set": {"creative_set_id": result.creativeSetId, "warnings": result.warnings}})
             if not result.items or result.status != "completed":
-                raise HTTPException(502, "Creative set incomplete; retry with the same requestId to reuse saved artwork")
+                error = result.errors[0] if result.errors else {}
+                raise HTTPException(502, {"code": error.get("code", "IMAGE_CREATIVE_INCOMPLETE"),
+                    "stage": error.get("stage", "generate"), "message": error.get("message", "Creative set incomplete; retry the same requestId to inspect saved artwork")})
             asset = next((asset for asset in result.items if asset.platform.value == row["platform"]), None)
             if not asset:
                 raise HTTPException(502, "Creative set has no matching platform export")
-            self.revision(post, revision)
+            report_image_stage("save")
+            if not self.operations.find_one(fence):
+                raise HTTPException(409, "Image operation expired or was replaced")
+            if self.item(workspace, run_id, item["id"]).get("image_operation_id") != operation_id:
+                raise HTTPException(409, "Image operation was replaced")
+            self.revision(self.post(workspace, item), revision)
             saved = self.db.social_posts.update_one({"id": post["id"], "status": "draft", "planner_visual_lock": post["planner_visual_lock"], "planner_visual_lock_until": {"$gt": now()}, "planner_approved_fingerprint": revision},
                 {"$set": {"image_url": asset.imageUrl, "image_source": "ai_generated", "planner_visual_fingerprint": revision, "planner_visual_pending": False}})
             if not saved.matched_count:
                 raise HTTPException(409, "Post changed; generated asset remains in Media")
-            self.operations.update_one({"id": operation_id}, {"$set": {"state": "completed", "creative_set_id": result.creativeSetId}})
+            self.operations.update_one(fence, {"$set": {"state": "completed", "stage": "ready", "updated_at": now(), "retryable": False}, "$unset": {"error": "", "claim": ""}})
             self.items.update_one({"id": item["id"]}, {"$set": {"visual_state": "ready"}, "$unset": {"error": ""}})
         except Exception as exc:
-            self.operations.update_one({"id": operation_id}, {"$set": {"state": "failed"}})
-            self.items.update_one({"id": item["id"]}, {"$set": {"visual_state": "failed", "error": "Image incomplete; retry the same requestId to reuse creative checkpoints"}})
-            if isinstance(exc, HTTPException):
-                raise
-            raise HTTPException(502, "Image generation interrupted; retry the same requestId") from exc
+            from app.social.planner_images import fail
+
+            detail = exc.detail if isinstance(exc, HTTPException) and isinstance(exc.detail, dict) else {}
+            code = detail.get("code") or getattr(exc, "code", "IMAGE_OPERATION_INTERRUPTED")
+            stage = detail.get("stage") or getattr(exc, "stage", None) or (self.operations.find_one({"id": operation_id}) or {}).get("stage", "generate")
+            base_quality = stage == "base" and code.startswith("IMAGE_")
+            retryable = not base_quality and code not in ("CREATIVE_PROVIDER_UNCERTAIN", "CREATIVE_PROVIDER_FAILED", "IMAGE_CLAIM_LOST")
+            creative = self.db.social_creative_sets.find_one({"workspace_id": workspace["id"], "request_id": request.requestId})
+            if creative and creative.get("attempts") and not creative.get("bases"):
+                retryable = False
+            message = "Artwork did not pass image validation; explicitly request new artwork or attach an owned image" if base_quality else detail.get("message", "Image interrupted; retry the same requestId to inspect saved checkpoints. Uncertain paid attempts are not repeated.")
+            if not retryable and not base_quality and code != "IMAGE_CLAIM_LOST":
+                message = "No reusable artwork is available for this attempt; explicitly request new artwork or attach an owned image"
+            failed = fail(self, operation_id, {key: value for key, value in fence.items() if key != "id"}, code, stage, message, retryable)
+            if failed:
+                self.items.update_one({"id": item["id"], "image_operation_id": operation_id}, {"$set": {"visual_state": "failed", "error": message}})
+            raise HTTPException(exc.status_code if isinstance(exc, HTTPException) else 502,
+                {"code": code, "stage": stage, "message": message}) from exc
 
     def attach_image(self, workspace, user, run_id, item_id, payload):
         self.require(workspace, user)
@@ -465,6 +541,8 @@ class ContentPlanRuns:
         slot.reasons = slot_reasons(self.db, workspace, slot, post_id=item["post_id"])
         if slot.reasons:
             raise HTTPException(409, slot.reasons)
+        annotate_warnings(self.db, workspace, slot, payload.conflictAcknowledgments, post_id=item["post_id"])
+        require_acknowledgment(slot)
         dates = {other["slot"]["date"] for other in self.items.find({"run_id": run_id, "id": {"$ne": item_id}, "state": {"$ne": "excluded"}})}
         if len(dates | {slot.date}) > _plan_cap(workspace):
             raise HTTPException(422, "Changing this slot would exceed the plan selected-date cap")
@@ -473,11 +551,13 @@ class ContentPlanRuns:
                 if fresh["status"] != "draft":
                     raise HTTPException(409, "Only draft proposed slots can change")
                 self.db.social_posts.update_one({"id": post["id"]}, {"$set": {"scheduled_at": instant, "planner_timezone": slot.timezone}})
-                self.items.update_one({"id": item_id}, {"$set": {"slot": slot.model_dump()}})
+                self.items.update_one({"id": item_id}, {"$set": {"slot": slot.model_dump(),
+                    "slot_conflict_acknowledgment": {"actor": user["id"], "at": now(), "slot": slot.model_dump()}}})
         else:
             if self.load(workspace, run_id)["status"] in ("queued", "running"):
                 raise HTTPException(409, "Wait for generation before changing this slot")
-            self.items.update_one({"id": item_id}, {"$set": {"slot": slot.model_dump()}})
+            self.items.update_one({"id": item_id}, {"$set": {"slot": slot.model_dump(),
+                "slot_conflict_acknowledgment": {"actor": user["id"], "at": now(), "slot": slot.model_dump()}}})
         return self.serialize_item(workspace, self.item(workspace, run_id, item_id))
 
     def schedule_outcome(self, workspace, item):
@@ -486,17 +566,41 @@ class ContentPlanRuns:
         if dto.isScheduled:
             state = "dispatch_pending" if dto.scheduleState != "accepted" else "already_scheduled"
         return ScheduleOutcome(itemId=item["id"], postId=item["post_id"], revision=dto.revision, proposedAt=dto.proposedAt,
-            timezone=dto.slot.timezone, platform=dto.slot.platform, accountId=dto.slot.accountId, outcome=state, reasons=dto.reasons if state == "blocked" else [])
+            timezone=dto.slot.timezone, platform=dto.slot.platform, accountId=dto.slot.accountId, outcome=state, reasons=dto.reasons if state == "blocked" else [],
+            slotId=dto.slot.slotId, warnings=dto.slot.warnings, warningFingerprint=dto.slot.warningFingerprint,
+            acknowledgmentRequired=dto.slot.acknowledgmentRequired if not dto.isScheduled else False)
 
-    def schedule_preview(self, workspace, user, run_id, item_ids):
+    def schedule_preview(self, workspace, user, run_id, item_ids, acknowledgments=()):
         self.require(workspace, user)
         items = [self.item(workspace, run_id, item_id) for item_id in dict.fromkeys(item_ids)]
         outcomes = [self.schedule_outcome(workspace, item) for item in items]
+        for outcome in outcomes:
+            if outcome.warnings and outcome.outcome == "ready":
+                outcome.acknowledgmentRequired = not any(ack.slotId == outcome.slotId and
+                    ack.warningFingerprint == outcome.warningFingerprint for ack in acknowledgments)
         preview_id = str(uuid4())
         expires = now() + timedelta(minutes=10)
         self.operations.insert_one({"id": preview_id, "workspace_id": workspace["id"], "run_id": run_id, "kind": "schedule_preview",
             "expires_at": expires, "items": [outcome.model_dump() for outcome in outcomes]})
         return SchedulePreview(previewId=preview_id, expiresAt=iso(expires), items=outcomes)
+
+    @contextmanager
+    def schedule_lock(self, workspace, item):
+        lock_id = digest(["schedule_slot_lock", workspace["id"], item["slot"]["accountId"], item["slot"]["proposedAt"]])
+        token = str(uuid4())
+        try:
+            self.operations.update_one({"id": lock_id}, {"$setOnInsert": {"kind": "schedule_slot_lock",
+                "workspace_id": workspace["id"]}}, upsert=True)
+        except DuplicateKeyError:
+            pass
+        claimed = self.operations.update_one({"id": lock_id, "$or": [{"lease_until": {"$exists": False}},
+            {"lease_until": {"$lte": now()}}]}, {"$set": {"claim": token, "lease_until": now() + timedelta(minutes=2)}})
+        if not claimed.modified_count:
+            raise HTTPException(409, "Slot scheduling is in progress; preview again")
+        try:
+            yield lock_id, token
+        finally:
+            self.operations.update_one({"id": lock_id, "claim": token}, {"$unset": {"claim": "", "lease_until": ""}})
 
     def confirm_schedule(self, workspace, user, run_id, payload):
         self.require(workspace, user, SocialPermission.PUBLISHER)
@@ -514,7 +618,7 @@ class ContentPlanRuns:
             try:
                 self.operations.insert_one({"id": operation_id, "workspace_id": workspace["id"], "preview_id": payload.previewId})
             except DuplicateKeyError:
-                pass
+                return self.confirm_schedule(workspace, user, run_id, payload)
         token = str(uuid4())
         claimed = self.operations.update_one({"id": operation_id, "result": {"$exists": False}, "$or": [
             {"lease_until": {"$exists": False}}, {"lease_until": {"$lte": now()}}]},
@@ -532,7 +636,7 @@ class ContentPlanRuns:
             item = self.item(workspace, run_id, expected["itemId"])
             outcome = self.schedule_outcome(workspace, item)
             try:
-                with self.copy.edit_lock(self.post(workspace, item)) as post:
+                with self.schedule_lock(workspace, item) as slot_claim, self.copy.edit_lock(self.post(workspace, item)) as post:
                     item = self.item(workspace, run_id, expected["itemId"])
                     if post["status"] in ("scheduled", "publishing", "published"):
                         outcome.outcome = "already_scheduled" if post.get("planner_dispatch_state") == "accepted" else "dispatch_pending"
@@ -540,22 +644,34 @@ class ContentPlanRuns:
                         if expected["outcome"] == "blocked":
                             raise HTTPException(409, "This item was blocked in the confirmed preview; preview again after fixing it")
                         self.revision(post, expected["revision"])
-                        if item["slot"]["proposedAt"] != expected["proposedAt"] or item["slot"]["timezone"] != expected["timezone"]:
+                        if any(item["slot"][key] != expected[key] for key in ("proposedAt", "timezone", "accountId", "platform")):
                             raise HTTPException(409, "Proposed slot changed; preview again")
                         candidate = {**post}
                         candidate.pop("planner_visual_lock_until", None)
                         reasons = self.ready_reasons(workspace, item, candidate)
                         if reasons:
                             raise HTTPException(409, reasons)
+                        slot = annotate_warnings(self.db, workspace, PlannerSlot.model_validate(item["slot"]),
+                            payload.conflictAcknowledgments, post_id=post["id"])
+                        outcome.warnings, outcome.warningFingerprint = slot.warnings, slot.warningFingerprint
+                        outcome.acknowledgmentRequired = slot.acknowledgmentRequired
+                        if slot.warningFingerprint != expected.get("warningFingerprint"):
+                            raise HTTPException(409, "conflict_snapshot_changed_preview_again")
+                        require_acknowledgment(slot)
+                        if not self.operations.find_one({"id": slot_claim[0], "claim": slot_claim[1], "lease_until": {"$gt": now()}}):
+                            raise HTTPException(409, "Slot scheduling lease expired; preview again")
                         instant = datetime.fromisoformat(expected["proposedAt"])
                         try:
-                            self.db.social_planner_slots.update_one({"workspace_id": workspace["id"], "account_id": item["slot"]["accountId"],
-                                "scheduled_at": instant, "post_id": post["id"]}, {"$setOnInsert": {"created_at": now()}}, upsert=True)
+                            self.db.social_planner_slots.update_one({"workspace_id": workspace["id"], "post_id": post["id"]},
+                                {"$set": {"account_id": item["slot"]["accountId"], "scheduled_at": instant},
+                                 "$setOnInsert": {"created_at": now()}}, upsert=True)
                         except DuplicateKeyError as exc:
-                            raise HTTPException(409, "Slot was reserved by another post; choose a different exact time") from exc
+                            raise HTTPException(409, "planner_slot_index_migration_required") from exc
                         schedule_token = str(uuid4())
                         changed = self.db.social_posts.update_one({"id": post["id"], "status": "draft", "planner_visual_lock": post["planner_visual_lock"]},
                             {"$set": {"status": "scheduled", "scheduled_at": instant, "planner_schedule_token": schedule_token,
+                                "planner_conflict_acknowledgment": {"actor": user["id"], "at": now(),
+                                    "previewId": payload.previewId, "slot": slot.model_dump()},
                                 "planner_scheduled_revision": expected["revision"], "planner_dispatch_state": "pending", "updated_at": now()}})
                         if not changed.modified_count:
                             self.db.social_planner_slots.delete_many({"post_id": post["id"]})
@@ -566,7 +682,7 @@ class ContentPlanRuns:
                         outcome.reasons = []
             except HTTPException as exc:
                 outcome.outcome = "blocked"
-                outcome.reasons = exc.detail if isinstance(exc.detail, list) else [str(exc.detail)]
+                outcome.reasons = exc.detail if isinstance(exc.detail, list) else [exc.detail["code"] if isinstance(exc.detail, dict) else str(exc.detail)]
             except Exception:
                 outcome.outcome, outcome.reasons = "failed", ["Scheduling interrupted; reload before retrying"]
             outcomes.append(outcome)

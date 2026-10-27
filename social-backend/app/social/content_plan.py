@@ -633,6 +633,7 @@ class ContentPlanService:
 
         social = SocialMediaService(self.db)
         brand = social._brand_voice_dict(workspace["id"])
+        include_comment = social.resolve_include_comment(workspace, payload.includeComment)
         brand_name = (brand.get("brand_name") or workspace.get("name") or "our brand").strip()
         tone = (
             payload.tone
@@ -737,7 +738,7 @@ class ContentPlanService:
                         audience=audience,
                         cta=cta,
                         include_hashtags=True,
-                        include_comment=False,
+                        include_comment=include_comment,
                         brand_voice=brand,
                         content_series_mode=True,
                     )
@@ -770,12 +771,14 @@ class ContentPlanService:
                             imageUrl=image_url,
                             imageSource=image_source,
                             aiPrompt=user_prompt,
+                            generationOptions={"includeComment": include_comment},
                             platforms=[
                                 SocialPostPlatformIn(
                                     platform=platform,
                                     socialAccountId=str(account["id"]),
                                     caption=caption,
                                     hashtags=hashtags,
+                                    firstComment=(pc.get("firstComment") or pc.get("first_comment") or "") if include_comment else "",
                                 )
                             ],
                         ),

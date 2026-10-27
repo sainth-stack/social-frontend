@@ -7,6 +7,28 @@ afterEach(() => {
 });
 
 describe("mock UI isolation", () => {
+  it("uploads a real multipart File and imports stock through the API client without network access", async () => {
+    vi.stubEnv("NEXT_PUBLIC_MOCK_UI", "true");
+    vi.resetModules();
+    const { default: client } = await import("@/api/client");
+    const network = vi.fn().mockRejectedValue(new Error("Unexpected network request"));
+    client.defaults.adapter = network;
+    const { data } = await client.post("/api/v1/auth/login", { email: "admin@gmail.com", password: "Test@123" });
+    const { persistSession } = await import("@/lib/auth/session");
+    persistSession({ accessToken: data.access_token, user: { id: data.user.id, email: data.user.email } as never });
+    const { socialMediaApi } = await import("@/api/endpoints/social-media.api");
+    const file = new File([new Uint8Array([137, 80, 78, 71, 0, 255])], "clipboard.png", { type: "image/png" });
+    const uploaded = await socialMediaApi.uploadImage("mock-workspace", file);
+    expect(uploaded.assetId).toBeTruthy();
+    const saved = await socialMediaApi.getMediaAsset("mock-workspace", uploaded.assetId!);
+    expect(saved).toMatchObject({ url: uploaded.imageUrl, fileSizeBytes: 6, mimeType: "image/png", source: "uploaded" });
+    expect((await socialMediaApi.getStockProviders("mock-workspace")).items[0].name).toBe("Pexels demo");
+    const stock = await socialMediaApi.searchStock("mock-workspace", { query: "team", mediaType: "image" });
+    const imported = await socialMediaApi.importStock("mock-workspace", { provider: "pexels", id: stock.items[0].id, mediaType: "image" });
+    expect(await socialMediaApi.getMediaAsset("mock-workspace", imported.id)).toEqual(imported);
+    expect(network).not.toHaveBeenCalled();
+  });
+
   it("replaces the API transport and isolates real sessions when enabled", async () => {
     vi.stubEnv("NEXT_PUBLIC_MOCK_UI", "true");
     vi.resetModules();

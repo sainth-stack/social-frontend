@@ -10,6 +10,77 @@ This project is self-contained — it does **not** depend on `OpsBrain-Backend` 
 `OpsBrain-Backend/app/social_media/`, with `Organization` renamed to `Workspace`
 throughout.
 
+## Stock media and safe user uploads
+
+Set `PEXELS_API_KEY` only in the backend environment (or backend `.env`). Obtain a key
+from https://www.pexels.com/api/ and restart the API after changing it. Never expose
+it through frontend environment variables. Pexels is the only stock provider;
+Unsplash is intentionally not integrated because its hotlink requirements do not
+fit this rehosting workflow. No key is required for user uploads.
+
+Authenticated workspace members can use these routes under
+`/api/v1/workspaces/{workspace_id}/social`:
+
+- `GET /stock/providers`: `{items:[{id:"pexels",name:"Pexels",available,mediaTypes:["image","video"],reason?}]}`.
+- `GET /stock/search?query=office&mediaType=image&page=1&pageSize=24`:
+  `{items:StockMediaItem[],page,pageSize,hasMore}`. `mediaType` is `image` or `video`,
+  query is 1–200 nonblank characters, page is 1–1000, and pageSize is 1–80.
+- `POST /stock/import`: `{provider:"pexels",id:"12345",mediaType:"image"}` returns
+  a `MediaAssetOut` directly, not a wrapper. Requires editor permission or higher.
+  Additional body fields (including URLs) are rejected. The provider ID is fetched
+  afresh, independent of the search cache, and checked against the requested ID.
+
+`StockMediaItem` contains `id`, `provider`, `mediaType`, `previewUrl`, `thumbnailUrl`,
+`width`, `height`, optional `durationSeconds`, `creatorName`, `creatorUrl`,
+`providerPageUrl`, `licenseUrl`, and `attributionText`. IDs are decimal strings.
+Search preview URLs remain provider URLs; only a successful import creates owned
+workspace storage. Imported assets retain `source:"uploaded"` for compatibility.
+The optional `provenance` field contains `attributionText`, `providerPageUrl`,
+`creatorName`, `creatorUrl`, `licenseUrl`, `provider`, and `providerAssetId`, and is
+preserved by list/detail serialization. Show creator/Pexels attribution and links
+in the stock picker; retain provenance when displaying an imported asset. Review
+https://www.pexels.com/license/ and https://www.pexels.com/api/terms-of-service/
+before deployment, including restrictions on identifiable people, trademarks,
+standalone redistribution, and attribution requirements of the API integration.
+
+Imports use HTTPS with exact `images.pexels.com` (images/thumbnails) and
+`videos.pexels.com` (MP4 renditions) hosts only, no redirects, no cookies or API
+authorization on CDN requests, and bounded streamed downloads. Unsupported or
+legacy external video hosts are rejected rather than followed. Images are limited
+to 8 MiB and 25 million pixels, verified with Pillow, re-encoded as metadata-free
+JPEG, and capped again after normalization. SVG, mismatched MIME/bytes, and unsafe
+images are rejected. Videos are capped at 50 MiB; Pexels imports accept MP4 only
+with an ISO BMFF `ftyp` signature, recognized MP4 brands, and complete top-level
+`moov`/`mdat` boxes. This is container validation, not a video decode or malware scan.
+
+Existing `POST /upload-image` and `POST /upload-video` retain their response shapes
+(`imageUrl`/`videoUrl`, `source`, `assetId`). Both now require editor permission,
+read at most the limit plus one byte, and verify MIME/bytes before storage. Image
+uploads accept JPEG/PNG/WebP and use the same JPEG normalization. Video uploads
+accept MP4/WebM only (WebM checks EBML signature and WebM doctype), at 50 MiB.
+The shipped nginx configurations permit 51 MiB request bodies for a 50 MiB file
+plus multipart overhead; the application enforces the file limit. Reload nginx
+after deploying its configuration. Logo reads are bounded separately at 5 MiB.
+
+Videos can be stored, previewed, and saved as drafts, but **video publishing is not
+supported**. The planner image-asset endpoint remains image-only, workspace-scoped,
+and revision/copy-approval guarded. Importing/uploading does not approve copy,
+attach media, schedule, publish, or consume AI quota.
+
+Missing/rejected keys return 503 with `detail.error="stock_unavailable"`, provider
+rate limits return 429 (`stock_rate_limited`), timeouts return 504 (`stock_timeout`),
+missing IDs return 404, and other upstream failures/redirects return 502. Secrets
+and raw upstream errors are not returned. Oversized files return 413; unsupported
+types return 415; invalid bytes return 400. Search caches only successful responses
+for 300 seconds in a thread-safe, per-process, 256-entry LRU cache; keys include a
+hash of the credential so key changes cannot reuse old results. Errors and imports
+are never cached. The explicit local bound avoids unbounded provider-query keys in
+the existing Redis cache, and stock still works if Redis is unavailable.
+
+Offline verification: from the backend directory, run
+`.venv/Scripts/python.exe -m pytest -q tests/test_stock_media.py tests/test_upload_safety.py`.
+These tests use `httpx.MockTransport`, fake storage, and no provider/paid calls.
+
 ## Stack
 
 - **API**: FastAPI + Pydantic v2

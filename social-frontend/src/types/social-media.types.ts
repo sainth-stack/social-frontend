@@ -95,6 +95,16 @@ export type SocialAccountListResponse = {
 
 export type SocialPostPlatform = {
   media?: SocialPostMedia[];
+  firstCommentState?: {
+    status: "pending" | "succeeded" | "failed" | "unsupported" | "unknown";
+    attemptCount: number;
+    platformCommentId?: string | null;
+    errorCode?: string | null;
+    httpStatus?: number | null;
+    providerErrorCode?: string | number | null;
+    updatedAt?: string | null;
+    attemptedAt?: string | null;
+  } | null;
   id: string;
   platform: SocialPlatform;
   socialAccountId: string | null;
@@ -185,6 +195,7 @@ export type StoredSlide = GeneratedSlide & { id: string };
 export type StoredTweet = { text: string };
 export type GenerationOptions = {
   tone?: string;
+  includeComment?: boolean | null;
   includeEmojis?: boolean;
   includeHashtags?: boolean;
   length?: string;
@@ -328,6 +339,7 @@ export type GeneratedTweet = {
 
 export type GeneratedContent = {
   format: string;
+  firstComment?: string;
   platforms: Partial<Record<SocialPlatform, GeneratedPlatformContent>>;
   prompt: string;
   // Carousel
@@ -350,7 +362,7 @@ export type GeneratePostPayload = {
   audience?: string;
   cta?: string;
   includeHashtags?: boolean;
-  includeComment?: boolean;
+  includeComment?: boolean | null;
   includeEmojis?: boolean;
   contentType?: string;
   length?: string;
@@ -699,6 +711,37 @@ export type GenerateVideoResponse = {
 
 export type MediaAssetType = "image" | "video";
 
+export type StockProvider = {
+  id: "pexels";
+  name: string;
+  available: boolean;
+  mediaTypes: MediaAssetType[];
+  reason?: string | null;
+};
+
+export type StockMediaItem = {
+  id: string;
+  provider: "pexels";
+  mediaType: MediaAssetType;
+  previewUrl: string;
+  thumbnailUrl: string;
+  width: number;
+  height: number;
+  durationSeconds?: number | null;
+  creatorName: string;
+  creatorUrl: string;
+  providerPageUrl: string;
+  licenseUrl: string;
+  attributionText: string;
+};
+
+export type StockSearchResponse = {
+  items: StockMediaItem[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+};
+
 export type MediaAsset = {
   id: string;
   mediaType: MediaAssetType;
@@ -710,6 +753,15 @@ export type MediaAsset = {
   soraVideoId?: string | null;
   durationSeconds?: number | null;
   postId?: string | null;
+  provenance?: {
+    provider: string;
+    providerAssetId: string;
+    providerPageUrl: string;
+    creatorName: string;
+    creatorUrl: string;
+    licenseUrl: string;
+    attributionText: string;
+  } | null;
   createdAt: string;
 };
 

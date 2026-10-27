@@ -13,6 +13,7 @@ from app.social.ai.caption_sanitize import normalize_generated_text as clean_gen
 from app.social.ai.compositor import OverlayCopy, compose_creative, load_logo, parse_hex
 from app.social.ai.image_generator import generate_post_image
 from app.social.ai.image_quality import ImageReliabilityError, validate_image_bytes
+from app.social.ai.image_progress import report_image_stage
 from app.social.ai.visual_prompt import compact_context
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ class CreativeSpec:
     slide_count: Optional[int] = None
     include_emojis: bool = False
     render_recipe: Optional[dict] = None
+    art_direction: bool = False
 
 
 @dataclass
@@ -355,7 +357,8 @@ def render_creative_variants(
     wants_copy = spec.text_overlay or fmt == "quote"
     if spec.render_recipe:
         copy = OverlayCopy(**spec.render_recipe["copy"])
-    elif spec.auto_copy and base_image is None:
+    elif (spec.auto_copy or spec.art_direction) and base_image is None:
+        report_image_stage("concept")
         try:
             visual, directed = art_direct(topic, spec, policy_brand, style)
             if wants_copy:
@@ -376,6 +379,7 @@ def render_creative_variants(
         recipe_callback({"copy": {key: getattr(copy, key) for key in ("headline", "subtext", "cta")}, "prompt": prompt})
 
     if base_image is None:
+        report_image_stage("generate")
         data = generate_post_image(
             topic=topic,
             style=style,
@@ -397,6 +401,7 @@ def render_creative_variants(
 
     logo_ok = bool(spec.include_logo and logo_bytes and load_logo(logo_bytes, 64, 64) is not None)
     results: dict[str, CreativeResult] = {}
+    report_image_stage("format")
     for platform in platforms:
         width, height = target_size(fmt, platform)
         image = compose_creative(

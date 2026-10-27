@@ -1,0 +1,9 @@
+[
+  { "name": "mixed newlines and internal gaps", "caption": " \r\nIntro  with\tspaces \r\n\r\n\rNext\rLast \n ", "hashtags": [], "expected": "Intro  with\tspaces \n\n\nNext\nLast" },
+  { "name": "authored inline hashtags markdown and duplicate tags", "caption": " **Keep** #Inline\n\n\nSecond  line ", "hashtags": [" ##One ", "One", "#one", "### Two ", "", "  #  ", "###"], "expected": "**Keep** #Inline\n\n\nSecond  line\n\n#One #One #one #Two" },
+  { "name": "hashtags without a caption", "caption": "\r\n \t", "hashtags": ["##A", " #B ", "A"], "expected": "#A #B #A" },
+  { "name": "empty tags", "caption": " \rBody\r\n ", "hashtags": ["", "  ", "## ", "###"], "expected": "Body" },
+  { "name": "tag interiors remain authored", "caption": "Body", "hashtags": ["### with  gap", "# #Other", "#தமிழ்"], "expected": "Body\n\n#with  gap ##Other #தமிழ்" },
+  { "name": "publisher unicode whitespace", "caption": "\u0085\u001cBody\ufeff\u0085", "hashtags": ["\u0085##Tag\u001f", "\ufeffTag"], "expected": "Body\ufeff\n\n#Tag #\ufeffTag" },
+  { "name": "emoji and authored punctuation", "caption": " 🚀 C# **launch**\n\nFollow #Launch ", "hashtags": ["Launch", "Launch"], "expected": "🚀 C# **launch**\n\nFollow #Launch\n\n#Launch #Launch" }
+]

@@ -19,6 +19,26 @@ class SlotOverride(PlannerInput):
     utcOffsetMinutes: int | None = Field(default=None, ge=-840, le=840)
 
 
+class ConflictAcknowledgment(PlannerInput):
+    slotId: str = Field(min_length=1, max_length=128)
+    warningFingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class SlotWarning(BaseModel):
+    code: Literal["scheduled_post_conflict"] = "scheduled_post_conflict"
+    postId: str
+    accountId: str
+    accountName: str
+    status: Literal["scheduled", "publishing"]
+    scheduledAt: str
+    localDate: str
+    localTime: str
+    timezone: str
+    utcOffsetMinutes: int
+    excerpt: str
+    fingerprint: str
+
+
 class PlannerSelection(PlannerInput):
     timezone: str = Field(min_length=1, max_length=100)
     dates: list[str] | None = Field(default=None, min_length=1, max_length=30)
@@ -29,6 +49,7 @@ class PlannerSelection(PlannerInput):
     accountIds: dict[str, str] = Field(default_factory=dict)
     postingTime: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     overrides: list[SlotOverride] = Field(default_factory=list, max_length=90)
+    conflictAcknowledgments: list[ConflictAcknowledgment] = Field(default_factory=list, max_length=90)
 
     @model_validator(mode="after")
     def check_selection(self):
@@ -53,6 +74,9 @@ class PlannerSlot(BaseModel):
     timezone: str
     utcOffsetMinutes: int | None = None
     reasons: list[str] = Field(default_factory=list)
+    warnings: list[SlotWarning] = Field(default_factory=list)
+    warningFingerprint: str | None = None
+    acknowledgmentRequired: bool = False
 
 
 class SlotPreview(BaseModel):
@@ -69,6 +93,7 @@ class RunCreate(PlannerSelection):
     previewToken: str
     prompt: str = Field(min_length=10, max_length=8000)
     tone: str | None = Field(default=None, max_length=100)
+    includeComment: bool | None = None
     excludedSlotIds: list[str] = Field(default_factory=list, max_length=90)
 
 
@@ -89,6 +114,7 @@ class TextRegenerate(RevisionInput):
 class ImageAction(TextRegenerate):
     mode: Literal["generate", "retry", "regenerate"] = "generate"
     creditsConfirmed: bool = False
+    imageDirection: str | None = Field(default=None, max_length=1500)
 
 
 class ImageIntent(RevisionInput):
@@ -104,6 +130,7 @@ class SlotEdit(PlannerInput):
     time: str = Field(pattern=r"^\d{2}:\d{2}$")
     timezone: str
     utcOffsetMinutes: int | None = Field(default=None, ge=-840, le=840)
+    conflictAcknowledgments: list[ConflictAcknowledgment] = Field(default_factory=list, max_length=90)
 
 
 class RetryRun(PlannerInput):
@@ -126,6 +153,12 @@ class RunItem(BaseModel):
     visualRevision: str | None = None
     imageOperationId: str | None = None
     imageRequestId: str | None = None
+    imageStage: str | None = None
+    imageError: dict[str, str] | None = None
+    imageRetryable: bool = False
+    imageUpdatedAt: str | None = None
+    imageDirection: str | None = None
+    imageWarnings: list[str] = Field(default_factory=list)
     textState: str = "idle"
     textRequestId: str | None = None
     imageIntent: str = "optional"
@@ -146,6 +179,7 @@ class PlannerRun(BaseModel):
     createdAt: str
     createdBy: str
     cancelled: bool
+    includeComment: bool | None = None
     items: list[RunItem]
 
 
@@ -156,6 +190,7 @@ class RunList(BaseModel):
 
 class ScheduleSelection(PlannerInput):
     itemIds: list[str] = Field(min_length=1, max_length=90)
+    conflictAcknowledgments: list[ConflictAcknowledgment] = Field(default_factory=list, max_length=90)
 
 
 class ScheduleRetry(ScheduleSelection):
@@ -172,6 +207,10 @@ class ScheduleOutcome(BaseModel):
     accountId: str | None = None
     outcome: Literal["ready", "scheduled", "already_scheduled", "blocked", "dispatch_pending", "failed"]
     reasons: list[str] = Field(default_factory=list)
+    slotId: str | None = None
+    warnings: list[SlotWarning] = Field(default_factory=list)
+    warningFingerprint: str | None = None
+    acknowledgmentRequired: bool = False
 
 
 class SchedulePreview(BaseModel):
@@ -184,6 +223,7 @@ class ScheduleConfirm(PlannerInput):
     requestId: str = Field(min_length=1, max_length=128)
     previewId: str
     confirm: Literal[True]
+    conflictAcknowledgments: list[ConflictAcknowledgment] = Field(default_factory=list, max_length=90)
 
 
 class ScheduleResult(BaseModel):

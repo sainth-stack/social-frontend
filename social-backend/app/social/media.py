@@ -27,7 +27,7 @@ _SAS_EXPIRES_SECONDS = 604800
 _MAX_PRESIGN_EXPIRES_SECONDS = 604800
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024    # 8 MB
 _MAX_LOGO_BYTES = 5 * 1024 * 1024     # 5 MB
-_MAX_VIDEO_BYTES = 200 * 1024 * 1024  # 200 MB
+_MAX_VIDEO_BYTES = 50 * 1024 * 1024
 
 _DATA_URL_RE = re.compile(
     r"^data:(?P<mime>[\w/+.-]+);base64,(?P<data>.+)$",
@@ -207,7 +207,7 @@ def upload_social_video_bytes(
     if len(data) > _MAX_VIDEO_BYTES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Video must be under 200 MB",
+            detail="Video must be under 50 MiB",
         )
 
     mime = (content_type or "video/mp4").split(";")[0].strip().lower()

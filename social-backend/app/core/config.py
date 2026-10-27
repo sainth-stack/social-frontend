@@ -97,6 +97,7 @@ class Settings(BaseSettings):
         validation_alias="BEDROCK_IMAGE_REGION",
     )
     video_generation_enabled: bool = Field(default=False, validation_alias="VIDEO_GENERATION_ENABLED")
+    pexels_api_key: str = Field(default="", validation_alias="PEXELS_API_KEY", repr=False)
     ai_provider_pricing_json: str = Field(default="{}", validation_alias="AI_PROVIDER_PRICING_JSON")
 
     @field_validator("ai_provider_pricing_json")

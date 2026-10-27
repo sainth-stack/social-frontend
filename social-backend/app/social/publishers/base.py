@@ -17,10 +17,12 @@ class PublishResult:
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     retryable: bool = False
+    first_comment_state: Optional[dict] = None
 
 
 class BasePublisher(ABC):
     platform: SocialPlatform
+    supports_first_comment = False
 
     @abstractmethod
     def publish(
@@ -50,6 +52,19 @@ class BasePublisher(ABC):
 
     def publish_state(self) -> dict:
         return dict(getattr(self, "_publish_state", {}))
+
+    def complete_publish(self, post_id: str, token: str, first_comment: str | None) -> PublishResult:
+        from app.social.publishers.first_comment import comment_state, deliver_first_comment
+
+        existing = self.publish_state().get("first_comment_state")
+        initial = existing or comment_state(first_comment, self.supports_first_comment)
+        self.checkpoint(platform_post_id=post_id, submission_started=False, first_comment_state=initial)
+        if initial and not existing and self.supports_first_comment:
+            try:
+                deliver_first_comment(self, post_id, token, first_comment, initial_attempt=True)
+            except Exception:
+                pass
+        return PublishResult(success=True, platform_post_id=post_id, first_comment_state=self.publish_state().get("first_comment_state"))
 
     def delete_remote(
         self,
@@ -130,10 +145,12 @@ def backoff_seconds(retry_count: int, error_code: str | None = None) -> int:
 
 
 def format_caption(caption: str, hashtags: list[str]) -> str:
-    tags = " ".join(f"#{h.lstrip('#')}" for h in (hashtags or []) if h)
+    text = (caption or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized = [h.strip().lstrip("#").strip() for h in (hashtags or []) if isinstance(h, str)]
+    tags = " ".join(f"#{tag}" for tag in normalized if tag)
     if not tags:
-        return (caption or "").strip()
-    return f"{(caption or '').strip()}\n\n{tags}".strip()
+        return text
+    return f"{text}\n\n{tags}" if text else tags
 
 
 def validate_image_urls(image_urls: list[str]) -> Optional[PublishResult]:

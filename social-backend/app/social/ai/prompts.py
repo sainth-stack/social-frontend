@@ -327,6 +327,11 @@ def build_system_prompt(
     )
 
 
+def build_first_comment_prompt(include_comment: bool, field: str = "firstComment") -> str:
+    instruction = "one short supporting comment grounded in the brief, no competing CTA or invented URLs; one comment for the entire post, never per slide" if include_comment else "empty string; do not generate a first comment"
+    return f"{field}: {instruction}.\n"
+
+
 def build_user_prompt(
     *,
     topic: str,
@@ -437,7 +442,7 @@ def build_user_prompt(
         f"{expansion_line}"
         f"Caption limit: {limit} characters.\n"
         f"Hashtags: {'up to ' + str(hashtag_count) + ' relevant tags, fewer or none if appropriate, in hashtags array only (never in caption text)' if include_hashtags else 'no — empty hashtags array'}.\n"
-        f"first_comment: {'yes — short supporting context, no competing CTA or invented URLs' if include_comment else 'empty string'}.\n"
+        f"{build_first_comment_prompt(include_comment, 'first_comment')}"
         "Respond with JSON only."
     )
 

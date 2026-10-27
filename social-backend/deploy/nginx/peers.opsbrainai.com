@@ -5,7 +5,7 @@
 server {
     server_name peers.opsbrainai.com;
 
-    client_max_body_size 50M;
+    client_max_body_size 51M;
 
     location /api/ {
         proxy_pass http://127.0.0.1:5000;

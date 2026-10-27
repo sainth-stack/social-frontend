@@ -21,6 +21,7 @@ from app.social.ai.prompts import (
     brief_fidelity_score,
     build_brand_context,
     build_fidelity_revision_prompt,
+    build_first_comment_prompt,
     build_generation_policy_prompt,
     build_system_prompt,
     build_user_prompt,
@@ -635,6 +636,7 @@ def generate_carousel_content(
     cta: Optional[str],
     brand_voice: Optional[dict[str, Any]],
     num_slides: int = 3,
+    include_comment: bool = False,
     include_emojis: bool = False,
     include_hashtags: bool = True,
     length_hint: Optional[str] = None,
@@ -676,6 +678,7 @@ def generate_carousel_content(
         "Schema:\n"
         '{"caption":"<intro caption, max 300 chars>",'
         '"hashtags":["tag1","tag2"],'
+        '"firstComment":"<optional supporting comment>",'
         '"slides":[\n'
         '  {"headline":"<plain-text 6-word max headline>","body":"<specific supporting copy>","imagePrompt":"<relevant visual direction>"}\n'
         "]}"
@@ -692,6 +695,7 @@ def generate_carousel_content(
         f"- Headlines must be distinct and specific; body must sound human and expert, 8–{body_limit} characters\n"
         f"- Every slide needs nonempty headline, useful body, and imagePrompt; never return placeholders\n"
         f"- imagePrompt: choose diagrams, illustration, editorial graphics, or photography relevant to the brief; no text overlays\n"
+        f"{build_first_comment_prompt(include_comment)}"
         f"{build_generation_policy_prompt(policy)}"
         f"Return exactly {num_slides} slides."
     )
@@ -750,8 +754,9 @@ def generate_carousel_content(
                 _trim_caption(caption, 160 if policy.length_hint == "short" else 300),
                 hashtags, PLATFORM_LIMITS[SocialPlatform.INSTAGRAM.value],
             )
-            result = {"slides": slides, "caption": caption, "hashtags": hashtags}
-            for key in ("firstComment", "first_comment", "imagePrompt"):
+            result = {"slides": slides, "caption": caption, "hashtags": hashtags,
+                      "firstComment": _policy_text(parsed.get("firstComment") or parsed.get("first_comment"), policy) if include_comment else ""}
+            for key in ("imagePrompt",):
                 if key in parsed:
                     result[key] = _policy_text(parsed[key], policy)
             return result
@@ -801,6 +806,7 @@ def generate_thread_content(
         f"{QUALITY_BAR}\n{build_brand_context(brand_voice, SocialPlatform.X.value)}\n"
         f"{build_generation_policy_prompt(policy)}\n"
         "Write a connected X thread: one clear idea per tweet with a logical progression. "
+        "Threads are copy-only; do not generate a first comment. "
         "Use only one CTA, in the last tweet, if appropriate to the brief. "
         "Each tweet including numbering must fit 270 characters; the last tweet plus "
         "hashtags and the two-newline separator must fit 280 characters. "
@@ -851,8 +857,8 @@ def generate_thread_content(
     tweets[-1]["text"], hashtags = _fit_caption_and_hashtags(
         tweets[-1]["text"], hashtags, PLATFORM_LIMITS[SocialPlatform.X.value],
     )
-    result = {"tweets": tweets, "hashtags": hashtags}
-    for key in ("caption", "firstComment", "first_comment", "imagePrompt"):
+    result = {"tweets": tweets, "hashtags": hashtags, "firstComment": ""}
+    for key in ("caption", "imagePrompt"):
         if key in parsed:
             result[key] = _policy_text(parsed[key], policy)
     return result
@@ -864,6 +870,7 @@ def generate_poll_content(
     tone: str,
     audience: Optional[str],
     brand_voice: Optional[dict[str, Any]],
+    include_comment: bool = False,
     include_emojis: bool = False,
     include_hashtags: bool = True,
     length_hint: Optional[str] = None,
@@ -894,12 +901,13 @@ def generate_poll_content(
         f"Use up to {PLATFORM_HASHTAG_LIMITS[SocialPlatform.LINKEDIN.value] if policy.include_hashtags else 0} relevant hashtags, not a quota. "
         "Return ONLY a JSON object.\n"
         'Schema: {"question":"<poll question, max 140 chars>","options":["<opt1>","<opt2>","<opt3>","<opt4>"],'
-        '"caption":"<intro text to post above poll, max 300 chars>","hashtags":["tag1","tag2"]}'
+        '"caption":"<intro text to post above poll, max 300 chars>","hashtags":["tag1","tag2"],"firstComment":"<optional supporting comment>"}'
     )
     user_prompt = (
         f"=== USER BRIEF (primary source) ===\n{topic.strip()}\n=== END BRIEF ===\n\n"
         f"Create an engaging poll from this brief.\n"
         f"Tone: {tone}.{brand_note}{audience_note}\n"
+        f"{build_first_comment_prompt(include_comment)}"
         f"{build_generation_policy_prompt(policy)}"
         "Rules:\n"
         "- Question must invite useful feedback relevant to the brief, without leading voters\n"
@@ -937,8 +945,9 @@ def generate_poll_content(
         "options": options,
         "caption": caption,
         "hashtags": hashtags,
+        "firstComment": _policy_text(parsed.get("firstComment") or parsed.get("first_comment"), policy) if include_comment else "",
     }
-    for key in ("firstComment", "first_comment", "imagePrompt"):
+    for key in ("imagePrompt",):
         if key in parsed:
             result[key] = _policy_text(parsed[key], policy)
     return result

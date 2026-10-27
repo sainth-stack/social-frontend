@@ -61,8 +61,11 @@ def test_scheduled_same_account_instant_blocks_only_its_slot(db, workspace, stat
     insert_post(db, status)
     preview = preview_slots(db, workspace, selection(platforms=["facebook", "instagram"],
         accountIds={"facebook": "facebook", "instagram": "instagram"}), now=NOW)
-    assert preview.slots[0].reasons == ["slot_occupied"]
+    assert preview.slots[0].reasons == []
+    assert preview.slots[0].warnings[0].postId == "existing"
+    assert preview.slots[0].acknowledgmentRequired
     assert preview.slots[1].reasons == []
+    assert preview.slots[1].warnings == []
 
 
 @pytest.mark.parametrize("stored", ["missing", None, {}, "explicit"])
@@ -124,13 +127,13 @@ def test_reservations_block_preview_until_existing_safe_recovery(db, workspace, 
     db.social_planner_slots.insert_one({"workspace_id": "ws", "account_id": "facebook", "post_id": "existing",
         "scheduled_at": INSTANT, "created_at": NOW - timedelta(minutes=6)})
     before = list(db.social_planner_slots.find({}))
-    assert "slot_reserved" in preview_slots(db, workspace, selection(), now=NOW).slots[0].reasons
+    assert ("slot_edit_locked" in preview_slots(db, workspace, selection(), now=NOW).slots[0].reasons) == (status == "draft" and active_lock)
     assert list(db.social_planner_slots.find({})) == before
     ContentPlanRuns(db).recover()
     assert db.social_planner_slots.count_documents({}) == int(retained)
     slot = preview_slots(db, workspace, selection(), now=NOW).slots[0]
-    assert ("slot_reserved" in slot.reasons) == retained
-    assert ("slot_occupied" in slot.reasons) == (status in ("scheduled", "publishing"))
+    assert ("slot_edit_locked" in slot.reasons) == (status == "draft" and active_lock)
+    assert bool(slot.warnings) == (status in ("scheduled", "publishing"))
 
 
 def test_recent_orphan_reservation_is_not_removed_by_preview_or_recovery(db, workspace, monkeypatch):
@@ -138,5 +141,5 @@ def test_recent_orphan_reservation_is_not_removed_by_preview_or_recovery(db, wor
     db.social_planner_slots.insert_one({"workspace_id": "ws", "account_id": "facebook", "post_id": "existing",
         "scheduled_at": INSTANT, "created_at": NOW})
     ContentPlanRuns(db).recover()
-    assert preview_slots(db, workspace, selection(), now=NOW).slots[0].reasons == ["slot_reserved"]
+    assert preview_slots(db, workspace, selection(), now=NOW).slots[0].reasons == []
     assert db.social_planner_slots.count_documents({}) == 1

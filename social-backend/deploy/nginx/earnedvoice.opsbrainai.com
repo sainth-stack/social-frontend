@@ -5,7 +5,7 @@
 server {
     server_name earnedvoice.opsbrainai.com;
 
-    client_max_body_size 20M;
+    client_max_body_size 51M;
 
     location / {
         proxy_pass http://127.0.0.1:5002;

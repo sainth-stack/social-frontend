@@ -73,13 +73,16 @@ export function normalizeGeneratedText(value: string, includeEmojis = false): st
   return text.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-/** Caption + hashtags as shown on LinkedIn/Facebook (one blank line between). */
 export function formatPostBody(caption: string, hashtags: string[]): string {
-  const { caption: body, hashtags: tags } = sanitizeCaptionAndHashtags(caption, hashtags);
-  const tagLine = tags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ");
+  const body = trimPublisherText((caption ?? "").replace(/\r\n?/g, "\n"));
+  const tagLine = formatTagsForDisplay(hashtags);
   return [body, tagLine].filter(Boolean).join("\n\n");
 }
 
 export function formatTagsForDisplay(hashtags: string[]): string {
-  return dedupeTags(hashtags).map((h) => `#${h.replace(/^#/, "")}`).join(" ");
+  return (hashtags ?? []).filter((tag) => typeof tag === "string").map((tag) => trimPublisherText(trimPublisherText(tag).replace(/^#+/, ""))).filter(Boolean).map((tag) => `#${tag}`).join(" ");
+}
+
+function trimPublisherText(text: string): string {
+  return text.replace(/^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/g, "");
 }

@@ -27,6 +27,7 @@ from app.social.publishers.base import (
     is_retryable_error,
 )
 from workers.celery_app import celery_app
+from app.social.publishers.first_comment import comment_state, deliver_first_comment
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +91,31 @@ def resolve_platform_media(db, post: dict, pp: dict) -> dict:
 def claim_platform(db, pp: dict) -> dict | None:
     state = pp.get("publish_state") or {}
     known_id = pp.get("platform_post_id") or state.get("platform_post_id")
-    if known_id:
-        db["social_post_platforms"].update_one(
-            {"id": pp["id"]},
+    while known_id:
+        scope = {
+            "id": pp["id"],
+            **{key: pp[key] if key in pp else {"$exists": False} for key in ("status", "publish_claim", "platform_post_id")},
+            "publish_state.platform_post_id": state["platform_post_id"] if "platform_post_id" in state else {"$exists": False},
+        }
+        recovered = db["social_post_platforms"].update_one(
+            scope,
             {"$set": {"status": "published", "platform_post_id": known_id, "published_at": pp.get("published_at") or utcnow(), "next_retry_at": None, "error_code": None, "error_message": None}, "$unset": {"publish_claim": "", "publish_claimed_at": ""}},
+        )
+        if not recovered.matched_count:
+            pp = db["social_post_platforms"].find_one({"id": pp["id"]})
+            if not pp:
+                return None
+            state = pp.get("publish_state") or {}
+            known_id = pp.get("platform_post_id") or state.get("platform_post_id")
+            if not known_id:
+                return None
+            continue
+        outcome = comment_state(pp.get("first_comment"), pp.get("platform") in ("facebook", "instagram"))
+        if outcome and outcome["status"] == "pending":
+            outcome.update(status="unknown", error_code="AMBIGUOUS_COMMENT")
+        db["social_post_platforms"].update_one(
+            {**scope, "status": "published", "platform_post_id": known_id, "publish_claim": {"$exists": False}, "first_comment": pp.get("first_comment"), "platform": pp.get("platform"), "first_comment_state": {"$exists": False}, "publish_state.first_comment_state": {"$exists": False}, "first_comment_claim": {"$exists": False}},
+            {"$set": {"first_comment_state": outcome, "publish_state.first_comment_state": outcome}},
         )
         return None
     if state.get("submission_started") or state.get("reconciliation_required") or pp.get("error_code") == "AMBIGUOUS_PUBLISH":
@@ -111,9 +133,14 @@ def claim_platform(db, pp: dict) -> dict | None:
 
 def invoke_publisher(db, post: dict, pp: dict, publisher, token: str, account: dict) -> PublishResult:
     def save(state):
+        values = {"publish_state": state}
+        if "first_comment_state" in state:
+            values["first_comment_state"] = state["first_comment_state"]
+        if state.get("platform_post_id"):
+            values["platform_post_id"] = state["platform_post_id"]
         updated = db["social_post_platforms"].update_one(
             {"id": pp["id"], "publish_claim": pp["publish_claim"]},
-            {"$set": {"publish_state": state}},
+            {"$set": values},
         )
         if not updated.matched_count:
             raise RuntimeError("Publish claim lost")
@@ -150,6 +177,61 @@ def invoke_publisher(db, post: dict, pp: dict, publisher, token: str, account: d
     if result.success and not result.platform_post_id:
         return ambiguous_publish()
     return result
+
+
+@celery_app.task(name="app.social.tasks.publish.retry_first_comment", max_retries=0, queue="social_publish")
+def retry_first_comment(post_platform_id: str, expected_attempt_count: int) -> dict:
+    db = get_database()
+    pp = db["social_post_platforms"].find_one({"id": str(post_platform_id)})
+    if not pp:
+        return {"ok": False, "reason": "not_found"}
+    outcome = pp.get("first_comment_state") or {}
+    post_id = pp.get("platform_post_id") or (pp.get("publish_state") or {}).get("platform_post_id")
+    if pp.get("status") != "published" or not post_id or outcome.get("status") != "failed" or outcome.get("attempt_count") != expected_attempt_count:
+        return {"ok": False, "reason": "not_retryable"}
+    if pp.get("platform") not in ("facebook", "instagram"):
+        return {"ok": False, "reason": "unsupported"}
+    initial = comment_state(pp.get("first_comment"), True)
+    if not initial or outcome.get("content_hash") != initial["content_hash"]:
+        return {"ok": False, "reason": "comment_changed"}
+    post = db["social_posts"].find_one({"id": pp.get("post_id")})
+    account = db["social_accounts"].find_one({"id": pp.get("social_account_id")})
+    if not post or post.get("status") == "archived":
+        return {"ok": False, "reason": "post_unavailable"}
+    if not account or account.get("workspace_id") != post.get("workspace_id") or not account.get("is_active") or not account.get("access_token_enc"):
+        return {"ok": False, "reason": "account_unavailable"}
+    expires = account.get("token_expires_at")
+    if expires and expires.replace(tzinfo=expires.tzinfo or timezone.utc) <= datetime.now(timezone.utc):
+        return {"ok": False, "reason": "token_expired"}
+    try:
+        token = decrypt(account["access_token_enc"])
+        publisher = get_publisher(pp["platform"])
+    except Exception:
+        return {"ok": False, "reason": "account_unavailable"}
+    claim = uuid4().hex
+    pending = {**outcome, "status": "pending", "updated_at": utcnow()}
+    claimed = db["social_post_platforms"].update_one(
+        {"id": pp["id"], "status": "published", "first_comment_state": outcome, "first_comment": pp.get("first_comment"), "first_comment_claim": {"$exists": False}},
+        {"$set": {"first_comment_claim": claim, "first_comment_state": pending, "publish_state.first_comment_state": pending}},
+    )
+    if not claimed.matched_count:
+        return {"ok": False, "reason": "already_claimed"}
+
+    def save(state):
+        updated = db["social_post_platforms"].update_one(
+            {"id": pp["id"], "first_comment_claim": claim},
+            {"$set": {"first_comment_state": state["first_comment_state"], "publish_state.first_comment_state": state["first_comment_state"]}},
+        )
+        if not updated.matched_count:
+            raise RuntimeError("Comment claim lost")
+
+    publisher.set_publish_context({"first_comment_state": outcome}, save)
+    try:
+        final = deliver_first_comment(publisher, post_id, token, pp["first_comment"], explicit_retry=True)
+    except Exception:
+        return {"ok": False, "reason": "pending_reconciliation"}
+    db["social_post_platforms"].update_one({"id": pp["id"], "first_comment_claim": claim}, {"$unset": {"first_comment_claim": ""}})
+    return {"ok": final["status"] == "succeeded", "status": final["status"]}
 
 
 @celery_app.task(

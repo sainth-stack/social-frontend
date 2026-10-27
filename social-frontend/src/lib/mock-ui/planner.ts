@@ -1,13 +1,31 @@
-import type { PlannerRun, PlannerSelection, PlannerSlot, RunCreate, RunItem, ScheduleOutcome, SchedulePreview, ScheduleResult, SlotPreview } from "@/types/planner";
+import type { ConflictAcknowledgment, PlannerRun, PlannerSelection, PlannerSlot, PlannerWarning, RunCreate, RunItem, ScheduleOutcome, SchedulePreview, ScheduleResult, SlotPreview } from "@/types/planner";
+import type { MediaAsset } from "@/types/social-media.types";
+import { handleSocialMock } from "./social";
 
 const runs = new Map<string, PlannerRun>();
 const previews = new Map<string, { selection: string; preview: SlotPreview }>();
 const schedules = new Map<string, { runId: string; preview: SchedulePreview }>();
 const confirmations = new Map<string, ScheduleResult>();
+const imageRequests = new Map<string, { revision: string | null; direction: string; mode: string }>();
 let revision = 0;
 const id = () => crypto.randomUUID();
 const now = () => new Date().toISOString();
 const fail = (message: string): never => { throw new Error(`Mock UI planner: ${message}`); };
+const fingerprint = (value: unknown) => {
+  let hash = 0;
+  for (const char of JSON.stringify(value)) hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+  return `demo-warning-${hash}`;
+};
+
+function annotate(slot: PlannerSlot, ownPost?: string): PlannerSlot {
+  const warnings: PlannerWarning[] = [...runs.values()].flatMap(run => run.items).filter(item => item.postId !== ownPost && item.isScheduled && item.slot.accountId === slot.accountId && item.proposedAt === slot.proposedAt).map(item => ({ code: "scheduled_post_conflict", postId: item.postId, accountId: item.slot.accountId!, accountName: `Demo ${item.slot.platform} account`, status: "scheduled", scheduledAt: item.proposedAt!, localDate: item.slot.date, localTime: item.slot.time!, timezone: item.slot.timezone, utcOffsetMinutes: item.slot.utcOffsetMinutes ?? 0, excerpt: item.post?.platforms[0].caption.replace(/\s+/g, " ").slice(0, 160) ?? "Scheduled demo post", fingerprint: fingerprint([item.postId, item.proposedAt]) }));
+  return { ...slot, warnings, warningFingerprint: warnings.length ? fingerprint([slot.slotId, slot.accountId, slot.proposedAt, slot.timezone, warnings]) : null, acknowledgmentRequired: !!warnings.length };
+}
+
+const acknowledged = (row: { slotId?: string; warningFingerprint?: string | null }, acknowledgments: ConflictAcknowledgment[] = []) => !row.warningFingerprint || acknowledgments.some(ack => ack.slotId === row.slotId && ack.warningFingerprint === row.warningFingerprint);
+const requireConsent = (slot: PlannerSlot, acknowledgments?: ConflictAcknowledgment[]) => {
+  if (!acknowledged(slot, acknowledgments)) throw Object.assign(new Error("Review other posts at this time"), { response: { status: 409, data: { detail: { code: "conflict_acknowledgment_required", slot } } } });
+};
 
 function instant(date: string, time: string, timezone: string): string {
   const target = Date.parse(`${date}T${time}:00Z`);
@@ -27,6 +45,9 @@ function selectionKey(selection: PlannerSelection): string {
 }
 
 function preview(selection: PlannerSelection): SlotPreview {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: selection.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const part = (type: string) => parts.find(row => row.type === type)!.value;
+  const today = `${part("year")}-${part("month")}-${part("day")}`;
   const dates = [...new Set(selection.dates ?? [])].sort();
   if (!selection.dates) {
     const start = Date.parse(`${selection.startDate}T00:00:00Z`);
@@ -39,7 +60,8 @@ function preview(selection: PlannerSelection): SlotPreview {
     const override = selection.overrides?.find(row => row.date === date && row.platform === platform);
     const time = override?.time || selection.postingTime || "10:00";
     const proposedAt = instant(date, time, selection.timezone);
-    return { slotId: `${date}:${platform}`, date, time, timezone: selection.timezone, platform, accountId: selection.accountIds[platform] || null, proposedAt, utcOffsetMinutes: null, reasons: [...(!selection.accountIds[platform] ? ["account_missing"] : []), ...(Date.parse(proposedAt) <= Date.now() ? ["time_in_past"] : [])] };
+    const accountId = override?.accountId || selection.accountIds[platform] || null;
+    return annotate({ slotId: `${date}:${platform}`, date, time, timezone: selection.timezone, platform, accountId, proposedAt, utcOffsetMinutes: null, reasons: [...(!accountId ? ["account_missing"] : []), ...(date < today ? ["past_date"] : Date.parse(proposedAt) <= Date.now() ? ["past_slot"] : [])] });
   }));
   const result = { timezone: selection.timezone, selectedDateCount: dates.length, dateCap: 30, expectedTextUnits: slots.length, previewToken: id(), slots };
   previews.set(result.previewToken, { selection: selectionKey(selection), preview: result });
@@ -64,21 +86,25 @@ function create(payload: RunCreate): PlannerRun {
   if (!validated || validated.selection !== selectionKey(payload)) return fail("refresh the exact slot preview before creating");
   const excluded = payload.excludedSlotIds ?? [];
   if (validated.preview.slots.some(slot => slot.reasons.length && !excluded.includes(slot.slotId))) fail("correct or explicitly exclude blocked slots");
-  const run: PlannerRun = { id: id(), requestId: payload.requestId, status: "completed", dispatchState: "accepted", prompt: payload.prompt, timezone: payload.timezone, createdAt: now(), createdBy: "mock-admin", cancelled: false, items: [] };
+  validated.preview.slots.filter(slot => !excluded.includes(slot.slotId)).forEach(slot => requireConsent(annotate(slot), payload.conflictAcknowledgments));
+  const settings = handleSocialMock("/api/v1/workspaces/mock-workspace/social/settings", "GET", {}, {}) as { autoFirstComment?: boolean } | undefined;
+  const includeComment = payload.includeComment ?? !!settings?.autoFirstComment;
+  const run: PlannerRun = { id: id(), requestId: payload.requestId, status: "completed", dispatchState: "accepted", prompt: payload.prompt, includeComment, timezone: payload.timezone, createdAt: now(), createdBy: "mock-admin", cancelled: false, items: [] };
   run.items = validated.preview.slots.map(slot => {
     const skip = excluded.includes(slot.slotId);
     const caption = `Demo text draft for ${slot.platform}: ${payload.prompt}\n\nReview this illustrative copy before scheduling.`;
-    return refresh({ id: id(), slot, generationState: skip ? "excluded" : "created", error: null, postId: id(), revision: `demo-${++revision}`, copyApproved: false, approvedRevision: null, approvedBy: null, approvedAt: null, visualState: "not_requested", visualRevision: null, imageOperationId: null, imageRequestId: null, textState: "idle", textRequestId: null, imageIntent: slot.platform === "instagram" ? "required" : "optional", proposedAt: slot.proposedAt, isScheduled: false, canSchedule: false, reasons: [], scheduleState: null,
+    return refresh({ id: id(), slot, generationState: skip ? "excluded" : "created", error: null, postId: id(), revision: `demo-${++revision}`, copyApproved: false, approvedRevision: null, approvedBy: null, approvedAt: null, visualState: "not_requested", visualRevision: null, imageOperationId: null, imageRequestId: null, imageStage: null, imageError: null, imageRetryable: false, imageUpdatedAt: null, imageDirection: null, imageWarnings: [], textState: "idle", textRequestId: null, imageIntent: slot.platform === "instagram" ? "required" : "optional", proposedAt: slot.proposedAt, isScheduled: false, canSchedule: false, reasons: [], scheduleState: null,
       post: skip ? null : { id: id(), workspaceId: "mock-workspace", createdBy: "mock-admin", title: "Demo planner draft", status: "draft", scheduledAt: slot.proposedAt, publishedAt: null, approvalStatus: "not_required", approvedBy: null, templateId: null, aiPrompt: payload.prompt, imageUrl: null, imageSource: "none", createdAt: now(), updatedAt: now(), platforms: [{ id: id(), platform: slot.platform, socialAccountId: slot.accountId, caption, hashtags: ["#Demo"], firstComment: "", characterCount: caption.length, status: "pending", platformPostId: null, publishedAt: null, errorCode: null, errorMessage: null, retryCount: 0, nextRetryAt: null, reach: 0, impressions: 0, likes: 0, comments: 0, shares: 0, clicks: 0, engagementRate: 0 }] } });
   });
-  run.items.forEach(item => { if (item.post) item.post.id = item.postId; });
+  run.items.forEach(item => { if (item.post) { item.post.id = item.postId; item.post.generationOptions = { includeComment }; item.post.platforms[0].firstComment = includeComment ? "Demo discussion: what has worked for your team?" : ""; } });
   runs.set(run.id, run);
   return run;
 }
 
 function outcome(item: RunItem): ScheduleOutcome {
   refresh(item);
-  return { itemId: item.id, postId: item.postId, revision: item.revision, proposedAt: item.proposedAt, timezone: item.slot.timezone, platform: item.slot.platform, accountId: item.slot.accountId, outcome: item.isScheduled ? "already_scheduled" : item.canSchedule ? "ready" : "blocked", reasons: item.reasons };
+  const slot = annotate(item.slot, item.postId);
+  return { itemId: item.id, slotId: slot.slotId, warnings: slot.warnings, warningFingerprint: slot.warningFingerprint, acknowledgmentRequired: slot.acknowledgmentRequired, postId: item.postId, revision: item.revision, proposedAt: item.proposedAt, timezone: item.slot.timezone, platform: item.slot.platform, accountId: item.slot.accountId, outcome: item.isScheduled ? "already_scheduled" : item.canSchedule ? "ready" : "blocked", reasons: [...item.reasons] };
 }
 
 export function handlePlannerMock(path: string, method: string, params: Record<string, string>, body: Record<string, unknown>): unknown | undefined {
@@ -94,7 +120,19 @@ export function handlePlannerMock(path: string, method: string, params: Record<s
   const run = runs.get(runId);
   if (!run) return fail("saved demo run not found; mock data resets when the page reloads");
   const action = rest.join("/");
-  if (!action && method === "GET") { run.items.forEach(refresh); return run; }
+  if (!action && method === "GET") {
+    run.items.forEach(item => {
+      if (item.visualState === "processing") {
+        const stages = ["queued", "concept", "generate", "format", "save", "ready"] as const;
+        item.imageStage = stages[Math.min(stages.indexOf(item.imageStage as typeof stages[number]) + 1, stages.length - 1)];
+        item.imageUpdatedAt = now();
+        if (item.imageStage === "ready" && item.post) { item.visualState = "ready"; item.visualRevision = item.revision; item.post.imageUrl = "/mock-ui/sample.svg"; item.post.imageSource = "ai_generated"; }
+      }
+      item.slot = annotate(item.slot, item.postId);
+      refresh(item);
+    });
+    return run;
+  }
   if (action === "cancel" && method === "POST") { run.cancelled = true; run.status = "cancelled"; return run; }
   if (action === "retry" && method === "POST") return run;
   if (action === "schedule/preview" && method === "POST") {
@@ -107,10 +145,13 @@ export function handlePlannerMock(path: string, method: string, params: Record<s
     const key = String(body.requestId);
     if (confirmations.has(key)) return confirmations.get(key);
     const value = schedules.get(String(body.previewId));
-    if (!body.confirm || !value || value.runId !== runId) return fail("explicit final confirmation and preview are required");
+    if (!body.confirm || !value || value.runId !== runId || Date.parse(value.preview.expiresAt) <= Date.now()) return fail("explicit final confirmation and a current preview are required");
     const items = value.preview.items.map(expected => {
       const item = run.items.find(row => row.id === expected.itemId)!;
       const row = outcome(item);
+      if (row.warningFingerprint !== expected.warningFingerprint) return { ...row, outcome: "blocked" as const, reasons: ["conflict_snapshot_changed_preview_again"] };
+      if (!acknowledged(row, body.conflictAcknowledgments as ConflictAcknowledgment[])) return { ...row, outcome: "blocked" as const, reasons: ["conflict_acknowledgment_required"] };
+      if (row.revision !== expected.revision || row.proposedAt !== expected.proposedAt) return { ...row, outcome: "blocked" as const, reasons: ["preview_changed"] };
       if (row.outcome === "ready" && row.revision === expected.revision && row.proposedAt === expected.proposedAt) { item.isScheduled = true; item.scheduleState = "accepted"; if (item.post) item.post.status = "scheduled"; row.outcome = "scheduled"; }
       return row;
     });
@@ -131,17 +172,37 @@ export function handlePlannerMock(path: string, method: string, params: Record<s
     copy.caption = operation === "copy" ? String(body.caption) : `${copy.caption}\n\nDemo revised text ${++revision}.`;
     if (operation === "copy") { copy.hashtags = body.hashtags as string[]; copy.firstComment = String(body.firstComment ?? ""); }
     item.revision = `demo-${++revision}`; item.copyApproved = false; item.approvedRevision = null; item.visualState = item.post.imageUrl ? "stale" : "not_requested";
-  } else if (operation === "image" && method === "POST") {
+  } else if (["image", "image/start"].includes(operation) && method === "POST") {
     if (!item.copyApproved) return fail("approve saved text before generating an image");
+    const key = `${run.id}/${item.id}/${body.requestId}`;
+    const original = imageRequests.get(key);
+    if (original && (original.revision !== body.expectedRevision || body.imageDirection !== undefined && body.imageDirection !== original.direction || body.mode !== "retry" && String(body.mode ?? "generate") !== original.mode)) return fail("request revision, action or direction changed");
+    if (item.imageRequestId === body.requestId && (body.mode !== "retry" || ["processing", "ready"].includes(item.visualState))) {
+      return item;
+    }
+    if (item.visualState === "processing") return fail("an image operation is already active");
     if (body.mode === "retry" && body.requestId !== item.imageRequestId) return fail("retry must reuse the saved image request ID");
     if (body.mode === "regenerate" && (!body.creditsConfirmed || body.requestId === item.imageRequestId)) return fail("new artwork requires a new request ID and credit confirmation");
-    item.imageOperationId = id(); item.imageRequestId = String(body.requestId); item.visualState = "ready"; item.visualRevision = item.revision; item.imageIntent = "required"; item.post.imageUrl = "/mock-ui/sample.svg"; item.post.imageSource = "ai_generated";
+    imageRequests.set(key, original ?? { revision: item.revision, direction: String(body.imageDirection ?? ""), mode: String(body.mode ?? "generate") });
+    item.imageOperationId = body.mode === "retry" ? item.imageOperationId : id(); item.imageRequestId = String(body.requestId); item.imageDirection = body.mode === "retry" ? item.imageDirection : String(body.imageDirection ?? ""); item.imageError = null; item.imageRetryable = false; item.imageUpdatedAt = now(); item.imageIntent = "required";
+    if (operation === "image/start") { item.visualState = "processing"; item.imageStage = "queued"; }
+    else { item.visualState = "ready"; item.imageStage = "ready"; item.visualRevision = item.revision; item.post.imageUrl = "/mock-ui/sample.svg"; item.post.imageSource = "ai_generated"; }
+  } else if (operation === "image-asset" && method === "POST") {
+    if (!item.copyApproved) return fail("approve text before choosing an image");
+    if (!body.assetId) return fail("choose a workspace image");
+    const asset = handleSocialMock(`/api/v1/workspaces/mock-workspace/social/media-assets/${encodeURIComponent(String(body.assetId))}`, "GET", {}, {}) as MediaAsset;
+    if (!asset || asset.mediaType !== "image") return fail("choose an owned workspace image");
+    item.visualState = "ready"; item.visualRevision = item.revision; item.imageIntent = "required"; item.post.imageUrl = asset.url; item.post.imageSource = asset.source; item.imageUpdatedAt = now();
   } else if (operation === "image-intent" && method === "PATCH") {
     if (item.slot.platform === "instagram" && body.intent === "text_only") return fail("Instagram requires an image");
     item.imageIntent = String(body.intent);
     if (body.intent === "text_only") { item.post.imageUrl = null; item.visualState = "not_requested"; }
   } else if (operation === "slot" && method === "PATCH") {
-    item.slot.date = String(body.date); item.slot.time = String(body.time); item.slot.timezone = String(body.timezone); item.proposedAt = instant(item.slot.date, item.slot.time, item.slot.timezone); item.slot.proposedAt = item.proposedAt;
+    const proposedAt = instant(String(body.date), String(body.time), String(body.timezone));
+    if (Date.parse(proposedAt) <= Date.now()) return fail("choose a future posting time");
+    const slot = annotate({ ...item.slot, date: String(body.date), time: String(body.time), timezone: String(body.timezone), proposedAt }, item.postId);
+    requireConsent(slot, body.conflictAcknowledgments as ConflictAcknowledgment[]);
+    item.slot = slot; item.proposedAt = proposedAt;
   } else return undefined;
   return refresh(item);
 }

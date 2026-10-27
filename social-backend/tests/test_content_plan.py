@@ -41,6 +41,26 @@ def make_plan(db, planner, **kwargs):
         days=1, prompt="A launch campaign with useful advice", skipFilledDays=False, **kwargs))
 
 
+@pytest.mark.parametrize("default,override,expected", [
+    (None, None, False), (True, None, True), (True, False, False), (False, True, True),
+])
+def test_legacy_plan_first_comment_preference_is_resolved_and_saved(db, planner, monkeypatch, default, override, expected):
+    from app.social.ai import generator
+
+    if default is not None:
+        db.social_settings.insert_one({"workspace_id": planner[0]["id"], "auto_first_comment": default})
+    generate = Mock(side_effect=lambda **kw: {kw["platforms"][0]: {
+        "caption": "Useful launch advice", "firstComment": "Supporting comment"}})
+    monkeypatch.setattr(generator, "generate_platform_content", generate)
+    result = make_plan(db, planner, includeComment=override, platforms=[SocialPlatform.FACEBOOK])
+    assert result.draftCount == 1
+    assert generate.call_args.kwargs["include_comment"] is expected
+    saved = SocialMediaService(db).get_post(db.social_posts.find_one({"id": result.items[0].postId}))
+    assert saved.platforms[0].firstComment == ("Supporting comment" if expected else "")
+    assert saved.generationOptions["includeComment"] is expected
+    assert generate.call_count == 1
+
+
 @pytest.mark.parametrize("images", [False, True])
 def test_initial_plan_is_text_only_even_for_instagram_and_legacy_autoschedule(db, planner, images):
     result = make_plan(db, planner, autoSchedule=True, generateImages=images)

@@ -12,12 +12,14 @@ import httpx
 from app.core.config import settings
 from app.social.models import SocialPlatform
 from app.social.publishers.base import BasePublisher, PublishResult, ambiguous_publish, format_caption, validate_image_urls
+from app.social.publishers.first_comment import send_graph_comment
 
 logger = logging.getLogger(__name__)
 
 
 class InstagramPublisher(BasePublisher):
     platform = SocialPlatform.INSTAGRAM
+    supports_first_comment = True
     # Instagram Login tokens use graph.instagram.com (not graph.facebook.com).
     graph_host = "https://graph.instagram.com"
 
@@ -79,10 +81,7 @@ class InstagramPublisher(BasePublisher):
             )
             if not media_id:
                 return ambiguous_publish()
-            self.checkpoint(platform_post_id=media_id, submission_started=False)
-            if first_comment and media_id:
-                self._post_comment(media_id, access_token, first_comment)
-            return PublishResult(success=True, platform_post_id=media_id)
+            return self.complete_publish(media_id, access_token, first_comment)
         except httpx.HTTPStatusError as exc:
             if self.publish_state().get("submission_started") and exc.response.status_code >= 500:
                 return ambiguous_publish()
@@ -174,10 +173,7 @@ class InstagramPublisher(BasePublisher):
             media_id = self._publish_container(account_id, token, str(parent))
             if not media_id:
                 return ambiguous_publish()
-            self.checkpoint(platform_post_id=media_id, submission_started=False)
-            if first_comment:
-                self._post_comment(media_id, token, first_comment)
-            return PublishResult(success=True, platform_post_id=media_id)
+            return self.complete_publish(media_id, token, first_comment)
         except httpx.HTTPStatusError as exc:
             if self.publish_state().get("submission_started") and exc.response.status_code >= 500:
                 return ambiguous_publish()
@@ -201,13 +197,9 @@ class InstagramPublisher(BasePublisher):
             raise RuntimeError(data["error"].get("message", "Instagram API error"))
         return str(data.get("id") or "")
 
-    def _post_comment(self, media_id: str, token: str, message: str) -> None:
+    def _post_comment(self, media_id: str, token: str, message: str) -> dict:
         url = f"{self.graph_host}/{self.api_version}/{media_id}/comments"
-        try:
-            with httpx.Client(timeout=30.0) as client:
-                client.post(url, data={"message": message, "access_token": token})
-        except Exception as exc:
-            logger.warning("Instagram first comment failed (non-fatal): %s", exc)
+        return send_graph_comment(url, token, message)
 
     def _http_error(self, exc: httpx.HTTPStatusError) -> PublishResult:
         status_code = exc.response.status_code

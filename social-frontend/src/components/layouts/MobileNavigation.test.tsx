@@ -19,6 +19,25 @@ function navigation({ admin = false, viewer = false, open = false } = {}) {
 }
 
 describe("Mobile destination navigation", () => {
+  it.each([false, true])("uses consistent decorative Lucide icons for admin=%s", (admin) => {
+    navigation({ admin });
+    const nav = screen.getByRole("navigation", { name: admin ? "Mobile admin navigation" : "Mobile workspace navigation" });
+    const sections = admin ? adminNavSections : dashboardNavSections;
+    for (const link of within(nav).getAllByRole("link")) {
+      const item = sections.flatMap((section) => section.items).find((item) => item.href === link.getAttribute("href"))!;
+      const { container, unmount } = render(<item.icon />);
+      expect(link.querySelector("svg")?.innerHTML).toBe(container.querySelector("svg")?.innerHTML);
+      unmount();
+    }
+    for (const icon of nav.querySelectorAll("svg")) {
+      expect(icon.getAttribute("viewBox")).toBe("0 0 24 24");
+      expect(icon.getAttribute("stroke-width")).toBe("1.75");
+      expect(icon.getAttribute("aria-hidden")).toBe("true");
+      expect(icon.classList.contains("size-5")).toBe(true);
+      expect(icon.classList.contains("shrink-0")).toBe(true);
+    }
+  });
+
   it("keeps frequent destinations and marks the parent of a nested route", () => {
     mocks.pathname = "/dashboard/posts/one";
     navigation();

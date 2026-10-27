@@ -9,6 +9,27 @@ const selection: PlannerSelection = { timezone: "Asia/Kolkata", dates: ["2027-01
 beforeEach(() => { vi.clearAllMocks(); for (const method of [apiClient.get, apiClient.post, apiClient.patch]) vi.mocked(method).mockResolvedValue({ data: { saved: true } }); });
 
 describe("planner API canonical contract", () => {
+  it("preserves aggregate warning consent at create, slot edit, preview and final confirmation", async () => {
+    const conflictAcknowledgments = [{ slotId: "opaque-slot", warningFingerprint: "aggregate-not-individual" }];
+    const create: RunCreate = { ...selection, conflictAcknowledgments, previewToken: "token", requestId: "once", prompt: "A useful complete brief", excludedSlotIds: [] };
+    await plannerApi.createRun("workspace", create);
+    expect(apiClient.post).toHaveBeenLastCalledWith(`${prefix}/runs`, create);
+    const slot = { date: "2027-01-02", time: "14:30", timezone: "Asia/Kolkata", conflictAcknowledgments };
+    await plannerApi.editSlot("workspace", "run", "item", slot);
+    expect(apiClient.patch).toHaveBeenLastCalledWith(`${prefix}/runs/run/items/item/slot`, slot);
+    await plannerApi.previewSchedule("workspace", "run", ["item"], conflictAcknowledgments);
+    expect(apiClient.post).toHaveBeenLastCalledWith(`${prefix}/runs/run/schedule/preview`, { itemIds: ["item"], conflictAcknowledgments });
+    await plannerApi.confirmSchedule("workspace", "run", { previewId: "preview", requestId: "final", confirm: true, conflictAcknowledgments });
+    expect(apiClient.post).toHaveBeenLastCalledWith(`${prefix}/runs/run/schedule/confirm`, { previewId: "preview", requestId: "final", confirm: true, conflictAcknowledgments });
+  });
+  it("aborts superseded reads and sends optional direction only to explicit image start", async () => {
+    const controller = new AbortController();
+    await plannerApi.getRun("workspace", "run", controller.signal);
+    expect(apiClient.get).toHaveBeenLastCalledWith(`${prefix}/runs/run`, { signal: controller.signal });
+    const payload = { expectedRevision: "rev", requestId: "new", mode: "generate" as const, creditsConfirmed: false, imageDirection: "An editorial portrait, warm daylight" };
+    await plannerApi.image("workspace", "run", "item", payload);
+    expect(apiClient.post).toHaveBeenLastCalledWith(`${prefix}/runs/run/items/item/image/start`, payload);
+  });
   it("previews exact selection and creates with the final token and explicit exclusions", async () => {
     await plannerApi.previewSlots("workspace", selection);
     expect(apiClient.post).toHaveBeenLastCalledWith(`${prefix}/slots/preview`, selection);
@@ -33,7 +54,7 @@ describe("planner API canonical contract", () => {
     for (const mode of ["generate", "retry", "regenerate"] as const) {
       const payload = { expectedRevision: "rev", requestId: mode === "retry" ? "existing" : "new", mode, creditsConfirmed: mode === "regenerate" };
       await plannerApi.image("workspace", "run", "item", payload);
-      expect(apiClient.post).toHaveBeenLastCalledWith(`${prefix}/runs/run/items/item/image`, payload, { timeout: 600_000 });
+      expect(apiClient.post).toHaveBeenLastCalledWith(`${prefix}/runs/run/items/item/image/start`, payload);
     }
   });
   it("sends selected scheduling IDs then an explicit confirmation token", async () => {

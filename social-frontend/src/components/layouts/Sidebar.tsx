@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
-import { ChevronDown, CreditCard, Sparkle, X, Zap } from "lucide-react";
+import { ArrowLeft, ChevronDown, CreditCard, X, Zap } from "lucide-react";
 
 import type { NavItem, NavSection } from "@/components/layouts/nav-config";
 import { EarnedVoiceLogo } from "@/components/brand/EarnedVoiceLogo";
@@ -92,8 +92,9 @@ function NavLink({
     >
       <Icon
         aria-hidden="true"
+        strokeWidth={1.75}
         className={cn(
-          "size-4 shrink-0",
+          "size-5 shrink-0",
           active ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
         )}
       />
@@ -149,7 +150,7 @@ function NavGroup({
             : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
         )}
       >
-        <Icon aria-hidden="true" className={cn("size-4 shrink-0", groupActive && "text-primary")} />
+        <Icon aria-hidden="true" strokeWidth={1.75} className={cn("size-5 shrink-0", groupActive && "text-primary")} />
         {!collapsed ? <><span className="flex-1 truncate text-left">{item.label}</span>
         <ChevronDown aria-hidden="true"
           className={cn("h-4 w-4 opacity-60 transition-transform", open && "rotate-180")}
@@ -181,7 +182,7 @@ function UsageCard({ state, collapsed, onNavigate }: {
   const label = PLAN_DISPLAY_NAMES[plan] ?? plan;
   const posts = state.usage?.postsThisMonth;
   const percent = posts && posts.limit !== null ? (posts.limit === 0 ? (posts.used > 0 ? 100 : 0) : Math.min(100, posts.used / posts.limit * 100)) : null;
-  if (collapsed) return <Link href="/dashboard/billing" aria-label="Manage billing" title={`Manage billing · ${label}`} onClick={(event) => navigate(event, onNavigate)} className={cn("mx-3 mb-4 flex min-h-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground", focusClass)}><CreditCard className="size-4" aria-hidden="true" /></Link>;
+  if (collapsed) return <Link href="/dashboard/billing" aria-label="Manage billing" title={`Manage billing · ${label}`} onClick={(event) => navigate(event, onNavigate)} className={cn("mx-3 mb-4 flex min-h-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground", focusClass)}><CreditCard className="size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" /></Link>;
   return (
     <section aria-label="Plan and usage" className="mx-3 mb-4 rounded-xl border border-sidebar-border bg-card p-3">
       <div className="flex items-center justify-between gap-2">
@@ -306,7 +307,7 @@ function SidebarContent({
             title={collapsed ? "Back to workspace app" : undefined}
             className={cn("flex min-h-6 items-center gap-2 rounded text-xs font-medium text-muted-foreground transition-colors hover:text-foreground", focusClass, collapsed && "justify-center")}
           >
-            <Sparkle aria-hidden="true" className="size-4 shrink-0 text-primary" /> {!collapsed ? "Back to workspace app" : null}
+            <ArrowLeft aria-hidden="true" strokeWidth={1.75} className="size-5 shrink-0 text-primary" /> {!collapsed ? "Back to workspace app" : null}
           </Link>
         </div>
       ) : null}

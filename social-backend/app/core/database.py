@@ -150,7 +150,8 @@ def _index_specs() -> dict[str, list[IndexModel]]:
             idx(("workspace_id", ASCENDING), ("run_id", ASCENDING)),
         ],
         "social_planner_slots": [
-            idx(("workspace_id", ASCENDING), ("account_id", ASCENDING), ("scheduled_at", ASCENDING), unique=True),
+            idx(("workspace_id", ASCENDING), ("post_id", ASCENDING), unique=True, name="planner_workspace_post_unique"),
+            idx(("workspace_id", ASCENDING), ("account_id", ASCENDING), ("scheduled_at", ASCENDING), name="planner_account_instant_lookup"),
             idx(("post_id", ASCENDING)),
         ],
         "social_media_assets": [idx(("workspace_id", ASCENDING), ("created_at", DESCENDING))],
@@ -214,6 +215,13 @@ def _ensure_id_index(db: Database, collection: str) -> None:
 def _ensure_indexes(db: Database) -> None:
     for collection, models in _index_specs().items():
         try:
+            if collection == "social_planner_slots":
+                legacy = any(spec.get("unique") and set(spec["key"]) == {
+                    ("workspace_id", ASCENDING), ("account_id", ASCENDING), ("scheduled_at", ASCENDING)}
+                    for spec in db[collection].index_information().values())
+                if legacy:
+                    logger.warning("Planner slot indexes require explicit app.core.planner_slot_migration with writers stopped; existing indexes retained")
+                    continue
             db[collection].create_indexes(models)
         except OperationFailure as exc:
             logger.warning("Index creation failed on %s: %s", collection, exc)

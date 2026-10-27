@@ -51,6 +51,8 @@ import {
   useBrandLogos,
 } from "@/components/social-media/ai-studio/BrandLogoLibrary";
 import ResponsivePhonePreview from "@/components/social-media/ai-studio/ResponsivePhonePreview";
+import MediaPicker from "@/components/social-media/media/MediaPicker";
+import { httpsUrl } from "@/components/social-media/media/media-picker-utils";
 import PlatformPreview from "@/components/social-media/content-studio/PlatformPreview";
 import ScheduleModal from "@/components/social-media/posts/ScheduleModal";
 import {
@@ -86,6 +88,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { TagInput } from "@/components/ui/tag-input";
 import {
   Tooltip,
   TooltipContent,
@@ -156,6 +159,7 @@ const CONTENT_TYPE_TO_FORMAT: Record<string, string> = {
   Caption: "single",
   Carousel: "carousel",
   Thread: "thread",
+  Poll: "poll",
   Promotional: "single",
   Educational: "single",
   Announcement: "single",
@@ -271,12 +275,22 @@ function ToggleRow({
   );
 }
 
-type PrefillMedia = { name: string; url: string; mediaType: MediaAssetType } | null;
+type PrefillMedia = { name: string; url: string; mediaType: MediaAssetType; workspaceId: string; assetId?: string | null; mimeType?: string | null; source?: MediaAsset["source"]; provenance?: MediaAsset["provenance"] } | null;
+
+function prefillFromAsset(asset: MediaAsset, workspaceId: string): NonNullable<PrefillMedia> {
+  return { name: asset.prompt?.slice(0, 48) || asset.id.slice(0, 8), workspaceId, assetId: asset.id, url: asset.url, mediaType: asset.mediaType, mimeType: asset.mimeType, source: asset.source, provenance: asset.provenance };
+}
+
+function MediaAttribution({ provenance }: { provenance?: MediaAsset["provenance"] }) {
+  if (!provenance) return null;
+  return <div className="space-y-1 break-words text-xs text-muted-foreground"><p>{provenance.attributionText}</p><p>{[[provenance.creatorUrl, provenance.creatorName || "Creator"], [provenance.providerPageUrl, provenance.provider], [provenance.licenseUrl, "License"]].map(([url, label], index) => <span key={index}>{index > 0 && " · "}{httpsUrl(url) ? <a href={httpsUrl(url)} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="text-primary underline underline-offset-2">{label}</a> : label}</span>)}</p></div>;
+}
 
 type Variation = {
   label: string;
   caption: string;
   hashtags: string[];
+  firstComment: string;
   platform: SocialPlatform;
   recommended?: boolean;
 };
@@ -381,7 +395,7 @@ function withCleanCaption(
   return { ...rest, caption: clean.caption, hashtags: clean.hashtags };
 }
 
-function parseGeneratedContent(
+export function parseGeneratedContent(
   data: GeneratedContent,
   formatKey: string,
   selectedPlatforms: SocialPlatform[],
@@ -396,6 +410,7 @@ function parseGeneratedContent(
       withCleanCaption(caption, tags, {
         label: "Thread",
         platform: "x",
+        firstComment: "",
         recommended: startIndex === 0,
       }),
     );
@@ -410,6 +425,7 @@ function parseGeneratedContent(
         withCleanCaption(caption, tags, {
           label: PLATFORM_LABELS[p],
           platform: p,
+          firstComment: p === "x" ? "" : data.firstComment ?? "",
           recommended: results.length === 0,
         }),
       );
@@ -429,6 +445,7 @@ function parseGeneratedContent(
         withCleanCaption(caption, tags, {
           label: PLATFORM_LABELS[p],
           platform: p,
+          firstComment: p === "x" ? "" : data.firstComment ?? "",
           recommended: results.length === 0,
         }),
       );
@@ -446,6 +463,7 @@ function parseGeneratedContent(
       withCleanCaption(caption, tags, {
         label: PLATFORM_LABELS[p],
         platform: p,
+        firstComment: p === "x" ? "" : pc?.firstComment ?? "",
         recommended: results.length === 0,
       }),
     );
@@ -514,6 +532,10 @@ function GenerateTab({
   const [variationsWanted, setVariationsWanted] = useState<1 | 2 | 3>(1);
   const [includeHashtags, setIncludeHashtags] = useState(true);
   const [includeEmojis, setIncludeEmojis] = useState(false);
+  const [includeCommentOverride, setIncludeCommentOverride] = useState<boolean | null>(null);
+  const [workspaceFirstComment, setWorkspaceFirstComment] = useState(false);
+  const [commentContextReady, setCommentContextReady] = useState(false);
+  const includeComment = includeCommentOverride ?? workspaceFirstComment;
   const [alsoGenerateImage, setAlsoGenerateImage] = useState(false);
   const [artDirection, setArtDirection] = useState("");
   const [copyApproval, setCopyApproval] = useState<{ version: 1; fingerprint: string } | null>(null);
@@ -524,6 +546,7 @@ function GenerateTab({
   const [logoPosition, setLogoPosition] = useState<LogoPosition>("top-right");
   const [logoId, setLogoId] = useState<string | null>(null);
   const [logoPickerOpen, setLogoPickerOpen] = useState(false);
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [outputView, setOutputView] = useState("edit");
   const [pendingAction, setPendingAction] = useState<"generate" | "reset" | "artwork" | null>(null);
@@ -616,6 +639,7 @@ function GenerateTab({
     setCreativeProcessing(false);
     setRetryUnavailable(false);
     setCopyApproval(null);
+    onClearMedia();
     draftLoadedRef.current = draftId;
     void dispatch(fetchSocialPost({ orgId, postId: draftId }))
       .unwrap()
@@ -624,10 +648,11 @@ function GenerateTab({
         setEditingPostId(post.id);
         setPrompt(post.aiPrompt || post.title || "");
         const options = post.generationOptions ?? {};
-        setType(options.contentType ?? (post.format === "carousel" ? "Carousel" : post.format === "thread" ? "Thread" : "Caption"));
+        setType(options.contentType ?? (post.format === "carousel" ? "Carousel" : post.format === "thread" ? "Thread" : post.format === "poll" ? "Poll" : "Caption"));
         setTone(options.tone ?? "Professional");
         setIncludeEmojis(options.includeEmojis ?? false);
         setIncludeHashtags(options.includeHashtags ?? true);
+        setIncludeCommentOverride(options.includeComment ?? null);
         setLength(options.length ?? "Medium");
         setVariationsWanted(options.variationsWanted ?? 1);
         setSlideCount(options.slideCount ?? post.slides?.length ?? 3);
@@ -657,15 +682,21 @@ function GenerateTab({
         setAlsoGenerateImage(options.visualIntent ?? Boolean(options.creativeRequest || post.platforms.some((platform) => platform.media?.length)));
         setVisualsStale(options.visualsStale ?? false);
         setActiveSlide(0);
-        setCreativeItems(post.platforms.flatMap((platform) => (platform.media ?? []).map((media) => ({
+        const savedMedia = post.platforms.flatMap(platform => platform.media ?? [])[0] as ({ assetId?: string | null; url: string; mimeType?: string | null; provenance?: MediaAsset["provenance"] } | undefined);
+        const manualMedia = !options.creativeRequest && !options.visualIntent && savedMedia?.assetId && post.format !== "carousel" && post.format !== "thread" ? savedMedia : null;
+        setCreativeItems(manualMedia ? [] : post.platforms.flatMap((platform) => (platform.media ?? []).map((media) => ({
           slideId: media.slideId ?? "single", platform: platform.platform, imageUrl: media.url,
           assetId: media.assetId ?? "", blobKey: media.blobKey ?? "", width: media.width ?? 0,
           height: media.height ?? 0, mimeType: media.mimeType ?? "image/jpeg",
         }))));
         const draftMedia = resolveDraftMedia(post.imageUrl);
-        if (draftMedia.mediaType === "video" && draftMedia.videoUrl) {
+        if (manualMedia) {
+          onSetPrefillMedia({ name: post.title?.slice(0, 48) || "Saved media", workspaceId: orgId, ...manualMedia, mediaType: manualMedia.mimeType?.startsWith("video/") ? "video" : "image", source: post.imageSource === "ai_generated" ? "ai_generated" : "uploaded" });
+          setGeneratedImageUrl(null);
+        } else if (draftMedia.mediaType === "video" && draftMedia.videoUrl) {
           onSetPrefillMedia({
             name: post.title?.slice(0, 48) || "Draft video",
+            workspaceId: orgId,
             url: draftMedia.videoUrl,
             mediaType: "video",
           });
@@ -682,6 +713,7 @@ function GenerateTab({
           label: PLATFORM_LABELS[pp.platform],
           caption: pp.caption,
           hashtags: pp.hashtags ?? [],
+          firstComment: pp.firstComment ?? "",
           platform: pp.platform,
           recommended: i === 0,
         }));
@@ -702,17 +734,36 @@ function GenerateTab({
       .getMediaAsset(orgId, assetId)
       .then((asset) => {
         if (cancelled || !mounted.current) return;
-        onSetPrefillMedia({
-          name: asset.prompt?.slice(0, 48) || asset.id.slice(0, 8),
-          url: asset.url,
-          mediaType: asset.mediaType,
-        });
+        onSetPrefillMedia(prefillFromAsset(asset, orgId));
         setMediaSource(asset.source === "uploaded" ? "uploaded" : "ai_generated");
         toast.success("Media attached from library");
       })
       .catch(() => { if (!cancelled) toast.error("Could not load media asset"); });
     return () => { cancelled = true; };
   }, [orgId, assetId, draftId, onSetPrefillMedia]);
+
+  useEffect(() => {
+    if (!prefillMedia) return;
+    if (creativeAbort.current) {
+      creativeAbort.current.abort();
+      operation.current += 1;
+      operationLocked.current = false;
+      setImageLoading(false);
+      setSlidesLoading(false);
+    }
+    setCreativeProcessing(false);
+    setCreativeItems([]);
+    setCreativeRequest(null);
+    setGeneratedImageUrl(null);
+    setImageMeta(null);
+    setVisualsStale(false);
+    setVisualMessage(null);
+    setFailedImageUrls([]);
+    setMediaSource(prefillMedia.source ?? "uploaded");
+    setAlsoGenerateImage(false);
+    imagePreferenceChanged.current = true;
+    if (type === "Carousel" || type === "Thread") setType("Caption");
+  }, [prefillMedia, type]);
 
   useEffect(() => {
     if (!orgId || accounts.length > 0) return;
@@ -743,6 +794,16 @@ function GenerateTab({
     };
   }, [orgId, brandVersion]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setWorkspaceFirstComment(false);
+    setCommentContextReady(false);
+    if (orgId) void socialMediaApi.getSettings(orgId).then((settings) => {
+      if (!cancelled) setWorkspaceFirstComment(settings.autoFirstComment ?? false);
+    }).catch(() => undefined).finally(() => { if (!cancelled) setCommentContextReady(true); });
+    return () => { cancelled = true; };
+  }, [orgId]);
+
   // Keep preview tab on a selected platform.
   useEffect(() => {
     if (!selectedPlatforms.includes(activePlatform)) {
@@ -753,7 +814,7 @@ function GenerateTab({
   // Auto-enable image generation when the prompt/type implies a visual is needed.
   useEffect(() => {
     if (type === "Thread") { setAlsoGenerateImage(false); return; }
-    if (prefillMedia?.mediaType === "image") {
+    if (prefillMedia) {
       setAlsoGenerateImage(false);
       return;
     }
@@ -788,7 +849,7 @@ function GenerateTab({
     activeIdx >= 0 && variations ? variations[activeIdx] : null;
 
   const previewCaption = activeVariation?.caption ?? "";
-  const previewHashtags = includeHashtags ? (activeVariation?.hashtags ?? []) : [];
+  const previewHashtags = includeHashtags ? [...(activeVariation?.hashtags ?? []), ...hashtags] : [];
   const previewImageUrl =
     creativeMedia(creativeItems, previewPlatform, type === "Carousel" ? slides : null)[type === "Carousel" ? activeSlide : 0]?.url ??
     (creativeRequest || type === "Carousel" ? null : generatedImageUrl) ??
@@ -833,6 +894,12 @@ function GenerateTab({
     );
   };
 
+  const updateActiveCopy = (patch: Partial<Pick<Variation, "hashtags" | "firstComment">>) => {
+    if (activeIdx < 0) return;
+    markVisualsStale();
+    setVariations((previous) => previous?.map((variation, index) => index === activeIdx || (patch.firstComment !== undefined && (type === "Carousel" || type === "Poll")) ? { ...variation, ...patch, firstComment: variation.platform === "x" ? "" : patch.firstComment ?? variation.firstComment } : variation) ?? null);
+  };
+
   const togglePlatform = (p: SocialPlatform) => {
     setSelectedPlatforms((prev) => {
       if (prev.includes(p)) {
@@ -869,12 +936,13 @@ function GenerateTab({
 
   const approvedPlatforms = selectedPlatforms.map((platform) => {
     const variation = activeVariation?.platform === platform ? activeVariation : variations?.find((item) => item.platform === platform);
-    return { platform, caption: variation?.caption ?? "", hashtags: includeHashtags ? [...new Set([...(variation?.hashtags ?? []), ...hashtags])] : [] };
+    return { platform, caption: variation?.caption ?? "", hashtags: includeHashtags ? [...(variation?.hashtags ?? []), ...hashtags] : [], firstComment: type === "Thread" || platform === "x" ? "" : variation?.firstComment ?? "" };
   });
   const fingerprint = copyFingerprint({
     platforms: approvedPlatforms, slides: type === "Carousel" ? slides ?? [] : [], tweets: type === "Thread" ? tweets.map(({ text }) => ({ text })) : [],
-    prompt, type, tone, length, slideCount, cta, includeHashtags, includeEmojis, brandForbidsEmoji, variationsWanted,
+    prompt, type, tone, length, slideCount, cta, includeHashtags, includeEmojis, includeComment, brandForbidsEmoji, variationsWanted,
     alsoGenerateImage, artDirection, visualFormat, headlineOnImage, includeLogo, logoId, logoPosition, effectiveLogoId: includeLogo ? selectedLogo?.id ?? null : null, brandKit,
+    attachment: prefillMedia ? { assetId: prefillMedia.assetId ?? prefillMedia.url, mimeType: prefillMedia.mimeType, mediaType: prefillMedia.mediaType } : undefined,
   });
   const currentFingerprint = useRef(fingerprint);
   currentFingerprint.current = fingerprint;
@@ -885,10 +953,10 @@ function GenerateTab({
     if (approvalContextReady && copyApproval && copyApproval.fingerprint !== fingerprint) {
       setCopyApproval(null);
       setCreativeRequest(null);
-      if (creativeItems.length) setVisualsStale(true);
+      if (creativeItems.length && !prefillMedia) setVisualsStale(true);
       operation.current += 1;
     }
-  }, [fingerprint, copyApproval, creativeItems.length, approvalContextReady]);
+  }, [fingerprint, copyApproval, creativeItems.length, approvalContextReady, prefillMedia]);
 
   const markVisualsStale = () => {
     setCopyApproval(null);
@@ -900,6 +968,7 @@ function GenerateTab({
   };
 
   const runCreativeSet = async (retry = false, statusOnly = false) => {
+    if (prefillMedia) return;
     if (!copyApproved || !canApproveCopy) { toast.error("Review all selected captions and slides, then approve copy before generating visuals."); return; }
     const list = type === "Carousel" ? slides : null;
     const platforms = selectedPlatforms.filter((platform) => platform !== "x");
@@ -1027,7 +1096,6 @@ function GenerateTab({
     let generatedSlides: StoredSlide[] = [];
     try {
       const results: Variation[] = [];
-      const allHashtags: string[] = [];
       const formatKey = CONTENT_TYPE_TO_FORMAT[type] ?? "single";
 
       const responses = await Promise.all(
@@ -1037,7 +1105,7 @@ function GenerateTab({
             tone,
             platforms: platformsForGen,
             includeHashtags,
-            includeComment: false,
+            includeComment: type === "Thread" ? false : includeComment,
             format: formatKey,
             ...generationMeta(),
           }),
@@ -1048,9 +1116,9 @@ function GenerateTab({
 
       responses.forEach((data: GeneratedContent, i) => {
         const cleaned: GeneratedContent = {
-          ...data, caption: cleanText(data.caption ?? ""),
+          ...data, caption: cleanText(data.caption ?? ""), firstComment: cleanText(data.firstComment ?? ""),
           hashtags: includeHashtags ? (data.hashtags ?? []).map(cleanText) : [],
-          platforms: Object.fromEntries(Object.entries(data.platforms).map(([platform, content]) => [platform, { ...content, caption: cleanText(content!.caption), hashtags: includeHashtags ? content!.hashtags.map(cleanText) : [] }])),
+          platforms: Object.fromEntries(Object.entries(data.platforms).map(([platform, content]) => [platform, { ...content, caption: cleanText(content!.caption), firstComment: cleanText(content!.firstComment ?? ""), hashtags: includeHashtags ? content!.hashtags.map(cleanText) : [] }])),
         };
         const parsed = parseGeneratedContent(cleaned, formatKey, platformsForGen, results.length).map((variation) => ({ ...variation, hashtags: includeHashtags ? variation.hashtags : [] }));
         if (effectiveVariations > 1 && parsed.length === 1 && formatKey === "single") {
@@ -1060,8 +1128,9 @@ function GenerateTab({
           };
         }
         for (const v of parsed) {
+          const previous = variations?.filter((item) => item.platform === v.platform)[i];
+          if (previous?.firstComment.trim() && formatKey !== "thread" && v.platform !== "x") v.firstComment = previous.firstComment;
           results.push(v);
-          allHashtags.push(...v.hashtags);
         }
       });
 
@@ -1073,7 +1142,6 @@ function GenerateTab({
       setCopyApproval(null);
       setVariations(results);
       setOutputView("edit");
-      setHashtags([...new Set(allHashtags)]);
       const recIdx = results.findIndex((v) => v.recommended);
       setPicked(recIdx >= 0 ? recIdx : 0);
       generatedSlides = formatKey === "carousel" ? (responses[0]?.slides ?? []).map((slide) => ({ ...slide, id: slide.id ?? crypto.randomUUID(), headline: cleanText(slide.headline), body: cleanText(slide.body), imagePrompt: cleanText(slide.imagePrompt) })) : [];
@@ -1116,16 +1184,21 @@ function GenerateTab({
     finally { operationLocked.current = false; }
   };
 
+  const platformMedia = (platform: SocialPlatform) => prefillMedia && type !== "Carousel" && type !== "Thread"
+    ? [{ assetId: prefillMedia.assetId, url: prefillMedia.url, mimeType: prefillMedia.mimeType, provenance: prefillMedia.provenance }]
+    : creativeMedia(creativeItems, platform, type === "Carousel" ? slides : null);
+
   const buildPlatformPayload = (variation?: Variation) => {
     if (variation) {
       return [
         {
           platform: variation.platform,
           caption: variation.caption,
+          firstComment: type === "Thread" || variation.platform === "x" ? "" : variation.firstComment,
           hashtags: includeHashtags
-            ? [...new Set([...(variation.hashtags ?? []), ...hashtags])]
+            ? [...(variation.hashtags ?? []), ...hashtags]
             : [],
-          media: creativeMedia(creativeItems, variation.platform, type === "Carousel" ? slides : null),
+          media: platformMedia(variation.platform),
         },
       ];
     }
@@ -1134,10 +1207,11 @@ function GenerateTab({
       return [{
       platform,
       caption: v?.caption ?? "",
+      firstComment: type === "Thread" || platform === "x" ? "" : v?.firstComment ?? "",
       hashtags: includeHashtags
-        ? [...new Set([...(v?.hashtags ?? []), ...hashtags])]
+        ? [...(v?.hashtags ?? []), ...hashtags]
         : [],
-      media: creativeMedia(creativeItems, platform, type === "Carousel" ? slides : null),
+      media: platformMedia(platform),
     }];
     });
   };
@@ -1176,7 +1250,7 @@ function GenerateTab({
   );
   const hasContent = Boolean(variations?.length || hasMediaAttached || slides?.length || tweets.length);
   const busy = loading || imageLoading || slidesLoading;
-  const format = (CONTENT_TYPE_TO_FORMAT[type] ?? "single") as "single" | "carousel" | "thread";
+  const format = (CONTENT_TYPE_TO_FORMAT[type] ?? "single") as "single" | "carousel" | "thread" | "poll";
   const publishLimitation = type === "Thread"
     ? "Threads are copy-only. Native X reply-chain publishing and scheduling are not supported. Copy each tweet to publish manually."
     : !copyApproved
@@ -1206,8 +1280,9 @@ function GenerateTab({
       platformPayload = selectedPlatforms.map((p) => ({
         platform: p,
         caption: "",
+        firstComment: "",
         hashtags: [],
-        media: creativeMedia(creativeItems, p, type === "Carousel" ? slides : null),
+        media: platformMedia(p),
       }));
     }
     const hasText = platformPayload.some((p) => p.caption.trim());
@@ -1223,7 +1298,7 @@ function GenerateTab({
       imageUrl: persistMedia.imageUrl,
       imageSource: persistMedia.imageSource,
       format,
-      generationOptions: { tone, includeEmojis, includeHashtags, length, slideCount, contentType: type, visualsStale, creativeRequest: creativeRequest ?? undefined, copyApproval: copyApproved ? copyApproval : null, visualIntent: alsoGenerateImage, variationsWanted, artDirection, cta, visualFormat, headlineOnImage, includeLogo, logoId, logoPosition },
+      generationOptions: { tone, includeEmojis, includeHashtags, includeComment, length, slideCount, contentType: type, visualsStale, creativeRequest: creativeRequest ?? undefined, copyApproval: copyApproved ? copyApproval : null, visualIntent: alsoGenerateImage, variationsWanted, artDirection, cta, visualFormat, headlineOnImage, includeLogo, logoId, logoPosition },
       slides: type === "Carousel" ? slides ?? [] : [],
       tweets: type === "Thread" ? tweets.map(({ text }) => ({ text })) : [],
       platforms: platformPayload,
@@ -1335,6 +1410,8 @@ function GenerateTab({
     setTone("Professional");
     setIncludeEmojis(false);
     setIncludeHashtags(true);
+    setIncludeCommentOverride(null);
+    setHashtags([]);
     setLength("Medium");
     setType("Caption");
     setSlideCount(3);
@@ -1481,6 +1558,7 @@ function GenerateTab({
           </div>
         </CardHeader>
         <CardContent className="p-4 sm:p-6"><fieldset disabled={busy || saving} onChangeCapture={markVisualsStale} className="min-w-0 space-y-5">
+          <div className="space-y-2"><Button type="button" variant="outline" disabled={!orgId || type === "Carousel" || type === "Thread"} onClick={() => setMediaPickerOpen(true)}><Upload className="mr-1.5 h-4 w-4" />Add your media</Button><p className="text-xs text-muted-foreground">Upload or paste an image, choose stock, or reuse your library before generating copy. Manual media uses no AI image credits. Single-image posts and draft-only videos are supported; Carousel and Thread do not support manual attachments.</p></div>
           {prefillMedia && (
             <div className="flex items-center justify-between rounded-lg border border-border bg-accent/40 px-3 py-2 text-xs">
               <span className="flex items-center gap-2">
@@ -1490,7 +1568,7 @@ function GenerateTab({
               </span>
               <button
                 type="button"
-                onClick={onClearMedia}
+                onClick={() => { setCopyApproval(null); onClearMedia(); }}
                 className="text-muted-foreground hover:text-foreground"
                 aria-label="Remove attached media"
               >
@@ -1498,6 +1576,8 @@ function GenerateTab({
               </button>
             </div>
           )}
+          <MediaAttribution provenance={prefillMedia?.provenance} />
+          {prefillMedia && (prefillMedia.mediaType === "video" ? <video src={prefillMedia.url} controls playsInline preload="metadata" aria-label="Attached draft video" className="max-h-60 w-full rounded-lg" /> : <img src={prefillMedia.url} alt="Attached media" className="max-h-60 w-full rounded-lg object-contain" />)}
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -1542,6 +1622,7 @@ function GenerateTab({
                     type="button"
                     aria-pressed={active}
                     title={CONTENT_TYPE_META[t].hint}
+                    disabled={!!prefillMedia && (t === "Carousel" || t === "Thread")}
                     onClick={() => { markVisualsStale(); setType(t); }}
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition",
@@ -1589,6 +1670,7 @@ function GenerateTab({
             <SegmentedControl ariaLabel="Tone" value={tone} options={TONES} onChange={(value) => { markVisualsStale(); setTone(value); }} />
             <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs text-muted-foreground">Caption length</span><SegmentedControl ariaLabel="Length" value={length} options={LENGTHS} onChange={setLength} /></div>
             <ToggleRow id="studio-hashtags" label="Hashtags" checked={includeHashtags} onChange={setIncludeHashtags} />
+            <ToggleRow id="studio-first-comment" label="Generate first comment" hint={type === "Thread" ? "Threads do not support first comments." : "Facebook and Instagram: automatic delivery. LinkedIn: manual copy only. Existing comments are kept when off."} checked={type !== "Thread" && includeComment} disabled={type === "Thread"} onChange={setIncludeCommentOverride} />
             <ToggleRow id="studio-emojis" label="Emojis" hint={brandForbidsEmoji ? "Your brand profile never uses emojis" : undefined} checked={includeEmojis && !brandForbidsEmoji} disabled={brandForbidsEmoji} onChange={setIncludeEmojis} />
           </section>
 
@@ -1781,7 +1863,7 @@ function GenerateTab({
           )}
 
           <div className="space-y-2 border-t border-border pt-4">
-            <Button className="w-full" size="lg" onClick={() => variations?.length ? setPendingAction("generate") : void generate()} disabled={busy || saving || !orgId || prompt.trim().length < 5}>
+            <Button className="w-full" size="lg" onClick={() => variations?.length ? setPendingAction("generate") : void generate()} disabled={busy || saving || !commentContextReady || !orgId || prompt.trim().length < 5}>
               {loading ? (
                 <>
                   <RefreshCcw className="mr-1.5 h-4 w-4 animate-spin" /> Writing copy…
@@ -1800,7 +1882,7 @@ function GenerateTab({
               variant="ghost"
               size="sm"
               className="w-full text-xs text-muted-foreground"
-              disabled={busy || saving || !copyApproved || !alsoGenerateImage || !orgId || prompt.trim().length < 5 || type === "Thread" || (type === "Carousel" && !slides?.length)}
+              disabled={busy || saving || !!prefillMedia || !copyApproved || !alsoGenerateImage || !orgId || prompt.trim().length < 5 || type === "Thread" || (type === "Carousel" && !slides?.length)}
               onClick={() => void generateImage()}
             >
               {imageLoading ? (
@@ -1904,6 +1986,7 @@ function GenerateTab({
                     platform={previewPlatform}
                     caption={previewCaption}
                     hashtags={previewHashtags}
+                    firstComment={type === "Thread" ? "" : activeVariation?.firstComment}
                     imageUrl={failedImageUrls.includes(previewImageUrl ?? "") ? null : previewImageUrl}
                     videoUrl={previewVideoUrl}
                     brandName={brandKit?.brandName || "Your Brand"}
@@ -1939,7 +2022,11 @@ function GenerateTab({
               <CaptionEditor
                 platform={previewPlatform}
                 caption={activeVariation.caption}
-                hashtags={includeHashtags ? activeVariation.hashtags : []}
+                hashtags={previewHashtags}
+                platformHashtags={activeVariation.hashtags}
+                firstComment={activeVariation.firstComment}
+                onFirstCommentChange={(firstComment) => updateActiveCopy({ firstComment })}
+                onHashtagsChange={(hashtags) => updateActiveCopy({ hashtags })}
                 saving={saving || busy}
                 onCaptionChange={updateActiveCaption}
                 onSaveDraft={() => void saveDraft()}
@@ -1954,6 +2041,8 @@ function GenerateTab({
             )}
             </TabsContent>
           </Tabs>
+
+          {activeVariation && type !== "Thread" && <div className="space-y-2"><TagInput id="studio-shared-tags" label="Additional shared hashtags" value={hashtags} disabled={busy || saving} onChange={setHashtags} /><p className="text-xs text-muted-foreground">Only these manual additions are shared. Generated hashtags stay with their own channel.{!includeHashtags ? " Hashtags are off and will not be included." : ""}</p></div>}
 
           {type === "Carousel" && slides?.length ? <section aria-label="Slide editor" className="space-y-3">
             <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">Slides · {slides.length}</h3><Badge variant="secondary">{PLATFORM_LABELS[previewPlatform]}</Badge></div>
@@ -2066,6 +2155,11 @@ function GenerateTab({
         </CardContent>
       </Card>
     </div>
+    <MediaPicker workspaceId={orgId} open={mediaPickerOpen && !busy && !saving && type !== "Carousel" && type !== "Thread"} onOpenChange={setMediaPickerOpen} contextKey={`${draftId ?? "new"}/${type}`} initialQuery={prompt} onSelect={asset => {
+      if (operationLocked.current || busy || saving || type === "Carousel" || type === "Thread") return false;
+      onSetPrefillMedia(prefillFromAsset(asset, orgId));
+      return true;
+    }} />
     </div>
   );
 }
@@ -2075,6 +2169,10 @@ function CaptionEditor({
   platform,
   caption,
   hashtags,
+  platformHashtags,
+  firstComment,
+  onFirstCommentChange,
+  onHashtagsChange,
   saving,
   onCaptionChange,
   onSaveDraft,
@@ -2082,12 +2180,16 @@ function CaptionEditor({
   platform: SocialPlatform;
   caption: string;
   hashtags: string[];
+  platformHashtags: string[];
+  firstComment: string;
+  onFirstCommentChange: (text: string) => void;
+  onHashtagsChange: (tags: string[]) => void;
   saving: boolean;
   onCaptionChange: (text: string) => void;
   onSaveDraft: () => void;
 }) {
   const limit = PLATFORM_CHAR_LIMITS[platform];
-  const count = caption.length;
+  const count = Array.from(formatPostBody(caption, hashtags)).length;
   const over = count > limit;
   const pct = Math.min(100, (count / limit) * 100);
 
@@ -2127,6 +2229,9 @@ function CaptionEditor({
           />
         </div>
       </div>
+
+      <div className="space-y-2"><Label htmlFor="studio-platform-tags">{PLATFORM_LABELS[platform]} hashtags</Label><Textarea id="studio-platform-tags" value={platformHashtags.join("\n")} disabled={saving} rows={3} onChange={(event) => onHashtagsChange(event.target.value.split("\n"))} /><p className="text-xs text-muted-foreground">One tag per line. Order and duplicates are preserved.</p></div>
+      {platform !== "x" && <div className="space-y-2"><Label htmlFor="studio-comment">First comment</Label><Textarea id="studio-comment" value={firstComment} disabled={saving} rows={4} onChange={(event) => onFirstCommentChange(event.target.value)} /><p className="text-xs text-muted-foreground">{platform === "linkedin" ? "LinkedIn · manual copy only. Not published automatically." : `${PLATFORM_LABELS[platform]} · automatic first-comment delivery after publishing.`}</p><Button type="button" size="sm" variant="outline" disabled={!firstComment} onClick={() => { void navigator.clipboard.writeText(firstComment); toast.success("First comment copied"); }}>Copy first comment</Button></div>}
 
       <div className="flex flex-wrap items-center gap-1.5">
         <Button size="sm" variant="ghost" disabled={!caption} onClick={copyAll}>
@@ -2748,15 +2853,13 @@ function MediaTab({
   const [totalPages, setTotalPages] = useState(0);
   const [stats, setStats] = useState({ images: 0, videos: 0, totalBytes: 0 });
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [videoOpen, setVideoOpen] = useState(false);
   const [videoPrompt, setVideoPrompt] = useState("");
   const [videoSeconds, setVideoSeconds] = useState<"4" | "8" | "12">("4");
   const [videoSize, setVideoSize] = useState<"1280x720" | "720x1280">("1280x720");
   const [videoLoading, setVideoLoading] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
   const requestSeqRef = useRef(0);
 
   const load = useCallback(async () => {
@@ -2794,27 +2897,6 @@ function MediaTab({
       requestSeqRef.current += 1;
     };
   }, [load, active, query]);
-
-  const handleUpload = async (file: File, type: MediaAssetType) => {
-    if (!orgId) return;
-    const maxMb = type === "image" ? 8 : 200;
-    if (file.size > maxMb * 1024 * 1024) {
-      toast.error(`${type === "image" ? "Image" : "Video"} must be under ${maxMb} MB`);
-      return;
-    }
-    setUploading(true);
-    try {
-      if (type === "image") await socialMediaApi.uploadImage(orgId, file);
-      else await socialMediaApi.uploadVideo(orgId, file);
-      toast.success("Uploaded to media library");
-      if (page === 1) void load();
-      else setPage(1);
-    } catch (err) {
-      toast.error(extractErrorMessage(err, "Upload failed"));
-    } finally {
-      setUploading(false);
-    }
-  };
 
   const handleDelete = async (asset: MediaAsset) => {
     if (!orgId) return;
@@ -2924,43 +3006,11 @@ function MediaTab({
             ))}
           </div>
           <Button
-            disabled={uploading || !orgId}
-            onClick={() => imageInputRef.current?.click()}
+            disabled={!orgId}
+            onClick={() => setMediaPickerOpen(true)}
           >
             <Upload className="mr-1.5 h-4 w-4" />
-            {uploading ? "Uploading…" : "Upload"}
-          </Button>
-          <input
-            ref={imageInputRef}
-            type="file"
-            aria-label="Upload an image"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleUpload(file, "image");
-              e.target.value = "";
-            }}
-          />
-          <input
-            ref={videoInputRef}
-            type="file"
-            aria-label="Upload a video"
-            accept="video/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleUpload(file, "video");
-              e.target.value = "";
-            }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={uploading || !orgId}
-            onClick={() => videoInputRef.current?.click()}
-          >
-            Upload video
+            Upload / paste / stock
           </Button>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -3174,12 +3224,14 @@ function MediaTab({
                   <p className="text-[10px] text-muted-foreground">
                     {formatBytes(m.fileSizeBytes)} · {m.mediaType === "video" ? "Video" : "Image"}
                   </p>
+                  <MediaAttribution provenance={m.provenance} />
                 </div>
               </div>
             ))}
           </div>
         )}
         {totalPages > 1 && <nav aria-label="Media pagination" className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"><p aria-live="polite" className="text-xs text-muted-foreground">Page {page} of {totalPages} · {total} assets</p><div className="flex gap-2"><Button size="sm" variant="outline" disabled={loading || page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={loading || page >= totalPages} onClick={() => setPage((value) => value + 1)}>Next</Button></div></nav>}
+        <MediaPicker workspaceId={orgId} open={mediaPickerOpen && active} onOpenChange={setMediaPickerOpen} contextKey="studio-library" onSelect={async () => { if (page === 1) await load(); else setPage(1); return true; }} />
       </CardContent>
     </Card>
   );
@@ -3268,7 +3320,7 @@ export default function AIStudioPage({
               <GenerateTab
                 key={JSON.stringify([user?.id, orgId])}
                 orgId={orgId}
-                prefillMedia={prefillMedia}
+                prefillMedia={prefillMedia?.workspaceId === orgId ? prefillMedia : null}
                 onClearMedia={clearPrefillMedia}
                 onSetPrefillMedia={setPrefillMedia}
                 draftId={draftId}
@@ -3290,11 +3342,7 @@ export default function AIStudioPage({
                 orgId={orgId}
                 active={tab === "media"}
                 onUseInGenerate={(asset) => {
-                  setPrefillMedia({
-                    name: asset.prompt?.slice(0, 48) || asset.id.slice(0, 8),
-                    url: asset.url,
-                    mediaType: asset.mediaType,
-                  });
+                  setPrefillMedia(prefillFromAsset(asset, orgId));
                   navigateTab("generate");
                   toast.success("Media attached. Continue in Create.");
                 }}

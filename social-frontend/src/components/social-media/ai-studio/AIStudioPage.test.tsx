@@ -7,8 +7,10 @@ import type { AxiosResponse } from "axios";
 import { axe } from "vitest-axe";
 import apiClient from "@/api/client";
 import socialMediaApi from "@/api/endpoints/social-media.api";
-import type { BrandVoice, GeneratedContent, GenerateImageResult, GenerateCreativeSetPayload, SocialPost, StoredSlide } from "@/types/social-media.types";
-import AIStudioPage from "./AIStudioPage";
+import type { BrandVoice, GeneratedContent, GenerateImageResult, GenerateCreativeSetPayload, MediaAsset, SocialPost, StoredSlide } from "@/types/social-media.types";
+import AIStudioPage, { parseGeneratedContent } from "./AIStudioPage";
+import { formatPostBody } from "@/lib/socialCaption";
+import bodyFixtures from "@/lib/socialCaption.fixtures.json";
 import { copyFingerprint } from "./studioCreative";
 import { getBreadcrumbs } from "@/lib/navigation";
 import { dashboardNavSections, filterNavSections } from "@/components/layouts/nav-config";
@@ -19,7 +21,7 @@ vi.mock("@/api/client", () => ({ default: { get: vi.fn(), put: vi.fn(), post: vi
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: context.push, replace: context.replace }), useSearchParams: () => context.params }));
 vi.mock("next/dynamic", () => ({ default: () => () => <div>Planner workspace</div> }));
 vi.mock("@/components/social-media/content-studio/PhoneFrame", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock("@/components/social-media/content-studio/PlatformPreview", () => ({ default: ({ caption, media }: { caption: string; media?: { url: string }[] }) => <div aria-label="Platform preview">{caption}{media?.map((asset) => <img key={asset.url} src={asset.url} alt="Platform artwork" />)}</div> }));
+vi.mock("@/components/social-media/content-studio/PlatformPreview", () => ({ default: ({ caption, firstComment, media }: { caption: string; firstComment?: string; media?: { url: string }[] }) => <div aria-label="Platform preview">{caption}{firstComment && <p aria-label="Preview first comment">{firstComment}</p>}{media?.map((asset) => <img key={asset.url} src={asset.url} alt="Platform artwork" />)}</div> }));
 vi.mock("@/components/social-media/posts/ScheduleModal", () => ({ default: () => null }));
 vi.mock("@/components/social-media/content-studio/TemplateUseModal", () => ({ templateApplyStorageKey: () => "studio-template" }));
 
@@ -72,6 +74,284 @@ async function createCopy(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Create copy" }));
   return screen.findByRole("textbox", { name: "LinkedIn caption" });
 }
+
+describe("Studio shared media integration", () => {
+  const asset: MediaAsset = { id: "manual-image", mediaType: "image", source: "uploaded", url: "https://example.test/manual.png", mimeType: "image/png", fileSizeBytes: 100, createdAt: "2026-10-27T00:00:00Z", provenance: { provider: "pexels", providerAssetId: "photo-1", creatorName: "Photo Creator", creatorUrl: "https://example.test/creator", providerPageUrl: "https://example.test/photo", licenseUrl: "https://example.test/license", attributionText: "Photo by Photo Creator on Pexels" } };
+  async function attach(user: ReturnType<typeof userEvent.setup>, chosen = asset) {
+    vi.spyOn(socialMediaApi, "uploadImage").mockResolvedValue({ imageUrl: chosen.url, assetId: chosen.id, source: "uploaded" });
+    vi.spyOn(socialMediaApi, "uploadVideo").mockResolvedValue({ videoUrl: chosen.url, assetId: chosen.id, source: "uploaded" });
+    vi.spyOn(socialMediaApi, "getMediaAsset").mockResolvedValue(chosen);
+    await user.click(screen.getByRole("button", { name: "Add your media" }));
+    await user.upload(screen.getByLabelText("Choose a media file"), new File(["media"], chosen.mediaType === "image" ? "photo.png" : "clip.mp4", { type: chosen.mimeType }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose media" })).toBeNull());
+  }
+  const savedPayload = () => vi.mocked(apiClient.post).mock.calls.filter(([url]) => String(url).endsWith("/posts")).at(-1)![1] as SocialPost;
+
+  it("attaches before copy generation without AI image credits and saves asset identity and attribution for every channel", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await attach(user);
+    expect(screen.getByRole("img", { name: "Attached media" }).getAttribute("src")).toBe(asset.url);
+    expect(screen.getByText(asset.provenance!.attributionText)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "License" }).getAttribute("href")).toBe(asset.provenance!.licenseUrl);
+    await createCopy(user);
+    expect(screen.getByRole("img", { name: "Attached media" })).toBeTruthy();
+    expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringContaining("/generate-creative-set"), expect.anything(), expect.anything());
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    expect((screen.getByRole("button", { name: "Generate approved visuals" }) as HTMLButtonElement).disabled).toBe(true);
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ id: "saved", platforms: [] }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(savedPayload().platforms).toHaveLength(2));
+    expect(savedPayload().imageUrl).toBe(asset.url);
+    for (const platform of savedPayload().platforms) expect(platform.media).toEqual([{ assetId: asset.id, url: asset.url, mimeType: asset.mimeType, provenance: asset.provenance }]);
+    expect(savedPayload().generationOptions).toMatchObject({ visualsStale: false, visualIntent: false });
+    expect(savedPayload().generationOptions?.copyApproval).toBeTruthy();
+    await attach(user, { ...asset, id: "replacement", url: "https://example.test/replacement.png" });
+    expect(screen.getByRole("button", { name: "Approve copy" })).toBeTruthy();
+    expect(screen.queryByText(/Visuals are out of date/)).toBeNull();
+  });
+
+  it("keeps attached media through copy regeneration and removes approval when detached", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await attach(user);
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
+    await user.click(screen.getByRole("button", { name: "Generate again" }));
+    expect(screen.getByRole("img", { name: "Attached media" }).getAttribute("src")).toBe(asset.url);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "Remove attached media" }));
+    expect(screen.getByRole("button", { name: "Approve copy" })).toBeTruthy();
+    expect(screen.queryByRole("img", { name: "Attached media" })).toBeNull();
+  });
+
+  it("replaces only current artwork with manual media and does not stale it when copy changes", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    await createCopy(user);
+    await user.click(screen.getByRole("switch", { name: "Add an image" }));
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(expect.stringContaining("/generate-creative-set"), expect.anything(), expect.anything()));
+    await attach(user);
+    fireEvent.change(screen.getByLabelText("LinkedIn caption"), { target: { value: "Edited caption with manual artwork" } });
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ id: "saved", platforms: [] }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(savedPayload().generationOptions?.visualsStale).toBe(false));
+    expect(savedPayload().generationOptions?.creativeRequest).toBeUndefined();
+    expect(savedPayload().platforms.every(platform => platform.media?.[0].assetId === asset.id)).toBe(true);
+  });
+
+  it.each(["Carousel", "Thread"])("does not allow manual attachments for %s", async type => {
+    const user = userEvent.setup();
+    renderStudio();
+    await user.click(screen.getByRole("button", { name: type }));
+    expect((screen.getByRole("button", { name: "Add your media" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Carousel and Thread do not support manual attachments/)).toBeTruthy();
+  });
+
+  it("previews and saves video drafts while leaving publishing and scheduling disabled", async () => {
+    const user = userEvent.setup();
+    renderStudio();
+    const video = { ...asset, id: "manual-video", mediaType: "video" as const, mimeType: "video/mp4", url: "https://example.test/clip.mp4" };
+    await attach(user, video);
+    expect(screen.getByLabelText("Attached draft video").getAttribute("src")).toBe(video.url);
+    await createCopy(user);
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("button", { name: "More post actions" }));
+    expect(screen.getByRole("menuitem", { name: "Publish now" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("menuitem", { name: "Schedule" }).getAttribute("aria-disabled")).toBe("true");
+    await user.keyboard("{Escape}");
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ id: "saved", platforms: [] }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(savedPayload().platforms[0].media?.[0]).toMatchObject({ assetId: video.id, mimeType: "video/mp4", url: video.url }));
+  });
+
+  it("restores manual draft media with metadata instead of treating it as stale generated artwork", async () => {
+    const user = userEvent.setup();
+    context.params = new URLSearchParams({ draftId: "saved" });
+    const media = { assetId: asset.id, url: asset.url, mimeType: asset.mimeType, provenance: asset.provenance };
+    vi.spyOn(socialMediaApi, "getPost").mockResolvedValue({ id: "saved", imageUrl: asset.url, imageSource: "uploaded", format: "single", generationOptions: { visualIntent: false }, platforms: [{ platform: "linkedin", caption: "Saved copy", hashtags: [], media: [media] }] } as unknown as SocialPost);
+    renderStudio();
+    await screen.findByRole("img", { name: "Attached media" });
+    expect(screen.getByText(asset.provenance!.attributionText)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(apiClient.patch).toHaveBeenCalled());
+    expect(vi.mocked(apiClient.patch).mock.calls.at(-1)![1]).toMatchObject({ platforms: [{ media: [media] }], generationOptions: { visualsStale: false } });
+  });
+
+  it("reloads the library after adding media without navigating to Generate", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(socialMediaApi, "uploadImage").mockResolvedValue({ imageUrl: asset.url, assetId: asset.id, source: "uploaded" });
+    vi.spyOn(socialMediaApi, "getMediaAsset").mockResolvedValue(asset);
+    const list = vi.spyOn(socialMediaApi, "listMediaAssets").mockResolvedValue({ ...mediaPage, items: [asset], total: 1 });
+    renderStudio("media");
+    await screen.findByText(asset.provenance!.attributionText);
+    await user.click(screen.getByRole("button", { name: "Upload / paste / stock" }));
+    await user.upload(screen.getByLabelText("Choose a media file"), new File(["image"], "photo.png", { type: "image/png" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose media" })).toBeNull());
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("tab", { name: "Media Library" }).getAttribute("aria-selected")).toBe("true");
+    expect(context.push).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Create copy" })).toBeNull();
+  });
+});
+
+describe("Studio comment and publisher parity", () => {
+  const withComments: GeneratedContent = { ...generated, platforms: {
+    linkedin: { ...generated.platforms.linkedin!, hashtags: ["LinkedInOnly"], firstComment: "LinkedIn comment" },
+    facebook: { ...generated.platforms.facebook!, hashtags: ["FacebookOnly"], firstComment: "Facebook comment" },
+  } };
+  const saveResult = () => vi.mocked(apiClient.post).mockResolvedValueOnce(response({ id: "saved", platforms: [] }));
+  const lastPostPayload = () => vi.mocked(apiClient.post).mock.calls.filter(([url]) => String(url).endsWith("/posts")).at(-1)![1] as SocialPost;
+
+  it.each([true, false])("defaults comment generation from workspace %s and allows overrides", async (autoFirstComment) => {
+    const user = userEvent.setup();
+    vi.spyOn(socialMediaApi, "getSettings").mockResolvedValue({ autoFirstComment } as Awaited<ReturnType<typeof socialMediaApi.getSettings>>);
+    renderStudio();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Generate first comment" }).getAttribute("aria-checked")).toBe(String(autoFirstComment)));
+    await user.click(screen.getByRole("switch", { name: "Generate first comment" }));
+    await createCopy(user);
+    expect(apiClient.post).toHaveBeenCalledWith(expect.stringContaining("/generate"), expect.objectContaining({ includeComment: !autoFirstComment }), expect.anything());
+    saveResult();
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(lastPostPayload().generationOptions?.includeComment).toBe(!autoFirstComment));
+  });
+
+  it("keeps per-platform comments and hashtags, adds only visible shared edits, and copies the final body", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response(withComments));
+    renderStudio();
+    await createCopy(user);
+    expect((screen.getByLabelText("First comment") as HTMLTextAreaElement).value).toBe("LinkedIn comment");
+    expect(screen.getByText(/LinkedIn · manual copy only/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    fireEvent.change(screen.getByLabelText("First comment"), { target: { value: "Edited\n\nComment  exactly" } });
+    expect(screen.getByRole("button", { name: "Approve copy" })).toBeTruthy();
+    const { caption, hashtags, expected } = bodyFixtures[1];
+    fireEvent.change(screen.getByLabelText("LinkedIn caption"), { target: { value: caption } });
+    fireEvent.change(screen.getByLabelText("LinkedIn hashtags"), { target: { value: hashtags.join("\n") } });
+    const clipboard = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    expect(clipboard).toHaveBeenLastCalledWith(expected);
+    await user.click(screen.getByRole("button", { name: "Copy first comment" }));
+    expect(clipboard).toHaveBeenLastCalledWith("Edited\n\nComment  exactly");
+    expect(screen.getByText(`${Array.from(expected).length} / 3000`)).toBeTruthy();
+    await user.type(screen.getByLabelText("Additional shared hashtags"), "Manual{Enter}");
+    saveResult();
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(lastPostPayload().platforms).toHaveLength(2));
+    expect(lastPostPayload().platforms[0]).toMatchObject({ caption, hashtags: [...hashtags, "Manual"], firstComment: "Edited\n\nComment  exactly" });
+    expect(lastPostPayload().platforms[1]).toMatchObject({ hashtags: ["FacebookOnly", "Manual"], firstComment: "Facebook comment" });
+    expect(formatPostBody(lastPostPayload().platforms[0].caption, lastPostPayload().platforms[0].hashtags)).toBe(`${expected} #Manual`);
+  });
+
+  it("shows and saves generated comments after enabling comments following a commentless generation", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(socialMediaApi, "getSettings").mockResolvedValue({ autoFirstComment: false } as Awaited<ReturnType<typeof socialMediaApi.getSettings>>);
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response(generated));
+    renderStudio();
+    await createCopy(user);
+    expect(screen.getByRole("switch", { name: "Generate first comment" }).getAttribute("aria-checked")).toBe("false");
+    expect((screen.getByLabelText("First comment") as HTMLTextAreaElement).value).toBe("");
+    expect(apiClient.post).toHaveBeenLastCalledWith(expect.stringContaining("/generate"), expect.objectContaining({ includeComment: false }), expect.anything());
+    await user.click(screen.getByRole("switch", { name: "Generate first comment" }));
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response(withComments));
+    await user.click(screen.getByRole("button", { name: "Generate again" }));
+    await waitFor(() => expect((screen.getByLabelText("First comment") as HTMLTextAreaElement).value).toBe("LinkedIn comment"));
+    expect(apiClient.post).toHaveBeenLastCalledWith(expect.stringContaining("/generate"), expect.objectContaining({ includeComment: true }), expect.anything());
+    saveResult();
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(lastPostPayload()).toMatchObject({
+      generationOptions: { includeComment: true },
+      platforms: [
+        { platform: "linkedin", firstComment: "LinkedIn comment" },
+        { platform: "facebook", firstComment: "Facebook comment" },
+      ],
+    }));
+  });
+
+  it("regenerates captions without overwriting edited comments or manual shared tags", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response(withComments));
+    renderStudio();
+    await createCopy(user);
+    fireEvent.change(screen.getByLabelText("First comment"), { target: { value: "Keep authored comment" } });
+    await user.type(screen.getByLabelText("Additional shared hashtags"), "Manual{Enter}");
+    await user.click(screen.getByRole("button", { name: "Create copy" }));
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response(generated));
+    await user.click(screen.getByRole("button", { name: "Generate again" }));
+    await screen.findByLabelText("First comment");
+    expect((screen.getByLabelText("First comment") as HTMLTextAreaElement).value).toBe("Keep authored comment");
+    expect(screen.getByRole("button", { name: "Remove hashtag Manual" })).toBeTruthy();
+    saveResult();
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(lastPostPayload().platforms[0]).toMatchObject({ firstComment: "Keep authored comment", hashtags: ["acme", "Manual"] }));
+  });
+
+  it.each([{ platform: "linkedin", limit: 3000 }, { platform: "facebook", limit: 2200 }, { platform: "instagram", limit: 2200 }] as const)("counts the final $platform body including tags with publisher Unicode limits", async ({ platform, limit }) => {
+    context.params = new URLSearchParams({ draftId: "saved" });
+    const caption = `${"a".repeat(limit - 5)}🚀`;
+    vi.spyOn(socialMediaApi, "getPost").mockResolvedValue({ id: "saved", generationOptions: { includeComment: false }, platforms: [{ platform, caption, hashtags: ["#A"], firstComment: "Comment is not part of body count" }] } as SocialPost);
+    renderStudio();
+    await screen.findByLabelText(`${platform === "linkedin" ? "LinkedIn" : platform === "facebook" ? "Facebook" : "Instagram"} caption`);
+    expect(screen.getByText(`${limit} / ${limit}`)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(`${platform === "linkedin" ? "LinkedIn" : platform === "facebook" ? "Facebook" : "Instagram"} caption`), { target: { value: `${caption}x` } });
+    expect(screen.getByText(`${limit + 1} / ${limit}`)).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: `${platform === "linkedin" ? "LinkedIn" : platform === "facebook" ? "Facebook" : "Instagram"} caption` }).getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("passes the edited comment into preview and invalidates approval when its preference changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response(withComments));
+    renderStudio();
+    await createCopy(user);
+    fireEvent.change(screen.getByLabelText("First comment"), { target: { value: "Exact preview comment" } });
+    await user.click(screen.getByRole("button", { name: "Approve copy" }));
+    await user.click(screen.getByRole("tab", { name: "Live preview" }));
+    expect(screen.getByLabelText("Preview first comment").textContent).toBe("Exact preview comment");
+    await user.click(screen.getByRole("switch", { name: "Generate first comment" }));
+    expect(screen.getByRole("button", { name: "Approve copy" })).toBeTruthy();
+  });
+
+  it("restores exact comments and a false preference even when the workspace default is true", async () => {
+    const user = userEvent.setup();
+    context.params = new URLSearchParams({ draftId: "saved" });
+    vi.spyOn(socialMediaApi, "getSettings").mockResolvedValue({ autoFirstComment: true } as Awaited<ReturnType<typeof socialMediaApi.getSettings>>);
+    vi.spyOn(socialMediaApi, "getPost").mockResolvedValue({ id: "saved", generationOptions: { includeComment: false }, platforms: [
+      { platform: "linkedin", caption: "Saved #inline\n\n\nCopy", hashtags: ["##Saved", "Saved"], firstComment: " Saved\n\ncomment " },
+    ] } as SocialPost);
+    renderStudio();
+    await screen.findByLabelText("First comment");
+    expect((screen.getByLabelText("First comment") as HTMLTextAreaElement).value).toBe(" Saved\n\ncomment ");
+    expect(screen.getByRole("switch", { name: "Generate first comment" }).getAttribute("aria-checked")).toBe("false");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(apiClient.patch).toHaveBeenCalled());
+    expect(vi.mocked(apiClient.patch).mock.calls.at(-1)![1]).toMatchObject({ generationOptions: { includeComment: false }, platforms: [{ caption: "Saved #inline\n\n\nCopy", hashtags: ["##Saved", "Saved"], firstComment: " Saved\n\ncomment " }] });
+  });
+
+  it("shares structured carousel comments across selected platforms and keeps them when generation is off", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.post).mockResolvedValueOnce(response({ format: "carousel", platforms: {}, caption: "Carousel intro", firstComment: "Shared comment", hashtags: ["Carousel"], slides: [{ id: "one", headline: "One", body: "Body", imagePrompt: "Art" }, { id: "two", headline: "Two", body: "Body", imagePrompt: "Art" }] }));
+    renderStudio();
+    await user.click(screen.getByRole("button", { name: "Carousel" }));
+    await createCopy(user);
+    expect((screen.getByLabelText("First comment") as HTMLTextAreaElement).value).toBe("Shared comment");
+    fireEvent.change(screen.getByLabelText("First comment"), { target: { value: "Shared edit" } });
+    saveResult();
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(lastPostPayload().platforms.map((platform) => platform.firstComment)).toEqual(["Shared edit", "Shared edit"]));
+    expect(lastPostPayload().generationOptions?.includeComment).toBe(false);
+  });
+
+  it("reads top-level poll comments and keeps unsupported threads empty", () => {
+    const structured = { format: "poll", prompt: "", platforms: {}, pollQuestion: "Question?", pollOptions: ["One", "Two"], caption: "Intro", firstComment: "Shared" };
+    expect(parseGeneratedContent(structured, "poll", ["facebook", "linkedin"], 0).map((variation) => variation.firstComment)).toEqual(["Shared", "Shared"]);
+    expect(parseGeneratedContent({ ...structured, tweets: [{ text: "Thread", characterCount: 6 }] }, "thread", ["x"], 0)[0].firstComment).toBe("");
+  });
+});
 
 describe("AIStudioPage", () => {
   const carouselSlides: StoredSlide[] = ["a", "b", "c"].map((id) => ({ id, headline: `Headline ${id}`, body: `Body ${id}`, imagePrompt: `Artwork ${id}` }));

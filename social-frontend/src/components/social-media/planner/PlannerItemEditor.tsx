@@ -1,25 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { FormInput, FormTextarea } from "@/components/ui/form-field";
+import { TagInput } from "@/components/ui/tag-input";
+import { DatePicker } from "@/components/ui/date-picker";
+import { formatPostBody } from "@/lib/socialCaption";
+import { FirstCommentDelivery } from "@/components/social-media/FirstCommentDelivery";
+import MediaPicker from "@/components/social-media/media/MediaPicker";
 import type { CopyEdit, RunItem, SlotEdit } from "@/types/planner";
-import { displayTime, itemBusy, savedCopy } from "./planner-review";
+import { displayTime, itemBusy, savedCopy, workspaceDate } from "./planner-review";
+import PlannerPostPreview from "./PlannerPostPreview";
 
 export function PlannerImagePreview({ url, state }: { url: string | null | undefined; state: string }) {
   const [failed, setFailed] = useState(false);
   const [version, setVersion] = useState(0);
   useEffect(() => { setFailed(false); setVersion(0); }, [url]);
-  if (!url) return <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">{state === "failed" ? "Image generation failed. Saved text is preserved; retry the existing image operation." : "No image attached. Instagram requires an image; Facebook and LinkedIn may use text only."}</p>;
+  if (!url) return <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">{state === "failed" ? "Image generation failed. Saved text is preserved. Review the error before choosing retry or new artwork." : state === "processing" ? "Image work is in progress. You can close this view and return later." : "No image attached. Instagram requires an image; Facebook and LinkedIn may use text only."}</p>;
   return <div className="space-y-3">{state !== "ready" && <p className="text-sm text-destructive">This attachment is not a current ready visual ({state.replaceAll("_", " ")}). Do not treat it as approved artwork.</p>}{failed ? <div role="alert" className="rounded-lg border border-destructive p-4 text-sm"><p>Image preview could not load. This is not a successful black-image preview.</p><Button variant="outline" className="mt-3 min-h-11" onClick={() => { setFailed(false); setVersion(value => value + 1); }}>Retry preview loading</Button><p className="mt-2 text-muted-foreground">If the URL expired, close this view and refresh the saved run. No image credits are used by reloading.</p></div> : <img key={`${url}/${version}`} src={url} alt="Full generated artwork for this saved post" className="max-h-96 w-full rounded-lg border bg-muted object-contain" onError={() => setFailed(true)} />}<a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-sm text-primary">Open full-size image</a></div>;
 }
 
-export default function PlannerItemEditor({ item, canEdit, busy, error, onClose, onSave, onSlot, onMove, index, total }: {
+export default function PlannerItemEditor({ item, canEdit, busy, error, onClose, onSave, onSlot, onMove, index, total, accountName = "Connected account", workspaceId, onAttach, onApprove }: {
   item: RunItem; canEdit: boolean; busy: boolean; error: string; onClose: () => void;
   onSave: (payload: CopyEdit) => Promise<boolean>; onSlot: (payload: SlotEdit) => Promise<boolean>;
   onMove: (direction: number) => void; index: number; total: number;
+  accountName?: string; workspaceId?: string; onAttach?: (assetId: string) => Promise<boolean>; onApprove?: () => void;
 }) {
   const initial = savedCopy(item);
   const [caption, setCaption] = useState(initial.caption);
@@ -30,19 +36,37 @@ export default function PlannerItemEditor({ item, canEdit, busy, error, onClose,
   const [offset, setOffset] = useState("");
   const [tab, setTab] = useState("copy");
   const [discard, setDiscard] = useState<(() => void) | null>(null);
+  const [mediaOpen, setMediaOpen] = useState(false);
+  const previous = useRef({ copy: initial, date: item.slot.date, time: item.slot.time ?? "" });
   const saved = savedCopy(item);
   const copyDirty = caption !== saved.caption || hashtags !== saved.hashtags.join("\n") || firstComment !== saved.firstComment;
   const slotDirty = date !== item.slot.date || time !== (item.slot.time ?? "") || offset !== "";
   const dirty = copyDirty || slotDirty;
+  const bodyLength = Array.from(formatPostBody(caption, hashtags ? hashtags.split("\n") : [])).length;
+  const bodyLimit = item.slot.platform === "linkedin" ? 3000 : 2200;
+  const bodyOverflow = bodyLength > bodyLimit;
   const disabled = !canEdit || item.isScheduled || itemBusy(item) || busy;
 
   useEffect(() => {
-    if (!dirty && !busy) return;
+    const old = previous.current;
+    const next = savedCopy(item);
+    if (caption === old.copy.caption && hashtags === old.copy.hashtags.join("\n") && firstComment === old.copy.firstComment) {
+      setCaption(next.caption); setHashtags(next.hashtags.join("\n")); setFirstComment(next.firstComment);
+    }
+    if (date === old.date && time === old.time) { setDate(item.slot.date); setTime(item.slot.time ?? ""); }
+    previous.current = { copy: next, date: item.slot.date, time: item.slot.time ?? "" };
+  }, [item, caption, hashtags, firstComment, date, time]);
+
+  useEffect(() => { setMediaOpen(false); }, [workspaceId, item.id, item.revision]);
+
+  useEffect(() => {
+    if (!dirty) return;
     const previousUrl = location.href;
     const previousState: unknown = history.state;
     const unload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     const navigation = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (target?.getAttribute("target") === "_blank") return;
       if (target && (busy || !window.confirm("Discard unsaved planner edits and leave?"))) { event.preventDefault(); event.stopPropagation(); }
     };
     const popstate = (event: PopStateEvent) => {
@@ -58,7 +82,7 @@ export default function PlannerItemEditor({ item, canEdit, busy, error, onClose,
     return () => { window.removeEventListener("beforeunload", unload); window.removeEventListener("popstate", popstate, true); document.removeEventListener("click", navigation, true); };
   }, [dirty, busy]);
 
-  const leave = (action: () => void) => { if (busy) return; if (dirty) setDiscard(() => action); else action(); };
+  const leave = (action: () => void) => { if (busy && dirty) return; if (dirty) setDiscard(() => action); else action(); };
   const save = async () => {
     if (!item.revision) return;
     const parsed = hashtags === "" ? [] : hashtags.split("\n");
@@ -68,19 +92,31 @@ export default function PlannerItemEditor({ item, canEdit, busy, error, onClose,
   };
 
   return <>
-    <Dialog open onOpenChange={open => { if (!open) leave(onClose); }}><DialogContent className="max-w-5xl" onInteractOutside={event => { if (busy || dirty) event.preventDefault(); }}>
-      <DialogHeader><DialogTitle>Review saved {item.slot.platform} post</DialogTitle><DialogDescription>{item.slot.date} · {item.slot.time} · {item.slot.timezone} · Item {index + 1} of {total}. Copy approval is separate from team publishing approval.</DialogDescription></DialogHeader>
+    <Dialog open onOpenChange={open => { if (!open) leave(onClose); }}><DialogContent className="flex h-dvh max-h-dvh w-full max-w-6xl flex-col overflow-hidden rounded-none p-4 sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:rounded-xl" onInteractOutside={event => { if (dirty) event.preventDefault(); }}>
+      <DialogHeader><DialogTitle>Review your post</DialogTitle><DialogDescription>{accountName} · {item.slot.date} · {item.slot.time} · {item.slot.timezone} · Post {index + 1} of {total}</DialogDescription></DialogHeader>
       <div className="flex gap-2 md:hidden"><Button className="min-h-11" variant={tab === "copy" ? "default" : "outline"} onClick={() => setTab("copy")}>Copy</Button><Button className="min-h-11" variant={tab === "preview" ? "default" : "outline"} onClick={() => setTab("preview")}>Preview</Button></div>
-      <div className="grid min-w-0 grid-cols-1 gap-6 md:grid-cols-2">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 items-start gap-6 overflow-y-auto overscroll-contain pr-1 md:grid-cols-2">
         <div className={`${tab !== "copy" ? "hidden md:block" : ""} min-w-0 space-y-4`}>
-          <fieldset disabled={disabled} className="min-w-0 space-y-4"><label className="block space-y-2 text-sm font-medium">Caption<Textarea rows={7} value={caption} maxLength={10000} onChange={event => setCaption(event.target.value)} /></label><label className="block space-y-2 text-sm font-medium">Hashtags (one saved value per line)<Textarea rows={3} value={hashtags} onChange={event => setHashtags(event.target.value)} /></label><label className="block space-y-2 text-sm font-medium">First comment<Textarea rows={3} value={firstComment} maxLength={10000} onChange={event => setFirstComment(event.target.value)} /></label><p className="text-xs text-muted-foreground">Saving changed copy clears text approval and makes older artwork stale. Whitespace and saved hashtag values are not silently rewritten.</p><Button className="min-h-11" disabled={!copyDirty || !caption.trim() || !item.revision} onClick={() => void save()}>Save copy</Button></fieldset>
-          <fieldset disabled={disabled} className="min-w-0 space-y-3 rounded-lg border p-3"><legend className="px-1 text-sm font-medium">Exact proposed time · {item.slot.timezone}</legend><label className="block space-y-2 text-sm">Date<Input type="date" className="min-h-11" value={date} onChange={event => setDate(event.target.value)} /></label><label className="block space-y-2 text-sm">Time<Input type="time" className="min-h-11" value={time} onChange={event => { setTime(event.target.value); setOffset(""); }} /></label><label className="block space-y-2 text-sm">UTC offset minutes (if ambiguous)<Input className="min-h-11" type="number" min={-840} max={840} value={offset} onChange={event => setOffset(event.target.value)} /></label><Button variant="outline" className="min-h-11" disabled={!slotDirty || !date || !time} onClick={async () => { if (await onSlot({ date, time, timezone: item.slot.timezone, ...(offset === "" ? {} : { utcOffsetMinutes: Number(offset) }) })) setOffset(""); }}>Save proposed time</Button></fieldset>
+          <fieldset disabled={disabled || !item.post || !item.revision} className="min-w-0 space-y-5">
+            <FormTextarea label="Caption" rows={12} value={caption} maxLength={10000} trailing={`${bodyLength.toLocaleString()} / ${bodyLimit.toLocaleString()}`} error={bodyOverflow ? "Your post is over the platform limit, including hashtags. Shorten it before approval or scheduling." : undefined} helper="Paragraph spacing is preserved. The count includes hashtags and the blank line before them." className="min-h-72 max-h-128 resize-none overflow-y-auto [field-sizing:content]" onChange={event => setCaption(event.target.value)} />
+            <TagInput value={hashtags ? hashtags.split("\n") : []} disabled={disabled || !item.post || !item.revision} onChange={values => setHashtags(values.join("\n"))} />
+            <FormTextarea label="First comment" trailing="Optional" rows={4} value={firstComment} maxLength={10000} placeholder="Add a conversation starter or supporting detail…" helper="Keep extra context here without adding it to your caption." className="min-h-28 max-h-64 resize-none overflow-y-auto [field-sizing:content]" onChange={event => setFirstComment(event.target.value)} />
+            {!!firstComment.trim() && <FirstCommentDelivery platform={item.slot.platform} state={copyDirty ? null : item.post?.platforms.find(row => row.platform === item.slot.platform)?.firstCommentState} />}
+            <div className="space-y-3 rounded-lg bg-muted/40 p-3"><p className="text-xs leading-relaxed text-muted-foreground">{copyDirty ? "Save your edits, then approve the updated text before creating artwork." : item.copyApproved ? "Text approved. You can choose an image or create artwork next. Editing this text will require approval again." : "Happy with your post? Approve the text before creating artwork. This does not schedule or publish it."}</p>{!copyDirty && !item.copyApproved && item.post && item.revision && onApprove && <Button className="min-h-11" onClick={onApprove}>Approve text</Button>}</div>
+          </fieldset>
+          <details open={!item.post} className="rounded-lg border px-3"><summary className="cursor-pointer py-3 text-sm font-medium">Posting date and time</summary><fieldset disabled={disabled} className="min-w-0 space-y-3 pb-3"><legend className="pb-3 text-xs text-muted-foreground">Timezone: {item.slot.timezone}</legend><DatePicker mode="single" label="Date" today={workspaceDate(item.slot.timezone)} value={date} disabled={disabled} onValueChange={value => { setDate(value); setOffset(""); }} /><FormInput label="Time" type="time" value={time} onChange={event => { setTime(event.target.value); setOffset(""); }} />{(item.slot.reasons.includes("ambiguous_local_time_choose_utc_offset") || error.toLowerCase().includes("offset")) && <FormInput label="UTC offset minutes (daylight saving)" type="number" min={-840} max={840} value={offset} onChange={event => setOffset(event.target.value)} />}<Button variant="outline" className="min-h-11" disabled={!slotDirty || !date || !time || date < workspaceDate(item.slot.timezone)} onClick={async () => { if (await onSlot({ date, time, timezone: item.slot.timezone, ...(offset === "" ? {} : { utcOffsetMinutes: Number(offset) }) })) setOffset(""); }}>Save proposed time</Button></fieldset></details>
+          {onAttach && <div className="space-y-2"><Button variant="outline" className="min-h-11" disabled={disabled || dirty || !item.copyApproved || !item.revision || !workspaceId} onClick={() => setMediaOpen(true)}>Choose from media</Button><p className="text-xs text-muted-foreground">After approving saved text, upload or paste an image, choose stock, or reuse your library. No image generation credits are used. Planner supports images only; save videos through the Studio media library as drafts, not scheduled posts.</p></div>}
+          {item.post?.imageUrl && <details><summary className="cursor-pointer py-3 text-sm text-primary">Inspect full artwork</summary><PlannerImagePreview url={item.post.imageUrl} state={copyDirty ? "stale" : item.visualState} /></details>}
         </div>
-        <div className={`${tab !== "preview" ? "hidden md:block" : ""} min-w-0 space-y-4`}><h3 className="text-sm font-semibold">Exact saved copy</h3>{copyDirty && <p className="text-sm text-primary">Unsaved changes are not shown in this saved-content preview.</p>}<div className="space-y-4 rounded-lg border p-4"><p className="whitespace-pre-wrap break-words text-sm">{saved.caption}</p><p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{saved.hashtags.join(" ")}</p>{saved.firstComment && <div className="border-t pt-3"><h4 className="mb-2 text-xs font-semibold">Saved first comment</h4><p className="whitespace-pre-wrap break-words text-sm">{saved.firstComment}</p></div>}</div><PlannerImagePreview url={item.post?.imageUrl} state={item.visualState} /><p className="text-xs text-muted-foreground">Proposed, not scheduled: {displayTime(item.proposedAt, item.slot.timezone)} · {item.slot.timezone}</p></div>
+        <div className={`${tab !== "preview" ? "hidden md:block" : ""} min-w-0 space-y-4`}><PlannerPostPreview item={item} accountName={accountName} caption={caption} hashtags={hashtags} firstComment={firstComment} unsaved={copyDirty} /><p className="text-xs text-muted-foreground">{item.isScheduled ? "Scheduled" : "Proposed, not scheduled"}: {displayTime(item.proposedAt, item.slot.timezone)}</p></div>
       </div>
       {(error || item.error) && <p role="alert" className="text-sm text-destructive">{error || item.error}</p>}
-      <DialogFooter><Button variant="outline" className="min-h-11" disabled={busy || index === 0} onClick={() => leave(() => onMove(-1))}>Previous item</Button><Button variant="outline" className="min-h-11" disabled={busy || index >= total - 1} onClick={() => leave(() => onMove(1))}>Next item</Button><Button variant="secondary" className="min-h-11" disabled={busy} onClick={() => leave(onClose)}>Back to run</Button></DialogFooter>
+      <DialogFooter className="shrink-0 flex-row flex-wrap border-t bg-background pt-3 pb-safe"><Button variant="secondary" className="min-h-11" disabled={busy && dirty} onClick={() => leave(onClose)}>Back to run</Button><Button variant="outline" className="min-h-11" disabled={busy && dirty || index === 0} onClick={() => leave(() => onMove(-1))}>Previous item</Button><Button variant="outline" className="min-h-11" disabled={busy && dirty || index >= total - 1} onClick={() => leave(() => onMove(1))}>Next item</Button>{canEdit && <Button className="min-h-11" disabled={disabled || !copyDirty || !caption.trim() || !item.revision} onClick={() => void save()}>{busy && copyDirty ? "Saving…" : "Save copy"}</Button>}</DialogFooter>
     </DialogContent></Dialog>
+    <MediaPicker workspaceId={workspaceId ?? ""} open={mediaOpen && canEdit && !item.isScheduled && !dirty && item.copyApproved} onOpenChange={setMediaOpen} allowedTypes={["image"]} contextKey={`${item.id}/${item.revision}`} onSelect={asset => {
+      if (disabled || dirty || !item.copyApproved || !item.revision || asset.mediaType !== "image" || !onAttach) return false;
+      return onAttach(asset.id);
+    }} />
     <Dialog open={!!discard} onOpenChange={open => { if (!open) setDiscard(null); }}><DialogContent><DialogHeader><DialogTitle>Discard unsaved changes?</DialogTitle><DialogDescription>Your saved copy and artwork will remain unchanged.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" className="min-h-11" onClick={() => setDiscard(null)}>Keep editing</Button><Button className="min-h-11" onClick={() => { const action = discard; setDiscard(null); action?.(); }}>Discard changes</Button></DialogFooter></DialogContent></Dialog>
   </>;
 }

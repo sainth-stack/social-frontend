@@ -55,7 +55,6 @@ class LinkedInPublisher(BasePublisher):
         image_urls: Optional[list[str]] = None,
         first_comment: Optional[str] = None,
     ) -> PublishResult:
-        _ = first_comment  # LinkedIn first-comment not supported in this release
         text = format_caption(caption, hashtags)
         if not text:
             return PublishResult(
@@ -71,7 +70,7 @@ class LinkedInPublisher(BasePublisher):
             if invalid:
                 return invalid
             if len(image_urls) > 1:
-                return self._publish_multi(author, access_token, text, image_urls)
+                return self._publish_multi(author, access_token, text, image_urls, first_comment)
             image_url = image_urls[0]
         body = {
             "author": author,
@@ -109,8 +108,7 @@ class LinkedInPublisher(BasePublisher):
                 post_id = response.headers.get("x-restli-id") or data.get("id") or ""
                 if not post_id:
                     return ambiguous_publish()
-                self.checkpoint(platform_post_id=str(post_id), submission_started=False)
-                return PublishResult(success=True, platform_post_id=str(post_id))
+                return self.complete_publish(str(post_id), access_token, first_comment)
         except httpx.HTTPError:
             logger.warning("LinkedIn publish request failed")
             return PublishResult(
@@ -127,7 +125,7 @@ class LinkedInPublisher(BasePublisher):
                 retryable=False,
             )
 
-    def _publish_multi(self, author, token, text, image_urls):
+    def _publish_multi(self, author, token, text, image_urls, first_comment=None):
         headers = self._headers(token)
         try:
             images = list(self.publish_state().get("linkedin_images") or [])
@@ -176,8 +174,7 @@ class LinkedInPublisher(BasePublisher):
                 post_id = response.headers.get("x-restli-id")
                 if not post_id:
                     return ambiguous_publish()
-                self.checkpoint(platform_post_id=post_id, submission_started=False)
-                return PublishResult(success=True, platform_post_id=post_id)
+                return self.complete_publish(post_id, token, first_comment)
         except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError):
             if self.publish_state().get("submission_started"):
                 return ambiguous_publish()

@@ -16,6 +16,12 @@ describe("coordinated creative exports", () => {
   it("includes every selected channel caption and its hashtags in the approved visual context", () => {
     expect(approvedCaptionContext([{ platform: "linkedin", caption: "Business copy", hashtags: ["Acme"] }, { platform: "facebook", caption: "Community copy", hashtags: [] }])).toBe("linkedin:\nBusiness copy\n#Acme\n\nfacebook:\nCommunity copy");
   });
+  it("invalidates approval on exact first-comment or preference changes", () => {
+    const copy = { platforms: [{ platform: "linkedin", caption: "Saved", hashtags: ["Tag"], firstComment: "Exact\n\nComment" }], includeComment: false };
+    expect(copyFingerprint(copy)).not.toBe(copyFingerprint({ ...copy, includeComment: true }));
+    expect(copyFingerprint(copy)).not.toBe(copyFingerprint({ ...copy, platforms: [{ ...copy.platforms[0], firstComment: "Exact\nComment" }] }));
+    expect(copyFingerprint(copy)).not.toBe(copyFingerprint({ ...copy, platforms: [{ ...copy.platforms[0], firstComment: "" }] }));
+  });
   it("orders media by durable slide IDs and selects only the requested platform", () => {
     const items = [item("three"), item("one", "instagram"), item("one"), item("two")];
     expect(creativeMedia(items, "linkedin", slides)).toEqual(slides.map((slide) => {

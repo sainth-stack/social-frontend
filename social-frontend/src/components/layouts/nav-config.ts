@@ -3,18 +3,20 @@ import {
   BarChart3,
   Building2,
   CalendarDays,
+  CalendarRange,
+  Cpu,
   CreditCard,
   FileText,
   LayoutDashboard,
+  Link2,
   LineChart,
   Mail,
   Settings,
-  Share2,
+  SquarePen,
   Tag,
+  TicketPercent,
   Users,
 } from "lucide-react";
-
-import { ProductAIStudioIcon, ProductDashboardIcon } from "@/components/icons/product-icons";
 
 import { hasSocialPermission } from "@/lib/permissions";
 import type { User } from "@/types/auth";
@@ -37,7 +39,7 @@ export type NavSection = {
 /** Flat Spark-style nav — tabbed pages (AI Studio, Settings) have no sidebar children. */
 export const dashboardNavSections: NavSection[] = [
   {
-    items: [{ label: "Dashboard", href: "/dashboard", icon: ProductDashboardIcon }],
+    items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }],
   },
   {
     title: "Create",
@@ -45,10 +47,10 @@ export const dashboardNavSections: NavSection[] = [
       {
         label: "AI Studio",
         href: "/dashboard/content-studio",
-        icon: ProductAIStudioIcon,
+        icon: SquarePen,
         minPermission: "editor",
       },
-      { label: "Content Planner", href: "/dashboard/content-studio/planner", icon: CalendarDays, minPermission: "editor" },
+      { label: "Content Planner", href: "/dashboard/content-studio/planner", icon: CalendarRange, minPermission: "editor" },
       { label: "Calendar", href: "/dashboard/calendar", icon: CalendarDays },
       { label: "Posts", href: "/dashboard/posts", icon: FileText },
     ],
@@ -56,7 +58,7 @@ export const dashboardNavSections: NavSection[] = [
   {
     title: "Insights",
     items: [
-      { label: "Accounts", href: "/dashboard/accounts", icon: Share2, minPermission: "admin" },
+      { label: "Accounts", href: "/dashboard/accounts", icon: Link2, minPermission: "admin" },
       { label: "Analytics", href: "/dashboard/analytics", icon: LineChart },
     ],
   },
@@ -82,9 +84,9 @@ export const adminNavSections: NavSection[] = [
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Workspaces", href: "/admin/workspaces", icon: Building2 },
       { label: "Plans", href: "/admin/pricing", icon: Tag },
-      { label: "Coupons", href: "/admin/coupons", icon: CreditCard },
+      { label: "Coupons", href: "/admin/coupons", icon: TicketPercent },
       { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
-      { label: "AI Usage & Costs", href: "/admin/ai-usage", icon: LineChart },
+      { label: "AI Usage & Costs", href: "/admin/ai-usage", icon: Cpu },
       { label: "Enquiries", href: "/admin/contacts", icon: Mail },
     ],
   },

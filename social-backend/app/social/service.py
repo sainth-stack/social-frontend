@@ -1391,6 +1391,12 @@ class SocialMediaService:
             logger.warning("Logo delete failed for workspace %s: %s", workspace["id"], exc)
         return self.list_logos(workspace)
 
+    def resolve_include_comment(self, workspace: dict, requested: Optional[bool] = None) -> bool:
+        if requested is not None:
+            return requested
+        row = self.db["social_settings"].find_one({"workspace_id": str(workspace["id"])}) or {}
+        return bool(row.get("auto_first_comment", False))
+
     def generate_post(self, workspace: dict, payload: GeneratePostRequest, user: Optional[dict] = None) -> GeneratePostResponse:
         from app.social.limits import enforce_ai_text_limit
         from app.plans.service import record_ai_usage
@@ -1399,6 +1405,7 @@ class SocialMediaService:
 
         brand_voice = self._brand_voice_dict(workspace["id"])
         fmt = (payload.format or "single").lower()
+        payload = payload.model_copy(update={"includeComment": self.resolve_include_comment(workspace, payload.includeComment)})
         response = self._generate_post_content(payload, fmt, brand_voice)
         record_ai_usage(self.db, workspace["id"], "text", user_id=user["id"] if user else None)
         return response
@@ -1419,6 +1426,7 @@ class SocialMediaService:
                 cta=payload.cta, brand_voice=brand_voice,
                 num_slides=payload.slideCount, include_emojis=payload.includeEmojis,
                 include_hashtags=payload.includeHashtags, length_hint=payload.length,
+                include_comment=bool(payload.includeComment),
             )
             slides = [
                 GeneratedSlide(
@@ -1430,6 +1438,7 @@ class SocialMediaService:
             return GeneratePostResponse(
                 format="carousel", prompt=payload.topic, slides=slides,
                 caption=result.get("caption", ""), hashtags=result.get("hashtags", []),
+                firstComment=(result.get("firstComment") or "") if payload.includeComment else "",
             )
 
         if fmt == "thread":
@@ -1446,6 +1455,7 @@ class SocialMediaService:
             return GeneratePostResponse(
                 format="thread", prompt=payload.topic, tweets=tweets,
                 hashtags=result.get("hashtags", []),
+                firstComment="",
             )
 
         if fmt == "poll":
@@ -1454,11 +1464,13 @@ class SocialMediaService:
                 brand_voice=brand_voice,
                 include_emojis=payload.includeEmojis, include_hashtags=payload.includeHashtags,
                 length_hint=payload.length,
+                include_comment=bool(payload.includeComment),
             )
             return GeneratePostResponse(
                 format="poll", prompt=payload.topic, pollQuestion=result["question"],
                 pollOptions=result["options"], caption=result.get("caption", ""),
                 hashtags=result.get("hashtags", []),
+                firstComment=(result.get("firstComment") or "") if payload.includeComment else "",
             )
 
         platforms = [p.value for p in payload.platforms]
@@ -1469,7 +1481,7 @@ class SocialMediaService:
             audience=payload.audience,
             cta=payload.cta,
             include_hashtags=payload.includeHashtags,
-            include_comment=payload.includeComment,
+            include_comment=bool(payload.includeComment),
             brand_voice=brand_voice,
             content_type=payload.contentType,
             length_hint=payload.length,
@@ -1478,7 +1490,7 @@ class SocialMediaService:
         )
         return GeneratePostResponse(
             format=fmt,
-            platforms={key: GeneratedPlatformContent(**value) for key, value in result.items()},
+            platforms={key: GeneratedPlatformContent(**{**value, "firstComment": (value.get("firstComment") or "") if payload.includeComment else ""}) for key, value in result.items()},
             prompt=payload.topic,
         )
 
@@ -1500,6 +1512,7 @@ class SocialMediaService:
             durationSeconds=asset.get("duration_seconds"),
             postId=str(asset["post_id"]) if asset.get("post_id") else None,
             createdAt=asset["created_at"].isoformat() if asset.get("created_at") else "",
+            provenance=asset.get("provenance"),
         )
 
     def _record_media_asset(
@@ -1516,6 +1529,7 @@ class SocialMediaService:
         prompt: Optional[str] = None,
         sora_video_id: Optional[str] = None,
         duration_seconds: Optional[int] = None,
+        provenance: Optional[dict] = None,
     ) -> dict:
         now = utcnow()
         asset = {
@@ -1531,6 +1545,7 @@ class SocialMediaService:
             "prompt": prompt,
             "sora_video_id": sora_video_id,
             "duration_seconds": duration_seconds,
+            "provenance": provenance,
             "post_id": None,
             "is_deleted": False,
             "created_at": now,
@@ -1706,6 +1721,13 @@ class SocialMediaService:
         self, workspace: dict, user: dict, *, data: bytes, content_type: str, filename: Optional[str] = None
     ) -> GenerateImageResponse:
         from app.social.media import upload_social_image_bytes
+        from app.social.upload_safety import normalize_image
+        from app.social.models import SocialPermission
+        from app.social.permissions import require_permission
+
+        require_permission(self.db, workspace, user, SocialPermission.EDITOR)
+        data = normalize_image(data, content_type)
+        content_type = "image/jpeg"
 
         upload = upload_social_image_bytes(
             workspace["id"], data, content_type=content_type, filename_hint=filename
@@ -1785,6 +1807,12 @@ class SocialMediaService:
     ) -> "UploadVideoResponse":
         from app.social.media import upload_social_video_bytes
         from app.social.schemas import UploadVideoResponse
+        from app.social.upload_safety import validate_video
+        from app.social.models import SocialPermission
+        from app.social.permissions import require_permission
+
+        require_permission(self.db, workspace, user, SocialPermission.EDITOR)
+        content_type = validate_video(data, content_type)
 
         upload = upload_social_video_bytes(
             workspace["id"], data, content_type=content_type, filename_hint=filename
@@ -2334,6 +2362,20 @@ class SocialMediaService:
                 caption=pp.get("caption", ""),
                 hashtags=list(pp.get("hashtags") or []),
                 firstComment=pp.get("first_comment"),
+                firstCommentState=(
+                    {
+                        "status": state["status"],
+                        "attemptCount": state.get("attempt_count", 0),
+                        "platformCommentId": state.get("platform_comment_id"),
+                        "errorCode": state.get("error_code"),
+                        "httpStatus": state.get("http_status"),
+                        "providerErrorCode": state.get("provider_error_code"),
+                        "updatedAt": _iso(state.get("updated_at")),
+                        "attemptedAt": _iso(state.get("attempted_at")),
+                    }
+                    if (state := pp.get("first_comment_state") or (pp.get("publish_state") or {}).get("first_comment_state"))
+                    else None
+                ),
                 media=[{**item, "url": refresh_blob_url(item["blobKey"]) if item.get("blobKey") else resolve_stored_image_url(item.get("url")) or ""} for item in pp.get("media") or []],
                 characterCount=pp.get("character_count", 0),
                 status=SocialPlatformPostStatus(pp.get("status", "pending")),

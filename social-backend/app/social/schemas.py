@@ -107,6 +107,17 @@ class SocialPostPlatformIn(BaseModel):
     media: Optional[List[SocialPostMedia]] = Field(default=None, max_length=8)
 
 
+class FirstCommentStateOut(BaseModel):
+    status: Literal["pending", "succeeded", "failed", "unsupported", "unknown"]
+    attemptCount: int = 0
+    platformCommentId: Optional[str] = None
+    errorCode: Optional[str] = None
+    httpStatus: Optional[int] = None
+    providerErrorCode: Optional[int] = None
+    updatedAt: Optional[str] = None
+    attemptedAt: Optional[str] = None
+
+
 class SocialPostPlatformOut(BaseModel):
     id: str
     platform: SocialPlatform
@@ -114,6 +125,7 @@ class SocialPostPlatformOut(BaseModel):
     caption: str
     hashtags: List[Any] = Field(default_factory=list)
     firstComment: Optional[str] = None
+    firstCommentState: Optional[FirstCommentStateOut] = None
     media: List[SocialPostMedia] = Field(default_factory=list)
     characterCount: int
     status: SocialPlatformPostStatus
@@ -292,7 +304,7 @@ class GeneratePostRequest(BaseModel):
     audience: Optional[str] = None
     cta: Optional[str] = None
     includeHashtags: bool = True
-    includeComment: bool = False
+    includeComment: Optional[bool] = None
     includeEmojis: bool = False
     slideCount: int = Field(default=3, ge=2, le=8)
     contentType: Optional[str] = Field(default=None, max_length=32)
@@ -335,6 +347,7 @@ class GeneratePostResponse(BaseModel):
     # Shared for non-single formats
     caption: Optional[str] = None
     hashtags: Optional[List[str]] = None
+    firstComment: Optional[str] = None
 
 
 class GenerateImageRequest(BaseModel):
@@ -422,6 +435,58 @@ class UploadVideoResponse(BaseModel):
     assetId: Optional[str] = None
 
 
+class StockProvenance(BaseModel):
+    attributionText: str
+    providerPageUrl: str
+    creatorName: str
+    creatorUrl: str
+    licenseUrl: str
+    provider: Literal["pexels"] = "pexels"
+    providerAssetId: str
+
+
+class StockMediaItem(BaseModel):
+    id: str
+    provider: Literal["pexels"] = "pexels"
+    mediaType: Literal["image", "video"]
+    previewUrl: str
+    thumbnailUrl: str
+    width: int
+    height: int
+    durationSeconds: Optional[int] = None
+    creatorName: str
+    creatorUrl: str
+    providerPageUrl: str
+    licenseUrl: str
+    attributionText: str
+
+
+class StockProviderOut(BaseModel):
+    id: Literal["pexels"] = "pexels"
+    name: str = "Pexels"
+    available: bool
+    mediaTypes: List[Literal["image", "video"]] = Field(default_factory=lambda: ["image", "video"])
+    reason: Optional[str] = None
+
+
+class StockProvidersOut(BaseModel):
+    items: List[StockProviderOut]
+
+
+class StockSearchOut(BaseModel):
+    items: List[StockMediaItem]
+    page: int
+    pageSize: int
+    hasMore: bool
+
+
+class StockImportRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    provider: Literal["pexels"]
+    id: str = Field(pattern=r"^[1-9][0-9]{0,19}$")
+    mediaType: Literal["image", "video"]
+
+
 class MediaAssetOut(BaseModel):
     id: str
     mediaType: str
@@ -434,6 +499,7 @@ class MediaAssetOut(BaseModel):
     durationSeconds: Optional[int] = None
     postId: Optional[str] = None
     createdAt: str
+    provenance: Optional[StockProvenance] = None
 
 
 class MediaAssetStats(BaseModel):
@@ -507,6 +573,7 @@ class ContentPlanGenerateRequest(BaseModel):
     cta: Optional[str] = Field(default=None, max_length=200)
     autoSchedule: bool = False
     generateImages: bool = False
+    includeComment: Optional[bool] = None
     skipFilledDays: bool = True
     startDayOffset: int = Field(default=0, ge=0, le=29)
     targetDate: Optional[str] = Field(

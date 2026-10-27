@@ -13,6 +13,7 @@ from pymongo.errors import DuplicateKeyError
 from app.core.mongo_utils import new_id, utcnow
 from app.social.models import SocialImageSource, SocialMediaAssetType, SocialPermission
 from app.social.schemas import GenerateCreativeSetRequest, GenerateCreativeSetResponse
+from app.social.ai.image_progress import image_art_direction, report_image_stage
 
 logger = logging.getLogger(__name__)
 LEASE_SECONDS = 900
@@ -249,8 +250,13 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
                     guard()
                     if slide_id in row["bases"]:
                         return
-                    validate_image_bytes(image, stage="base")
+                    metrics = validate_image_bytes(image, stage="base")
+                    if metrics["meanLuminance"] < 25:
+                        warning = "Low-visibility artwork: inspect the full-size image before publishing"
+                        if warning not in warnings:
+                            warnings.append(warning)
                     stage = "base_upload"
+                    report_image_stage("save")
                     upload = upload_social_image_bytes(workspace["id"], image, content_type="image/png")
                     guard()
                     asset = service._record_media_asset(
@@ -281,6 +287,7 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
                     logo_position=payload.logoPosition, use_brand=payload.useBrand,
                     caption=payload.caption or "", slide_index=index, slide_count=len(slides),
                     render_recipe=row["recipes"].get(slide_id),
+                    art_direction=image_art_direction(),
                 )
                 topic = "\n\n".join(dict.fromkeys(value for value in (payload.topic, payload.brief, slide.get("imagePrompt")) if value))
                 stage = "compose" if base else "provider"
@@ -302,6 +309,7 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
                         creative = variants[platform]
                         validate_image_bytes(creative.image, stage="export")
                         stage = "export_upload"
+                        report_image_stage("save")
                         upload = upload_social_image_bytes(workspace["id"], creative.image, content_type="image/jpeg")
                         guard()
                         asset = service._record_media_asset(

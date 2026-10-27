@@ -264,10 +264,11 @@ def test_native_formats_enforce_policy_on_all_fields(llm, name, include_hashtags
     payload["firstComment"] = f"**Read the guide.** {EMOJIS} #Extra"
     payload["imagePrompt"] = f"**Editorial diagram.** {EMOJIS} #Extra"
     llm.side_effect = [response(payload)]
-    result = native(name, brand_voice=BRAND, include_emojis=True, include_hashtags=include_hashtags, length_hint="short")
+    kwargs = {"include_comment": True} if name != "thread" else {}
+    result = native(name, brand_voice=BRAND, include_emojis=True, include_hashtags=include_hashtags, length_hint="short", **kwargs)
     serialized = json.dumps(result, ensure_ascii=False)
     assert not any(marker in serialized for marker in ("🚀", "\u200d", "\ufe0f", "**", "##", "#Extra"))
-    assert result["firstComment"] == "Read the guide."
+    assert result["firstComment"] == ("" if name == "thread" else "Read the guide.")
     assert result["imagePrompt"] == "Editorial diagram."
     assert bool(result["hashtags"]) is include_hashtags
     if name == "carousel":

@@ -14,12 +14,14 @@ import httpx
 from app.core.config import settings
 from app.social.models import SocialPlatform
 from app.social.publishers.base import BasePublisher, PublishResult, ambiguous_publish, format_caption, validate_image_urls
+from app.social.publishers.first_comment import send_graph_comment
 
 logger = logging.getLogger(__name__)
 
 
 class FacebookPublisher(BasePublisher):
     platform = SocialPlatform.FACEBOOK
+    supports_first_comment = True
 
     def __init__(self) -> None:
         self.api_version = settings.meta_api_version
@@ -62,11 +64,7 @@ class FacebookPublisher(BasePublisher):
 
             if not post_id:
                 return ambiguous_publish()
-            self.checkpoint(platform_post_id=post_id, submission_started=False)
-            if first_comment and post_id:
-                self._post_comment(post_id, access_token, first_comment)
-
-            return PublishResult(success=True, platform_post_id=post_id)
+            return self.complete_publish(post_id, access_token, first_comment)
         except httpx.HTTPStatusError as exc:
             if self.publish_state().get("submission_started") and exc.response.status_code >= 500:
                 return ambiguous_publish()
@@ -107,10 +105,7 @@ class FacebookPublisher(BasePublisher):
                 post_id = response.json().get("id")
                 if not post_id:
                     return ambiguous_publish()
-                self.checkpoint(platform_post_id=str(post_id), submission_started=False)
-            if first_comment:
-                self._post_comment(str(post_id), token, first_comment)
-            return PublishResult(success=True, platform_post_id=str(post_id))
+                return self.complete_publish(str(post_id), token, first_comment)
         except httpx.HTTPStatusError as exc:
             if self.publish_state().get("submission_started") and exc.response.status_code >= 500:
                 return ambiguous_publish()
@@ -167,13 +162,9 @@ class FacebookPublisher(BasePublisher):
         # photos endpoint returns { id: photo_id, post_id: pageid_postid }
         return str(data.get("post_id") or data.get("id") or "")
 
-    def _post_comment(self, post_id: str, token: str, message: str) -> None:
+    def _post_comment(self, post_id: str, token: str, message: str) -> dict:
         url = f"https://graph.facebook.com/{self.api_version}/{post_id}/comments"
-        try:
-            with httpx.Client(timeout=30.0) as client:
-                client.post(url, data={"message": message, "access_token": token})
-        except Exception as exc:
-            logger.warning("Facebook first comment failed (non-fatal): %s", exc)
+        return send_graph_comment(url, token, message)
 
     def _http_error(self, exc: httpx.HTTPStatusError) -> PublishResult:
         status_code = exc.response.status_code

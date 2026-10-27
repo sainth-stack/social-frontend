@@ -83,6 +83,16 @@ def generate_image(run_id: str, item_id: str, payload: ImageAction, workspace: d
         return ContentPlanRuns(db).image(workspace, user, run_id, item_id, payload)
 
 
+@router.post("/runs/{run_id}/items/{item_id}/image/start", response_model=RunItem, status_code=202)
+def start_image(run_id: str, item_id: str, payload: ImageAction, workspace: dict = Depends(require_workspace_access),
+                user: dict = Depends(get_current_user), db: Database = Depends(get_db),
+                models: ModelSelection = Depends(validate_model_selection)):
+    from app.social.planner_images import start
+
+    with selected_models(models):
+        return start(ContentPlanRuns(db), workspace, user, run_id, item_id, payload)
+
+
 @router.patch("/runs/{run_id}/items/{item_id}/image-intent", response_model=RunItem)
 def image_intent(run_id: str, item_id: str, payload: ImageIntent, workspace: dict = Depends(require_workspace_access),
                  user: dict = Depends(get_current_user), db: Database = Depends(get_db)):
@@ -104,7 +114,7 @@ def edit_slot(run_id: str, item_id: str, payload: SlotEdit, workspace: dict = De
 @router.post("/runs/{run_id}/schedule/preview", response_model=SchedulePreview)
 def schedule_preview(run_id: str, payload: ScheduleSelection, workspace: dict = Depends(require_workspace_access),
                      user: dict = Depends(get_current_user), db: Database = Depends(get_db)):
-    return ContentPlanRuns(db).schedule_preview(workspace, user, run_id, payload.itemIds)
+    return ContentPlanRuns(db).schedule_preview(workspace, user, run_id, payload.itemIds, payload.conflictAcknowledgments)
 
 
 @router.post("/runs/{run_id}/schedule/confirm", response_model=ScheduleResult)

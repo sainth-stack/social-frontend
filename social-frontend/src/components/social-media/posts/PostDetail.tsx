@@ -1,4 +1,6 @@
 "use client";
+import { FirstCommentDelivery } from "@/components/social-media/FirstCommentDelivery";
+import { formatPostBody } from "@/lib/socialCaption";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -430,17 +432,12 @@ export default function PostDetail({ postId }: PostDetailProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               {pp.media?.length ? <section aria-label={`${PLATFORM_LABELS[pp.platform]} media`} className="space-y-3"><p className="text-xs text-muted-foreground">{pp.media.length} {pp.media.length === 1 ? "image" : "slides"} · publishing order</p><div className="flex gap-3 overflow-x-auto pb-2">{pp.media.map((asset, index) => <figure key={asset.slideId ?? index} className="w-48 shrink-0 space-y-1"><img src={asset.url} alt={post.slides?.find((slide) => slide.id === asset.slideId)?.headline || `${PLATFORM_LABELS[pp.platform]} image ${index + 1}`} width={asset.width ?? undefined} height={asset.height ?? undefined} className="h-auto w-full rounded-lg border border-border object-contain" /><figcaption className="text-xs text-muted-foreground">{index + 1}{asset.width && asset.height ? ` · ${asset.width} × ${asset.height}` : ""}</figcaption></figure>)}</div></section> : null}
-              <p className="whitespace-pre-wrap break-words text-sm">{pp.caption}</p>
-              {pp.hashtags.length > 0 ? (
-                <p className="break-words text-sm text-muted-foreground">
-                  {pp.hashtags.map((h) => `#${h}`).join(" ")}
-                </p>
-              ) : null}
+              <p className="whitespace-pre-wrap break-words text-sm">{formatPostBody(pp.caption, pp.hashtags)}</p>
               {pp.firstComment ? (
-                <p className="break-words text-sm">
+                <div className="space-y-2"><p className="whitespace-pre-wrap break-words text-sm">
                   <span className="text-muted-foreground">First comment: </span>
                   {pp.firstComment}
-                </p>
+                </p><FirstCommentDelivery platform={pp.platform} state={pp.firstCommentState} /></div>
               ) : null}
               <Separator />
               <p className="break-all text-xs text-muted-foreground">

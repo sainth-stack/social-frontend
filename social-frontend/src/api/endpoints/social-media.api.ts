@@ -1,6 +1,7 @@
 import apiClient from "@/api/client";
 import { getStoredAccessToken } from "@/lib/auth/session";
 import type { AIModelCatalog, AIModelSelection } from "@/types/ai-models";
+import type { StockProvider, StockSearchResponse } from "@/types/social-media.types";
 import type {
   AnalyticsOverview,
   ApplyTemplateResult,
@@ -94,6 +95,21 @@ function normalizePostList(data: SocialPostListResponse): SocialPostListResponse
 }
 
 export const socialMediaApi = {
+  async getStockProviders(orgId: string, signal?: AbortSignal): Promise<{ items: StockProvider[] }> {
+    const { data } = await apiClient.get<{ items: StockProvider[] }>(`${base(orgId)}/stock/providers`, { signal });
+    return data;
+  },
+
+  async searchStock(orgId: string, params: { query: string; mediaType: MediaAssetType; page?: number; pageSize?: number }, signal?: AbortSignal): Promise<StockSearchResponse> {
+    const { data } = await apiClient.get<StockSearchResponse>(`${base(orgId)}/stock/search`, { params, signal });
+    return data;
+  },
+
+  async importStock(orgId: string, payload: { provider: "pexels"; id: string; mediaType: MediaAssetType }): Promise<MediaAsset> {
+    const { data } = await apiClient.post<MediaAsset>(`${base(orgId)}/stock/import`, payload, { timeout: 120_000 });
+    return data;
+  },
+
   // ── Accounts ───────────────────────────────────────────────────────────────
 
   async listAccounts(orgId: string, platform?: SocialPlatform): Promise<SocialAccount[]> {

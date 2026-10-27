@@ -170,6 +170,12 @@ const media: MediaAsset[] = Array.from({ length: 8 }, (_, index) => ({
   soraVideoId: null, durationSeconds: null, postId: null, createdAt: `${dateAt(-index)}T09:00:00Z`,
 }));
 
+export function addMockMediaAsset(asset: Omit<MediaAsset, "id" | "createdAt">): MediaAsset {
+  const saved: MediaAsset = { ...copy(asset), id: id("media"), createdAt: now() };
+  media.unshift(saved);
+  return copy(saved);
+}
+
 function makePlatform(input: Record<string, unknown>): SocialPostPlatform {
   const channel = platform(input.platform);
   const caption = text(input.caption);
@@ -544,7 +550,8 @@ function handle(path: string, method: string, params: Record<string, string>, bo
   if (!path.startsWith(prefix)) return undefined;
   const route = path.slice(prefix.length).replace(/\/$/, "");
   const verb = method.toUpperCase();
-  if (["upload-image", "upload-logo", "upload-video", "generate-video"].includes(route) && verb === "POST") fail("uploads and video generation are disabled in the offline demo. No file was stored and no provider was called; use the sample media library.");
+  if (["upload-image", "upload-video"].includes(route) && verb === "POST") fail("media uploads require a multipart file through the offline adapter.");
+  if (["upload-logo", "generate-video"].includes(route) && verb === "POST") fail("logo uploads and video generation are disabled in the offline demo. No provider was called.");
   if (/^oauth\/(facebook|instagram|linkedin|x)\/url$/.test(route) && verb === "GET") fail("OAuth connections are disabled in the offline demo. No external account will be connected.");
   if (route === "usage" && verb === "GET") return usage();
   if (route === "dashboard/stats" && verb === "GET") return stats();

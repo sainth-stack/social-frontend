@@ -86,6 +86,10 @@ from app.social.schemas import (
 )
 from app.social.service import SocialMediaService
 from app.social.planner_router import router as planner_router
+from app.social.stock_router import router as stock_router
+from app.social.upload_safety import MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, read_upload
+from app.social.models import SocialPermission
+from app.social.permissions import require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +106,7 @@ router = APIRouter(
     dependencies=[Depends(_invalidate_dashboard_after_write)],
 )
 router.include_router(planner_router)
+router.include_router(stock_router)
 
 # Public OAuth browser callback (Meta redirects here)
 oauth_callback_router = APIRouter(tags=["social-media"])
@@ -825,12 +830,13 @@ def generate_image(
 async def upload_logo(
     workspace: dict = Depends(require_workspace_access),
     db: Database = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
     file: UploadFile = File(...),
     setDefault: bool = Query(default=True),
 ) -> UploadLogoResponse:
     """Upload a workspace logo to S3 and add it to the brand logo library."""
-    data = await file.read()
+    require_permission(db, workspace, user, SocialPermission.EDITOR)
+    data = await read_upload(file, 5 * 1024 * 1024)
     return await run_in_threadpool(
         SocialMediaService(db).upload_logo,
         workspace,
@@ -878,7 +884,8 @@ async def upload_image(
     file: UploadFile = File(...),
 ) -> GenerateImageResponse:
     """Upload a social post image to object storage; returns a public HTTPS URL."""
-    data = await file.read()
+    require_permission(db, workspace, user, SocialPermission.EDITOR)
+    data = await read_upload(file, MAX_IMAGE_BYTES)
     return await run_in_threadpool(
         SocialMediaService(db).upload_image,
         workspace,
@@ -927,7 +934,7 @@ async def generate_video(
     ref_mime: Optional[str] = None
 
     if reference_image and reference_image.filename:
-        ref_bytes = await reference_image.read()
+        ref_bytes = await read_upload(reference_image, MAX_IMAGE_BYTES)
         ref_mime = reference_image.content_type or "image/jpeg"
     elif reference_image_url and reference_image_url.strip():
         import httpx as _httpx
@@ -972,13 +979,9 @@ async def upload_video(
     file: UploadFile = File(...),
 ) -> UploadVideoResponse:
     """Upload a social post video to S3; returns a public HTTPS URL."""
+    require_permission(db, workspace, user, SocialPermission.EDITOR)
     content_type = file.content_type or "video/mp4"
-    if not content_type.startswith("video/"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only video files are accepted by this endpoint",
-        )
-    data = await file.read()
+    data = await read_upload(file, MAX_VIDEO_BYTES)
     return await run_in_threadpool(
         SocialMediaService(db).upload_video,
         workspace,

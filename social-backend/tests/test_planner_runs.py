@@ -74,6 +74,93 @@ def text_only(service, setup, run, item):
         ImageIntent(expectedRevision=item.revision, intent="text_only"))
 
 
+@pytest.mark.parametrize("default", [None, False, True])
+@pytest.mark.parametrize("override", [None, False, True])
+def test_first_comment_snapshot_survives_settings_changes_and_checkpoint_retry(db, setup, monkeypatch, default, override):
+    if default is not None:
+        db.social_settings.update_one({"workspace_id": "ws"}, {"$set": {"auto_first_comment": default}})
+    expected = override if override is not None else bool(default)
+    setup[2].side_effect = lambda **kw: {kw["platforms"][0]: {
+        "caption": "Useful release advice", "hashtags": [], "firstComment": "Supporting comment",
+        "first_comment": "Unsolicited alternate comment"}}
+    service = ContentPlanRuns(db)
+    selected = selection()
+    preview = preview_slots(db, setup[0], selected)
+    request = RunCreate(**selected.model_dump(), requestId="comment-run", previewToken=preview.previewToken,
+        prompt="Useful release advice for our campaign", includeComment=override)
+    run = service.create(setup[0], setup[1], request)
+    assert run.includeComment is expected
+    assert db.social_content_plan_runs.find_one({"id": run.id})["include_comment"] is expected
+    db.social_settings.update_one({"workspace_id": "ws"}, {"$set": {"auto_first_comment": not expected}})
+    assert service.create(setup[0], setup[1], request).includeComment is expected
+    persist = service.persist_draft
+    monkeypatch.setattr(service, "persist_draft", Mock(side_effect=RuntimeError("Persistence interrupted")))
+    service.generate(run.id)
+    checkpoint = service.get(setup[0], run.id)
+    assert checkpoint.items[0].generationState == "checkpointed"
+    assert setup[2].call_args.kwargs["include_comment"] is expected
+    assert setup[2].call_count == 1
+    monkeypatch.setattr(service, "persist_draft", persist)
+    service.retry(setup[0], setup[1], run.id, [checkpoint.items[0].id])
+    service.generate(run.id)
+    saved = service.get(setup[0], run.id)
+    assert saved.status == "completed"
+    assert saved.includeComment is expected
+    assert saved.items[0].post.platforms[0].firstComment == ("Supporting comment" if expected else "")
+    assert saved.items[0].post.generationOptions["includeComment"] is expected
+    assert setup[2].call_count == 1
+    assert db.social_posts.count_documents({}) == 1
+    with pytest.raises(HTTPException) as exc:
+        service.create(setup[0], setup[1], request.model_copy(update={"includeComment": not expected}))
+    assert exc.value.status_code == 409
+
+
+def test_legacy_run_missing_comment_snapshot_remains_disabled(db, setup):
+    run = create(db, setup)
+    db.social_content_plan_runs.update_one({"id": run.id}, {"$unset": {"include_comment": ""}})
+    db.social_settings.update_one({"workspace_id": "ws"}, {"$set": {"auto_first_comment": True}})
+    service = ContentPlanRuns(db)
+    service.generate(run.id)
+    assert setup[2].call_args.kwargs["include_comment"] is False
+    assert service.get(setup[0], run.id).includeComment is False
+
+
+def test_failed_slot_retry_uses_comment_snapshot_without_resolving_again(db, setup, monkeypatch):
+    from app.social import limits
+
+    db.social_settings.update_one({"workspace_id": "ws"}, {"$set": {"auto_first_comment": True}})
+    run = create(db, setup)
+    service = ContentPlanRuns(db)
+    enforce = Mock(side_effect=HTTPException(409, "Temporary quota block"))
+    monkeypatch.setattr(limits, "enforce_posts_limit", enforce)
+    monkeypatch.setattr(service.social, "resolve_include_comment", Mock(side_effect=AssertionError("Snapshot must be reused")))
+    service.generate(run.id)
+    failed = service.get(setup[0], run.id)
+    assert failed.items[0].generationState == "failed"
+    setup[2].assert_not_called()
+    db.social_settings.update_one({"workspace_id": "ws"}, {"$set": {"auto_first_comment": False}})
+    enforce.side_effect = None
+    service.retry(setup[0], setup[1], run.id, [failed.items[0].id])
+    service.generate(run.id)
+    assert service.get(setup[0], run.id).status == "completed"
+    assert setup[2].call_args.kwargs["include_comment"] is True
+    assert setup[2].call_count == 1
+
+
+def test_caption_regeneration_keeps_manually_edited_first_comment(db, setup):
+    service, run = generated(db, setup)
+    item = run.items[0]
+    edited = service.edit_copy(setup[0], setup[1], run.id, item.id,
+        CopyEdit(expectedRevision=item.revision, caption="Keep the release checklist", firstComment="My manual comment"))
+    db.social_settings.update_one({"workspace_id": "ws"}, {"$set": {"auto_first_comment": True}})
+    setup[2].side_effect = lambda **kw: {kw["platforms"][0]: {
+        "caption": "Updated release checklist", "firstComment": "Unexpected generated replacement"}}
+    result = service.regenerate_text(setup[0], setup[1], run.id, item.id,
+        TextRegenerate(expectedRevision=edited.revision, requestId="keep-comment"))
+    assert setup[2].call_args.kwargs["include_comment"] is False
+    assert result.post.platforms[0].firstComment == "My manual comment"
+
+
 @pytest.mark.parametrize("day,clock,offset,error", [
     ("2027-03-14", "02:30", None, "nonexistent"),
     ("2027-11-07", "01:30", None, "ambiguous"),

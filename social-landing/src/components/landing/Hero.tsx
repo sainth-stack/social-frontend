@@ -35,7 +35,7 @@ export function Hero() {
     <div className="container-page hero-layout">
       <div className="hero-copy">
         <p className="eyebrow hero-audience">For founders, consultants and teams</p>
-        <h1>Build the reputation<br /><span className="hero-title-accent">your work deserves.</span></h1>
+        <h1><span className="hero-title-line">Build the reputation</span><span className="hero-title-line hero-title-accent">your work deserves.</span></h1>
         <p className="hero-description">Turn your expertise, project lessons and ideas into content that sounds like you. Shape a weekly plan, refine AI drafts and publish with purpose. All in one workspace.</p>
         <div className="hero-actions"><a href={SIGNUP_URL} className="btn btn-primary">Get started free <ArrowRight className="size-4" aria-hidden="true" /></a><a href="#weekly-planner" className="btn btn-outline">See how it works <ArrowDown className="size-4" aria-hidden="true" /></a></div>
         <p className="hero-microcopy"><Check className="size-3.5 text-mint-foreground" />Free to start <span aria-hidden="true">·</span>No credit card <span aria-hidden="true">·</span>You choose what goes live</p>

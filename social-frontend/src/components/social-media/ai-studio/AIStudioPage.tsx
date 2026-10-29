@@ -110,6 +110,8 @@ import { canUseMultiVariations, planDisplayName } from "@/lib/plans";
 import { getStoredAccessToken } from "@/lib/auth/session";
 import { formatPostBody, normalizeGeneratedText, sanitizeCaptionAndHashtags } from "@/lib/socialCaption";
 import { cn } from "@/lib/utils";
+import { hasSocialPermission } from "@/lib/permissions";
+import { WorkflowProgress } from "@/components/social-media/workflow/WorkflowProgress";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import type {
   ApplyTemplateResult,
@@ -364,16 +366,6 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Prompt / content-type suggests an accompanying image should be generated. */
-function promptSuggestsImage(prompt: string, contentType: string): boolean {
-  if (["Carousel", "Promotional", "Announcement"].includes(contentType)) return true;
-  const t = prompt.toLowerCase();
-  return /\b(image|photo|picture|visual|graphic|illustration|thumbnail|banner|flyer|poster|artwork|render)\b/.test(
-    t,
-  );
-}
-
-
 function flattenPollCaption(
   question: string,
   options: string[],
@@ -505,13 +497,20 @@ function GenerateTab({
   const user = useAppSelector(selectUser);
   const accounts = useAppSelector(selectSocialAccounts);
   const publishing = useAppSelector(selectPublishing);
-  const briefHeading = useRef<HTMLHeadingElement>(null);
-  const contentHeading = useRef<HTMLHeadingElement>(null);
-  const moveToSection = (section: "brief" | "content") => {
-    const heading = section === "brief" ? briefHeading.current : contentHeading.current;
-    heading?.scrollIntoView({ behavior: "instant", block: "start" });
-    heading?.focus({ preventScroll: true });
-  };
+  const canEdit = hasSocialPermission(user, "editor");
+  const canPublish = hasSocialPermission(user, "publisher");
+  const [stage, setStage] = useState(scheduleAtParam ? "finish" : "brief");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [writingOpen, setWritingOpen] = useState(false);
+  const [teamReviewRequired, setTeamReviewRequired] = useState(false);
+  const [teamReviewEnabled, setTeamReviewEnabled] = useState(false);
+  const [targetAccounts, setTargetAccounts] = useState<Partial<Record<SocialPlatform, string | null>>>({});
+  const [saveState, setSaveState] = useState<"idle" | "saved" | "failed">("idle");
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
+  const stageHeading = useRef<HTMLHeadingElement>(null);
+  const moveToStage = (next: string) => { setStage(next); setPreviewOpen(false); };
+  useEffect(() => { stageHeading.current?.focus({ preventScroll: true }); }, [stage]);
   // Multi A/B/C versions: Pro + Growth. Free stays at 1.
   // Multi-platform generation is available on every plan.
   const canMultiVariation = canUseMultiVariations(user?.plan);
@@ -548,7 +547,6 @@ function GenerateTab({
   const [logoPickerOpen, setLogoPickerOpen] = useState(false);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [showMore, setShowMore] = useState(false);
-  const [outputView, setOutputView] = useState("edit");
   const [pendingAction, setPendingAction] = useState<"generate" | "reset" | "artwork" | null>(null);
   const { logos, setLogos, loading: logosLoading } = useBrandLogos(orgId, brandVersion);
   const selectedLogo =
@@ -593,6 +591,8 @@ function GenerateTab({
   const templateBootstrappedRef = useRef(false);
   const assetBootstrappedRef = useRef(false);
   const draftLoadedRef = useRef<string | null>(null);
+  const resumeSnapshotPending = useRef(false);
+  const [resumeInitializing, setResumeInitializing] = useState(Boolean(draftId));
 
   useEffect(() => {
     if (scheduleAtParam) setScheduleOpen(true);
@@ -630,6 +630,9 @@ function GenerateTab({
   useEffect(() => {
     if (!orgId || !draftId || draftLoadedRef.current === draftId) return;
     let cancelled = false;
+    setResumeInitializing(true);
+    resumeSnapshotPending.current = false;
+    setSavedSnapshot(null);
     operation.current += 1;
     creativeAbort.current?.abort();
     operationLocked.current = false;
@@ -646,6 +649,8 @@ function GenerateTab({
       .then((post) => {
         if (cancelled || !mounted.current) return;
         setEditingPostId(post.id);
+        setTargetAccounts(Object.fromEntries(post.platforms.map((platform) => [platform.platform, platform.socialAccountId ?? null])));
+        setStage(scheduleAtParam ? "finish" : "text");
         setPrompt(post.aiPrompt || post.title || "");
         const options = post.generationOptions ?? {};
         setType(options.contentType ?? (post.format === "carousel" ? "Carousel" : post.format === "thread" ? "Thread" : post.format === "poll" ? "Poll" : "Caption"));
@@ -718,10 +723,11 @@ function GenerateTab({
           recommended: i === 0,
         }));
         setVariations(vars.length ? vars : null);
+        resumeSnapshotPending.current = true;
         setPicked(0);
         if (post.templateId) setActiveTemplateId(post.templateId);
       })
-      .catch(() => { if (!cancelled) { draftLoadedRef.current = null; toast.error("Could not load draft"); } });
+      .catch(() => { if (!cancelled) { draftLoadedRef.current = null; setResumeInitializing(false); toast.error("Could not load draft"); } });
     return () => { cancelled = true; };
   }, [dispatch, orgId, draftId, onSetPrefillMedia, onClearMedia]);
 
@@ -799,7 +805,11 @@ function GenerateTab({
     setWorkspaceFirstComment(false);
     setCommentContextReady(false);
     if (orgId) void socialMediaApi.getSettings(orgId).then((settings) => {
-      if (!cancelled) setWorkspaceFirstComment(settings.autoFirstComment ?? false);
+      if (!cancelled) {
+        setWorkspaceFirstComment(settings.autoFirstComment ?? false);
+        setTeamReviewRequired(settings.approvalRequired ?? false);
+        setTeamReviewEnabled(settings.usage?.approvalWorkflow === true);
+      }
     }).catch(() => undefined).finally(() => { if (!cancelled) setCommentContextReady(true); });
     return () => { cancelled = true; };
   }, [orgId]);
@@ -811,17 +821,10 @@ function GenerateTab({
     }
   }, [selectedPlatforms, activePlatform]);
 
-  // Auto-enable image generation when the prompt/type implies a visual is needed.
   useEffect(() => {
-    if (type === "Thread") { setAlsoGenerateImage(false); return; }
-    if (prefillMedia) {
-      setAlsoGenerateImage(false);
-      return;
-    }
-    if (!imagePreferenceChanged.current && promptSuggestsImage(prompt, type)) {
-      setAlsoGenerateImage(true);
-    }
-  }, [prompt, type, prefillMedia]);
+    if (type === "Thread" || prefillMedia) setAlsoGenerateImage(false);
+    else if (type === "Carousel" || selectedPlatforms.includes("instagram")) setAlsoGenerateImage(true);
+  }, [type, prefillMedia, selectedPlatforms]);
 
   const multiPlatform = selectedPlatforms.length > 1;
   // A/B versions only when a single platform is selected on Enterprise.
@@ -866,11 +869,12 @@ function GenerateTab({
     prefillMedia?.mediaType === "video" ? prefillMedia.url : null;
 
   const previewAccount = useMemo(() => {
-    const acc = pickPreviewAccount(accounts, previewPlatform);
+    const targetId = targetAccounts[previewPlatform];
+    const acc = targetId ? accounts.find((account) => account.id === targetId && account.platform === previewPlatform) : pickPreviewAccount(accounts, previewPlatform);
     return acc
       ? { accountName: acc.accountName, accountPictureUrl: acc.accountPictureUrl }
       : null;
-  }, [accounts, previewPlatform]);
+  }, [accounts, previewPlatform, targetAccounts]);
 
   const selectPlatformTab = (p: SocialPlatform) => {
     setActivePlatform(p);
@@ -1061,7 +1065,7 @@ function GenerateTab({
   };
 
   const generate = async () => {
-    if (operationLocked.current || loading || imageLoading || slidesLoading || saving) return;
+    if (!canEdit || operationLocked.current || loading || imageLoading || slidesLoading || saving) return;
     if (!orgId) {
       toast.error("Workspace not ready");
       return;
@@ -1141,7 +1145,7 @@ function GenerateTab({
       setCreativeRequest(null);
       setCopyApproval(null);
       setVariations(results);
-      setOutputView("edit");
+      moveToStage("text");
       const recIdx = results.findIndex((v) => v.recommended);
       setPicked(recIdx >= 0 ? recIdx : 0);
       generatedSlides = formatKey === "carousel" ? (responses[0]?.slides ?? []).map((slide) => ({ ...slide, id: slide.id ?? crypto.randomUUID(), headline: cleanText(slide.headline), body: cleanText(slide.body), imagePrompt: cleanText(slide.imagePrompt) })) : [];
@@ -1172,7 +1176,7 @@ function GenerateTab({
   };
 
   const generateImage = async (retry = false, statusOnly = false, confirmed = false) => {
-    if (operationLocked.current || loading || imageLoading || slidesLoading || saving) return;
+    if (!canEdit || operationLocked.current || loading || imageLoading || slidesLoading || saving) return;
     if (!retry && !statusOnly && !confirmed && (creativeRequest || creativeItems.length || generatedImageUrl)) { setPendingAction("artwork"); return; }
     if (!copyApproved) { toast.error("Review all selected captions and slides, then approve copy before generating visuals."); return; }
     if (!orgId || prompt.trim().length < 5) {
@@ -1193,6 +1197,7 @@ function GenerateTab({
       return [
         {
           platform: variation.platform,
+          socialAccountId: targetAccounts[variation.platform] ?? undefined,
           caption: variation.caption,
           firstComment: type === "Thread" || variation.platform === "x" ? "" : variation.firstComment,
           hashtags: includeHashtags
@@ -1206,6 +1211,7 @@ function GenerateTab({
       const v = activeVariation?.platform === platform ? activeVariation : variations?.find((item) => item.platform === platform);
       return [{
       platform,
+      socialAccountId: targetAccounts[platform] ?? undefined,
       caption: v?.caption ?? "",
       firstComment: type === "Thread" || platform === "x" ? "" : v?.firstComment ?? "",
       hashtags: includeHashtags
@@ -1249,7 +1255,7 @@ function GenerateTab({
     creativeItems.length || generatedImageUrl || prefillMedia?.url,
   );
   const hasContent = Boolean(variations?.length || hasMediaAttached || slides?.length || tweets.length);
-  const busy = loading || imageLoading || slidesLoading;
+  const busy = loading || imageLoading || slidesLoading || resumeInitializing;
   const format = (CONTENT_TYPE_TO_FORMAT[type] ?? "single") as "single" | "carousel" | "thread" | "poll";
   const publishLimitation = type === "Thread"
     ? "Threads are copy-only. Native X reply-chain publishing and scheduling are not supported. Copy each tweet to publish manually."
@@ -1273,12 +1279,63 @@ function GenerateTab({
     Boolean(creativeItems.length || generatedImageUrl || prefillMedia?.mediaType === "image") &&
     !hasVideoAttached;
 
+  const resolvedTargets = selectedPlatforms.map((platform) => {
+    const savedId = targetAccounts[platform];
+    const account = savedId ? accounts.find((item) => item.id === savedId && item.platform === platform) : pickPreviewAccount(accounts, platform);
+    return { platform, account, ready: Boolean(account?.isActive && account.tokenStatus !== "expired" && account.tokenStatus !== "disconnected") };
+  });
+  const targetLimitation = resolvedTargets.some((target) => !target.ready) ? "Connect or select an active account for every selected channel. You can still save a draft." : null;
+  const requiredImageMissing = selectedPlatforms.includes("instagram") && !hasMediaAttached;
+  const overLimit = approvedPlatforms.some((platform) => Array.from(formatPostBody(platform.caption, platform.hashtags)).length > PLATFORM_CHAR_LIMITS[platform.platform]);
+  const finishBlocked = Boolean(!canPublish || !commentContextReady || teamReviewRequired || !hasContent || busy || saving || publishing || publishLimitation || targetLimitation || requiredImageMissing || overLimit || hasVideoAttached || xWithImageConflict);
+  const contentSnapshot = JSON.stringify({ fingerprint, copyApproval, creativeItems, creativeRequest, generatedImageUrl, visualsStale, targetAccounts });
+  const hasPersistableContent = Boolean(approvedPlatforms.some((platform) => platform.caption.trim()) || hasMediaAttached || slides?.length || tweets.length);
+  const dirty = !resumeInitializing && (savedSnapshot !== null ? savedSnapshot !== contentSnapshot : hasPersistableContent);
+  useEffect(() => {
+    if (resumeSnapshotPending.current && approvalContextReady && commentContextReady) {
+      if (savedSnapshot !== contentSnapshot) {
+        setSavedSnapshot(contentSnapshot);
+        return;
+      }
+      resumeSnapshotPending.current = false;
+      setResumeInitializing(false);
+      setSaveState("saved");
+    }
+  }, [contentSnapshot, savedSnapshot, approvalContextReady, commentContextReady]);
+  useEffect(() => {
+    if (!dirty) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    const leave = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const link = (event.target as Element).closest?.("a[href]");
+      if (!(link instanceof HTMLAnchorElement) || link.target === "_blank" || link.hasAttribute("download")) return;
+      const url = new URL(link.href, location.href);
+      if (url.origin === location.origin && (/^\/dashboard\/content-studio\/(generate|brand-voice|media)$/.test(url.pathname) || url.pathname === "/dashboard/content-studio") && url.searchParams.get("draftId") === draftId) return;
+      if (!window.confirm("Leave with unsaved content? Save a draft first to keep your changes.")) { event.preventDefault(); event.stopPropagation(); }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    document.addEventListener("click", leave, true);
+    return () => { window.removeEventListener("beforeunload", beforeUnload); document.removeEventListener("click", leave, true); };
+  }, [dirty, draftId]);
+
+  const writeManually = () => {
+    if (!canEdit || busy || saving || format !== "single") return;
+    if (!variations?.length) {
+      setVariations(selectedPlatforms.map((platform, index) => ({ platform, label: PLATFORM_LABELS[platform], caption: "", hashtags: [], firstComment: "", recommended: index === 0 })));
+      setPicked(0);
+      setCopyApproval(null);
+    }
+    moveToStage("text");
+  };
+
   const persistDraft = async (quiet = false, variation?: Variation): Promise<SocialPost | null> => {
+    if (!canEdit) return null;
     let platformPayload = buildPlatformPayload(variation);
     const persistMedia = resolvePersistMedia();
     if (platformPayload.length === 0 && (persistMedia.imageUrl || slides?.length || tweets.length)) {
       platformPayload = selectedPlatforms.map((p) => ({
         platform: p,
+        socialAccountId: targetAccounts[p] ?? undefined,
         caption: "",
         firstComment: "",
         hashtags: [],
@@ -1311,6 +1368,7 @@ function GenerateTab({
         : await dispatch(createSocialPost({ orgId, payload })).unwrap();
       if (!mounted.current) return null;
       setEditingPostId(post.id);
+      if (!variation) { setSavedSnapshot(contentSnapshot); setSaveState("saved"); }
       if (!quiet) {
         toast.success(
           platformPayload.length > 1
@@ -1324,6 +1382,7 @@ function GenerateTab({
       }
       return post;
     } catch (err) {
+      setSaveState("failed");
       if (!quiet) toast.error(extractErrorMessage(err, "Failed to save draft"));
       return null;
     }
@@ -1340,6 +1399,7 @@ function GenerateTab({
   };
 
   const handleSchedule = async (scheduledAt: string) => {
+    if (finishBlocked) return;
     if (publishLimitation || busy || saving) { toast.error(publishLimitation ?? "Wait for generation to finish"); return; }
     if (hasVideoAttached) {
       toast.error("Video publishing is not supported yet — save as draft only");
@@ -1365,6 +1425,7 @@ function GenerateTab({
   };
 
   const handlePublishNow = async () => {
+    if (finishBlocked) return;
     if (publishLimitation || busy || saving) { toast.error(publishLimitation ?? "Wait for generation to finish"); return; }
     if (hasVideoAttached) {
       toast.error("Video publishing is not supported yet — save as draft only");
@@ -1389,6 +1450,7 @@ function GenerateTab({
   };
 
   const handleSubmitApproval = async () => {
+    if (!canEdit || !teamReviewEnabled || busy || saving) return;
     setSaving(true);
     try {
       const post = await persistDraft(true);
@@ -1404,6 +1466,10 @@ function GenerateTab({
   };
 
   const resetStudio = () => {
+    moveToStage("brief");
+    setSavedSnapshot(null);
+    setSaveState("idle");
+    setTargetAccounts({});
     imagePreferenceChanged.current = false;
     operation.current += 1;
     operationLocked.current = false;
@@ -1458,58 +1524,33 @@ function GenerateTab({
           ) : null}
         </div>
       </div>}
-      <div role="region" aria-label="Post controls" className="sticky top-[var(--app-header-height)] z-10 flex items-center justify-between gap-1 rounded-xl border border-border bg-card p-2 shadow-soft sm:gap-2">
-        <select aria-label="Jump to studio section" defaultValue="" className="h-11 min-w-0 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden" onChange={(event) => {
-          const section = event.target.value;
-          if (section === "content" || section === "preview") setOutputView(section === "preview" ? "preview" : "edit");
-          moveToSection(section === "brief" ? "brief" : "content");
-          event.target.value = "";
-        }}>
-          <option value="" disabled>Jump to…</option>
-          <option value="brief">Brief</option>
-          <option value="content">Content</option>
-          <option value="preview">Preview</option>
-        </select>
-        <nav aria-label="Create workspace" className="hidden gap-1 sm:flex">
-          <Button type="button" variant="ghost" size="sm" onClick={() => moveToSection("brief")}><FileText className="hidden h-3.5 w-3.5 sm:block" />Brief</Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => moveToSection("content")}><Pencil className="hidden h-3.5 w-3.5 sm:block" />Content</Button>
-        </nav>
+      <div role="region" aria-label="Post controls" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
+        <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{resumeInitializing ? "Loading draft…" : saving ? "Saving draft…" : saveState === "failed" ? "Save failed · your edits are still here" : dirty ? "Unsaved content" : saveState === "saved" ? "Saved draft" : "Not saved · create copy or attach media to save"}</p>
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="min-h-11 sm:min-h-8"
-            disabled={!hasContent || saving || busy}
+            disabled={!canEdit || !hasPersistableContent || saving || busy}
             onClick={() => void saveDraft()}
           >
             <Save className="hidden h-3.5 w-3.5 sm:block" />
             Save draft
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="hidden sm:inline-flex"
-            disabled={!hasContent || saving || busy || publishing || hasVideoAttached || !!publishLimitation || xWithImageConflict}
-            onClick={() => void handlePublishNow()}
-          >
-            <ProductPublishIcon className="mr-1.5 h-3.5 w-3.5" />
-            Publish now
-          </Button>
+          <Button type="button" variant="outline" className="xl:hidden" aria-expanded={previewOpen} aria-controls="studio-live-preview" onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "Hide preview" : "Preview"}</Button>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-9 sm:w-9" aria-label="More post actions" disabled={busy || saving}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-11 w-11 sm:h-9 sm:w-9" aria-label="More post actions" disabled={!canEdit || busy || saving}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem disabled={!hasContent || publishing || hasVideoAttached || !!publishLimitation || xWithImageConflict} onSelect={() => void handlePublishNow()}><ProductPublishIcon />Publish now</DropdownMenuItem>
-              <DropdownMenuItem disabled={!hasContent || publishing || hasVideoAttached || !!publishLimitation || xWithImageConflict} onSelect={() => setScheduleOpen(true)}><Calendar />Schedule</DropdownMenuItem>
-              <DropdownMenuItem disabled={!hasContent} onSelect={() => void handleSubmitApproval()}><Save />Submit for approval</DropdownMenuItem>
-              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => hasContent ? setPendingAction("reset") : resetStudio()}><FileText />New post</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
-
-      {publishLimitation && <p role="status" className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">{publishLimitation}</p>}
+      <WorkflowProgress activeStep={stage} onStepChange={moveToStage} steps={[{ id: "brief", label: "Brief", complete: Boolean(prompt.trim()) }, { id: "text", label: "Text", complete: copyApproved }, { id: "visuals", label: "Visuals", complete: copyApproved && !publishLimitation && !requiredImageMissing }, { id: "finish", label: "Finish" }]} />
+      <h2 ref={stageHeading} tabIndex={-1} className="rounded-sm text-lg font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">{stage === "brief" ? "Your creative brief" : stage === "text" ? "Review your text" : stage === "visuals" ? "Choose your visuals" : "Finish your post"}</h2>
+      {!canEdit && <p role="status" className="text-sm text-muted-foreground">Read-only workspace. Ask an editor to make changes.</p>}
+      {stage === "finish" && publishLimitation && <p role="status" className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">{publishLimitation}</p>}
       {hasVideoAttached && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-900 dark:text-amber-100">
           Video is attached. Publishing video to social platforms is not supported yet — you can save as a draft.
@@ -1523,12 +1564,13 @@ function GenerateTab({
       )}
 
       <ScheduleModal
-        open={scheduleOpen}
+        open={scheduleOpen && stage === "finish" && !finishBlocked}
         loading={saving}
         initialValue={scheduleAtParam ?? undefined}
         onClose={() => setScheduleOpen(false)}
         onConfirm={(iso) => void handleSchedule(iso)}
       />
+      <Dialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Publish this post now?</DialogTitle><DialogDescription>Confirm the exact destinations below. This starts publishing immediately; it does not schedule a draft.</DialogDescription></DialogHeader><ul className="space-y-2 text-sm">{resolvedTargets.map(({ platform, account }) => <li key={platform}>{PLATFORM_LABELS[platform]} · {account?.accountName ?? "No connected account"}</li>)}</ul><DialogFooter><Button variant="outline" onClick={() => setPublishConfirmOpen(false)}>Keep editing</Button><Button disabled={finishBlocked} onClick={() => { setPublishConfirmOpen(false); void handlePublishNow(); }}>Confirm publish now</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={pendingAction !== null} onOpenChange={(open) => { if (!open) setPendingAction(null); }}>
         <DialogContent className="sm:max-w-md">
@@ -1538,7 +1580,8 @@ function GenerateTab({
       </Dialog>
 
     <div className="grid min-w-0 grid-cols-1 items-start gap-5 xl:grid-cols-12">
-      <Card className="min-w-0 shadow-soft xl:col-span-5">
+      <div className={cn("min-w-0 space-y-4 xl:col-span-7", previewOpen && "hidden xl:block")}>
+      <Card hidden={stage !== "brief" && stage !== "visuals"} className="min-w-0 shadow-soft">
         <CardHeader className="space-y-1 border-b border-border pb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -1546,7 +1589,7 @@ function GenerateTab({
                 <ProductGenerateIcon className="h-4 w-4" />
               </span>
               <div>
-                <CardTitle className="text-base"><h2 ref={briefHeading} tabIndex={-1} className="scroll-mt-[calc(var(--app-header-height)+5rem)] rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">Your creative brief</h2></CardTitle>
+                <CardTitle className="text-base">{stage === "visuals" ? "Visual setup" : "Start with an idea"}</CardTitle>
                 <p className="text-xs text-muted-foreground">
                   {brandKit?.brandName ? `Written in the ${brandKit.brandName} voice` : "Describe it, we write and design it"}
                 </p>
@@ -1557,7 +1600,7 @@ function GenerateTab({
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="p-4 sm:p-6"><fieldset disabled={busy || saving} onChangeCapture={markVisualsStale} className="min-w-0 space-y-5">
+        <CardContent className="p-4 sm:p-6"><fieldset disabled={!canEdit || busy || saving} onChangeCapture={markVisualsStale} className="min-w-0 space-y-5">
           <div className="space-y-2"><Button type="button" variant="outline" disabled={!orgId || type === "Carousel" || type === "Thread"} onClick={() => setMediaPickerOpen(true)}><Upload className="mr-1.5 h-4 w-4" />Add your media</Button><p className="text-xs text-muted-foreground">Upload or paste an image, choose stock, or reuse your library before generating copy. Manual media uses no AI image credits. Single-image posts and draft-only videos are supported; Carousel and Thread do not support manual attachments.</p></div>
           {prefillMedia && (
             <div className="flex items-center justify-between rounded-lg border border-border bg-accent/40 px-3 py-2 text-xs">
@@ -1579,6 +1622,7 @@ function GenerateTab({
           <MediaAttribution provenance={prefillMedia?.provenance} />
           {prefillMedia && (prefillMedia.mediaType === "video" ? <video src={prefillMedia.url} controls playsInline preload="metadata" aria-label="Attached draft video" className="max-h-60 w-full rounded-lg" /> : <img src={prefillMedia.url} alt="Attached media" className="max-h-60 w-full rounded-lg object-contain" />)}
 
+          <div hidden={stage !== "brief"} className="space-y-5">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="studio-brief" className="text-sm font-semibold">
@@ -1664,7 +1708,11 @@ function GenerateTab({
             </div>
           </div>
 
+          <div className="space-y-3">{resolvedTargets.map(({ platform, account, ready }) => <div key={platform} className="space-y-1"><Label htmlFor={`studio-account-${platform}`}>{PLATFORM_LABELS[platform]} account</Label><select id={`studio-account-${platform}`} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm" value={targetAccounts[platform] ?? ""} onChange={(event) => { markVisualsStale(); setTargetAccounts((previous) => ({ ...previous, [platform]: event.target.value || null })); }}><option value="">Default{account ? ` · ${account.accountName}` : " · no connected account"}</option>{targetAccounts[platform] && !accounts.some((item) => item.id === targetAccounts[platform]) && <option value={targetAccounts[platform]!}>Saved account · unavailable</option>}{accounts.filter((item) => item.platform === platform).map((item) => <option key={item.id} value={item.id}>{item.accountName}{!item.isActive ? " · disconnected" : ""}</option>)}</select><p className="text-xs text-muted-foreground">{ready ? "Connected destination" : "Not ready to publish · drafting is available"}</p></div>)}</div>
+
           {type === "Carousel" && <div className="space-y-2"><Label htmlFor="studio-slide-count">Slide count</Label><select id="studio-slide-count" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={slideCount} onChange={(event) => setSlideCount(Number(event.target.value))}>{[2, 3, 4, 5, 6, 7, 8].map((count) => <option key={count} value={count}>{count} slides</option>)}</select></div>}
+          <button type="button" aria-expanded={writingOpen} onClick={() => setWritingOpen((open) => !open)} className="flex min-h-11 w-full items-center justify-between rounded-lg border border-border px-3 text-sm font-medium">Writing options<span className="text-xs text-muted-foreground">{tone} · {length} · {effectiveVariations} version{effectiveVariations > 1 ? "s" : ""}</span></button>
+          <div hidden={!writingOpen}>
           <section aria-label="Writing preferences" className="space-y-3 rounded-xl bg-muted/40 p-3">
             <div className="flex items-center gap-2 text-xs font-semibold"><SlidersHorizontal className="h-3.5 w-3.5 text-primary" />Writing style</div>
             <SegmentedControl ariaLabel="Tone" value={tone} options={TONES} onChange={(value) => { markVisualsStale(); setTone(value); }} />
@@ -1673,7 +1721,13 @@ function GenerateTab({
             <ToggleRow id="studio-first-comment" label="Generate first comment" hint={type === "Thread" ? "Threads do not support first comments." : "Facebook and Instagram: automatic delivery. LinkedIn: manual copy only. Existing comments are kept when off."} checked={type !== "Thread" && includeComment} disabled={type === "Thread"} onChange={setIncludeCommentOverride} />
             <ToggleRow id="studio-emojis" label="Emojis" hint={brandForbidsEmoji ? "Your brand profile never uses emojis" : undefined} checked={includeEmojis && !brandForbidsEmoji} disabled={brandForbidsEmoji} onChange={setIncludeEmojis} />
           </section>
+          <div className="mt-3 flex items-center gap-3"><Label htmlFor="studio-versions">Versions</Label><select id="studio-versions" className="h-11 rounded-md border border-input bg-background px-3 text-sm" disabled={!canMultiVariation || multiPlatform} value={effectiveVariations} onChange={(event) => setVariationsWanted(Number(event.target.value) as 1 | 2 | 3)}>{[1, 2, 3].map((count) => <option key={count} value={count}>{count}</option>)}</select>{(!canMultiVariation || multiPlatform) && <span className="text-xs text-muted-foreground">Multiple versions need an eligible plan and one channel.</span>}</div>
+          </div>
+          </div>
 
+          <div hidden={stage !== "visuals"} className="space-y-4">
+          <div className="grid gap-2 sm:grid-cols-3"><Button type="button" variant="outline" disabled={!orgId || type === "Carousel" || type === "Thread"} onClick={() => setMediaPickerOpen(true)}>Use my media</Button><Button type="button" variant="outline" aria-pressed={alsoGenerateImage && !prefillMedia} disabled={!!prefillMedia || type === "Thread" || selectedPlatforms.every((platform) => platform === "x")} onClick={() => { markVisualsStale(); setAlsoGenerateImage(true); }}>Generate image</Button><Button type="button" variant="outline" aria-pressed={!alsoGenerateImage && !hasMediaAttached} disabled={!canEdit || busy || saving || type === "Carousel" || selectedPlatforms.includes("instagram")} onClick={() => { onClearMedia(); removeGeneratedImage(); }}>Text only</Button></div>
+          <p className="text-sm text-muted-foreground">Choose explicitly. Manual media uses no AI image credits. Instagram and carousels need images; X and threads stay text-only. Video is draft-only.</p>
           <div className="space-y-3 rounded-xl border border-border p-3">
             <ToggleRow
               id="studio-visual"
@@ -1686,15 +1740,15 @@ function GenerateTab({
                     : `Sized for ${PLATFORM_LABELS[previewPlatform]}, matched to your caption`
               }
               checked={alsoGenerateImage && !prefillMedia}
-              disabled={!!prefillMedia || type === "Thread"}
+              disabled={!!prefillMedia || type === "Thread" || type === "Carousel" || selectedPlatforms.includes("instagram") || selectedPlatforms.every((platform) => platform === "x")}
               onChange={(value) => { imagePreferenceChanged.current = true; setAlsoGenerateImage(value); }}
             />
             <p className="text-xs leading-relaxed text-muted-foreground">This selects visual intent only. Create and approve copy first, then explicitly generate visuals. Shared artwork is sized for each channel; up to {type === "Carousel" ? slideCount : 1} paid image generation{type === "Carousel" ? "s" : ""}. X stays text-only.</p>
-            <div className="space-y-2">
+            {alsoGenerateImage && !prefillMedia && <div className="space-y-2">
               <Label htmlFor="studio-art-direction">Visual art direction (optional)</Label>
               <Textarea id="studio-art-direction" value={artDirection} maxLength={2000} rows={3} placeholder="Medium: product photography. Subject: our desk lamp. Style: warm, minimal studio. Avoid: people, invented labels, extra text." onChange={(event) => setArtDirection(event.target.value)} />
               <p className="text-xs text-muted-foreground">Describe the medium, subject, style and anything to avoid. This guides artwork; it does not guarantee exact products or factual image details.</p>
-            </div>
+            </div>}
             {alsoGenerateImage && !prefillMedia ? (
               <>
                 {type !== "Carousel" && (
@@ -1758,7 +1812,7 @@ function GenerateTab({
             ) : null}
           </div>
 
-          <div className="rounded-xl border border-border">
+          {alsoGenerateImage && !prefillMedia && <div className="rounded-xl border border-border">
             <button
               type="button"
               onClick={() => setShowMore((v) => !v)}
@@ -1777,39 +1831,6 @@ function GenerateTab({
             </button>
             {showMore && (
               <div className="space-y-3 border-t border-border p-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-muted-foreground">Versions</Label>
-                    {!canMultiVariation ? (
-                      <ProBadge />
-                    ) : multiPlatform ? (
-                      <span className="text-[10px] text-muted-foreground">Pick one channel for A/B versions</span>
-                    ) : null}
-                  </div>
-                  <div className="flex rounded-lg border border-border p-0.5">
-                    {([1, 2, 3] as const).map((n) => {
-                      const locked = n > 1 && (!canMultiVariation || multiPlatform);
-                      const active = effectiveVariations === n;
-                      return (
-                        <button
-                          key={n}
-                          type="button"
-                          onClick={() => !locked && setVariationsWanted(n)}
-                          disabled={locked}
-                          className={cn(
-                            "flex flex-1 items-center justify-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition",
-                            active && !locked
-                              ? "bg-primary text-primary-foreground"
-                              : "text-muted-foreground hover:bg-muted",
-                            locked && "cursor-not-allowed opacity-60 hover:bg-transparent",
-                          )}
-                        >
-                          {n} {locked && <Lock className="h-3 w-3" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
                 <ToggleRow
                   id="studio-headline"
                   label="Headline on image"
@@ -1836,6 +1857,7 @@ function GenerateTab({
                 ) : null}
               </div>
             )}
+          </div>}
           </div>
 
           <BrandLogoPickerDialog
@@ -1862,7 +1884,7 @@ function GenerateTab({
             </div>
           )}
 
-          <div className="space-y-2 border-t border-border pt-4">
+          <div hidden={stage !== "brief"} className="space-y-2 border-t border-border pt-4">
             <Button className="w-full" size="lg" onClick={() => variations?.length ? setPendingAction("generate") : void generate()} disabled={busy || saving || !commentContextReady || !orgId || prompt.trim().length < 5}>
               {loading ? (
                 <>
@@ -1875,34 +1897,17 @@ function GenerateTab({
                 </>
               )}
             </Button>
+            <Button type="button" variant="outline" className="w-full" disabled={!canEdit || busy || saving || format !== "single"} onClick={writeManually}>Write myself</Button>
             <p role="status" className="text-center text-xs text-muted-foreground">{slidesLoading ? "Creating slide visuals…" : imageLoading ? "Creating your visual…" : loading ? "Writing your content…" : "Copy only. Review and approve it before generating visuals. Nothing posts automatically."}</p>
-            {(hasContent || busy) && <Button type="button" variant="outline" className="w-full" onClick={() => moveToSection("content")}>View content<Pencil className="ml-2 h-3.5 w-3.5" /></Button>}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="w-full text-xs text-muted-foreground"
-              disabled={busy || saving || !!prefillMedia || !copyApproved || !alsoGenerateImage || !orgId || prompt.trim().length < 5 || type === "Thread" || (type === "Carousel" && !slides?.length)}
-              onClick={() => void generateImage()}
-            >
-              {imageLoading ? (
-                <>
-                  <RefreshCcw className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Creating image…
-                </>
-              ) : (
-                <>
-                  <ImageIcon className="mr-1.5 h-3.5 w-3.5" /> Generate approved visuals
-                </>
-              )}
-            </Button>
+            {(hasContent || busy) && <Button type="button" variant="outline" className="w-full" onClick={() => moveToStage("text")}>Continue to text<Pencil className="ml-2 h-3.5 w-3.5" /></Button>}
           </div>
         </fieldset></CardContent>
       </Card>
 
-      <Card className="min-w-0 shadow-soft xl:col-span-7">
+      <Card hidden={stage !== "text" && stage !== "visuals"} className="min-w-0 shadow-soft">
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base"><h2 ref={contentHeading} tabIndex={-1} className="scroll-mt-[calc(var(--app-header-height)+5rem)] rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">Your content workspace</h2></CardTitle>
+            <CardTitle className="text-base">{stage === "visuals" ? "Visual results" : "Channel copy"}</CardTitle>
             {variations && (
               <Badge variant="secondary" className="text-[10px]">
                 {multiPlatform
@@ -1915,12 +1920,14 @@ function GenerateTab({
           </div>
         </CardHeader>
         <CardContent className="min-w-0 space-y-4 p-4 pt-0 sm:p-6 sm:pt-0" aria-busy={loading}>
+          <fieldset disabled={!canEdit || resumeInitializing} className="min-w-0 space-y-4">
           <section aria-label="Copy approval workflow" className="space-y-3 rounded-xl border border-border bg-muted/30 p-3">
-            <ol className="flex flex-wrap gap-3 text-xs font-medium"><li>1. Create copy</li><li>2. Review and approve</li><li>3. Generate visuals (optional)</li></ol>
             <p role="status" className="text-sm text-muted-foreground">{copyApproved ? "Copy approved for all selected channels and slides. Generate visuals separately if selected, or publish approved text only." : "Review and edit every selected channel caption and every slide. Approve copy when ready; approval never generates images or uses image credits. Any copy, channel, version or generation-setting change requires approval again."}</p>
-            <Button type="button" disabled={busy || saving || !approvalContextReady || !canApproveCopy || copyApproved} onClick={() => { if (!operationLocked.current) setCopyApproval({ version: 1, fingerprint }); }}>{copyApproved ? "Copy approved" : "Approve copy"}</Button>
-            {type !== "Carousel" && type !== "Thread" && (alsoGenerateImage || creativeItems.length > 0 || visualsStale || generatedImageUrl) && !prefillMedia && <Button type="button" variant="outline" disabled={busy || saving} onClick={removeGeneratedImage}>Use text only</Button>}
+            {stage === "visuals" && !copyApproved && <p className="text-sm font-medium">Changing visual setup resets approval. Review the updated setup and approve it here before generating. No automatic approval.</p>}
+            <Button type="button" variant="outline" disabled={!canEdit || busy || saving || !approvalContextReady || !canApproveCopy || copyApproved} onClick={() => { if (!operationLocked.current) setCopyApproval({ version: 1, fingerprint }); }}>{copyApproved ? "Copy approved" : "Approve copy"}</Button>
+            {stage === "visuals" && <Button type="button" variant="ghost" onClick={() => moveToStage("text")}>Review text</Button>}
           </section>
+          {stage === "visuals" && <Button type="button" variant={hasMediaAttached ? "outline" : "default"} className="w-full" disabled={!canEdit || busy || saving || !copyApproved || !alsoGenerateImage || !!prefillMedia || !orgId || prompt.trim().length < 5 || type === "Thread" || (type === "Carousel" && !slides?.length)} onClick={() => void generateImage()}>{imageLoading ? "Creating image…" : "Generate approved visuals"}</Button>}
           {/* Platform switch — only when more than one platform */}
           {selectedPlatforms.length > 1 && (
             <div className="flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
@@ -1945,7 +1952,7 @@ function GenerateTab({
             </div>
           )}
 
-          {/* Variation switch — Version A/B/C when multiple generations */}
+          <div hidden={stage !== "text"} className="space-y-4">
           {platformVariationIndexes.length > 1 && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -1973,31 +1980,7 @@ function GenerateTab({
             </div>
           )}
 
-          <Tabs value={outputView} onValueChange={setOutputView} className="space-y-4">
-            <TabsList aria-label="Content workspace view" className="grid w-full grid-cols-2">
-              <TabsTrigger value="edit"><Pencil className="mr-2 h-3.5 w-3.5" />Edit copy</TabsTrigger>
-              <TabsTrigger value="preview"><Smartphone className="mr-2 h-3.5 w-3.5" />Live preview</TabsTrigger>
-            </TabsList>
-            <TabsContent value="preview" className="min-w-0 rounded-xl border border-border bg-muted/30 p-3">
-              <p className="mb-5 text-center text-xs text-muted-foreground">Approximate {PLATFORM_LABELS[previewPlatform]} preview · final appearance may vary.</p>
-                <ResponsivePhonePreview>
-                  <PlatformPreview
-                    key={previewPlatform}
-                    platform={previewPlatform}
-                    caption={previewCaption}
-                    hashtags={previewHashtags}
-                    firstComment={type === "Thread" ? "" : activeVariation?.firstComment}
-                    imageUrl={failedImageUrls.includes(previewImageUrl ?? "") ? null : previewImageUrl}
-                    videoUrl={previewVideoUrl}
-                    brandName={brandKit?.brandName || "Your Brand"}
-                    account={previewAccount}
-                    slides={previewSlides}
-                    media={creativeRequest || creativeItems.length ? creativeMedia(creativeItems, previewPlatform, type === "Carousel" ? slides : null).filter((item) => !failedImageUrls.includes(item.url)) : undefined}
-                    tweets={type === "Thread" ? tweets : undefined}
-                  />
-                </ResponsivePhonePreview>
-            </TabsContent>
-            <TabsContent value="edit">
+          <div>
             {loading ? (
               <div role="status" aria-label="Generating content" className="space-y-4 rounded-xl border border-border p-5">
                 <p className="text-sm font-medium">Finding the right words for your brand…</p>
@@ -2027,7 +2010,7 @@ function GenerateTab({
                 firstComment={activeVariation.firstComment}
                 onFirstCommentChange={(firstComment) => updateActiveCopy({ firstComment })}
                 onHashtagsChange={(hashtags) => updateActiveCopy({ hashtags })}
-                saving={saving || busy}
+                saving={!canEdit || saving || busy}
                 onCaptionChange={updateActiveCaption}
                 onSaveDraft={() => void saveDraft()}
               />
@@ -2039,8 +2022,7 @@ function GenerateTab({
                 <ol className="mt-6 grid w-full max-w-sm grid-cols-3 gap-3 text-xs text-muted-foreground">{["Add your brief", "Make it yours", "Save or publish"].map((step, index) => <li key={step}><span className="mx-auto mb-2 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background font-medium text-foreground">{index + 1}</span>{step}</li>)}</ol>
               </div>
             )}
-            </TabsContent>
-          </Tabs>
+          </div>
 
           {activeVariation && type !== "Thread" && <div className="space-y-2"><TagInput id="studio-shared-tags" label="Additional shared hashtags" value={hashtags} disabled={busy || saving} onChange={setHashtags} /><p className="text-xs text-muted-foreground">Only these manual additions are shared. Generated hashtags stay with their own channel.{!includeHashtags ? " Hashtags are off and will not be included." : ""}</p></div>}
 
@@ -2053,7 +2035,12 @@ function GenerateTab({
               <Textarea id={`slide-body-${slide.id}`} value={slide.body} disabled={busy || saving} onChange={(event) => { markVisualsStale(); setSlides((previous) => previous?.map((item) => item.id === slide.id ? { ...item, body: event.target.value } : item) ?? null); }} />
             </div>)}
           </section> : null}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          {variations?.length && <Button type="button" variant="outline" disabled={!canEdit || busy || saving || !commentContextReady || prompt.trim().length < 5} onClick={() => setPendingAction("generate")}><RefreshCcw className="h-4 w-4" />Regenerate text</Button>}
+          <div className="mobile-action-bar flex flex-wrap items-center justify-between gap-3 border-t border-border bg-card py-3"><p className="text-sm text-muted-foreground">Approval covers every selected channel and slide.</p><Button type="button" disabled={!canEdit || busy || saving || !approvalContextReady || !canApproveCopy} onClick={() => { if (!operationLocked.current) { setCopyApproval({ version: 1, fingerprint }); moveToStage("visuals"); } }}>Approve text and continue</Button></div>
+          </div>
 
+          <div hidden={stage !== "visuals"} className="space-y-4">
           {(visualMessage || creativeRequest || visualsStale || (type === "Carousel" && slides?.length)) && <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
             {visualMessage && <p role="status" className="text-sm text-muted-foreground">{visualMessage}</p>}
             {retryUnavailable && <p className="text-sm text-muted-foreground">Retry is unavailable for artwork without a saved base. New artwork requires your confirmation and may use additional image credits.</p>}
@@ -2152,8 +2139,18 @@ function GenerateTab({
               {previewImageUrl && (failedImageUrls.includes(previewImageUrl) ? <p role="status" className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">Image preview unavailable. Refresh saved visual status before publishing.</p> : <img src={previewImageUrl} alt={type === "Carousel" ? `${PLATFORM_LABELS[previewPlatform]} slide ${activeSlide + 1} artwork` : `${PLATFORM_LABELS[previewPlatform]} artwork`} className="max-h-96 w-full rounded-lg object-contain" onError={() => imageFailed(previewImageUrl)} />)}
             </div>
           )}
+          <div className="mobile-action-bar flex justify-end border-t border-border bg-card py-3"><Button type="button" variant={alsoGenerateImage && !prefillMedia && !hasMediaAttached ? "outline" : "default"} onClick={() => moveToStage("finish")}>Continue to finish</Button></div>
+          </div>
+          </fieldset>
         </CardContent>
       </Card>
+      <Card hidden={stage !== "finish"}><CardHeader><CardTitle>Ready to share?</CardTitle></CardHeader><CardContent className="space-y-5"><ul className="space-y-3 text-sm"><li>{copyApproved ? "✓ Text approved for the current setup" : "Text needs explicit approval"}</li><li>{publishLimitation || requiredImageMissing ? "Visuals or copy need attention" : "✓ Visual requirements checked"}</li><li>{overLimit ? "A caption exceeds its channel limit" : "✓ Caption lengths checked"}</li>{resolvedTargets.map(({ platform, account, ready }) => <li key={platform}>{ready ? "✓" : "!"} {PLATFORM_LABELS[platform]} · {account?.accountName ?? "No connected destination"}</li>)}</ul>{targetLimitation && <p role="status" className="text-sm text-muted-foreground">{targetLimitation}</p>}{!canPublish && <p className="text-sm text-muted-foreground">{canEdit ? "Save your draft and hand it off to a publisher." : "A publisher must finish this post."}</p>}{teamReviewRequired && <p className="text-sm text-muted-foreground">Team review is required before publishing. Submit the draft, then finish from the reviewed post. Text approval is not team approval.</p>}<div className="mobile-action-bar flex flex-wrap gap-3 border-t border-border bg-card py-3"><Button type="button" disabled={finishBlocked} onClick={() => setPublishConfirmOpen(true)}><ProductPublishIcon className="h-4 w-4" />Publish now</Button><Button type="button" variant="outline" disabled={finishBlocked} onClick={() => setScheduleOpen(true)}><Calendar className="h-4 w-4" />Schedule</Button>{canEdit && teamReviewEnabled && <Button type="button" variant="outline" disabled={!hasPersistableContent || busy || saving || !copyApproved} onClick={() => void handleSubmitApproval()}>Submit for team review</Button>}</div><p className="text-xs text-muted-foreground">Nothing is published or scheduled until you confirm. Save draft remains available above.</p></CardContent></Card>
+      </div>
+      <aside id="studio-live-preview" aria-label="Live post preview" className={cn("min-w-0 rounded-xl border border-border bg-card p-4 xl:sticky xl:top-24 xl:col-span-5", previewOpen ? "block" : "hidden xl:block")}>
+        <h3 className="mb-2 text-sm font-semibold">Live preview</h3><p className="mb-5 text-xs text-muted-foreground">Approximate {PLATFORM_LABELS[previewPlatform]} preview · final appearance may vary.</p>
+        <div className="mb-4 flex flex-wrap gap-2">{selectedPlatforms.map((platform) => <Button key={platform} type="button" size="sm" variant="outline" aria-label={`Preview ${PLATFORM_LABELS[platform]}`} aria-pressed={previewPlatform === platform} onClick={() => selectPlatformTab(platform)}>{PLATFORM_LABELS[platform]}</Button>)}</div>
+        <ResponsivePhonePreview><PlatformPreview key={previewPlatform} platform={previewPlatform} caption={previewCaption} hashtags={previewHashtags} firstComment={type === "Thread" ? "" : activeVariation?.firstComment} imageUrl={failedImageUrls.includes(previewImageUrl ?? "") ? null : previewImageUrl} videoUrl={previewVideoUrl} brandName={brandKit?.brandName || "Your Brand"} account={previewAccount} slides={previewSlides} media={creativeRequest || creativeItems.length ? creativeMedia(creativeItems, previewPlatform, type === "Carousel" ? slides : null).filter((item) => !failedImageUrls.includes(item.url)) : undefined} tweets={type === "Thread" ? tweets : undefined} /></ResponsivePhonePreview>
+      </aside>
     </div>
     <MediaPicker workspaceId={orgId} open={mediaPickerOpen && !busy && !saving && type !== "Carousel" && type !== "Thread"} onOpenChange={setMediaPickerOpen} contextKey={`${draftId ?? "new"}/${type}`} initialQuery={prompt} onSelect={asset => {
       if (operationLocked.current || busy || saving || type === "Carousel" || type === "Thread") return false;
@@ -2231,7 +2228,7 @@ function CaptionEditor({
       </div>
 
       <div className="space-y-2"><Label htmlFor="studio-platform-tags">{PLATFORM_LABELS[platform]} hashtags</Label><Textarea id="studio-platform-tags" value={platformHashtags.join("\n")} disabled={saving} rows={3} onChange={(event) => onHashtagsChange(event.target.value.split("\n"))} /><p className="text-xs text-muted-foreground">One tag per line. Order and duplicates are preserved.</p></div>
-      {platform !== "x" && <div className="space-y-2"><Label htmlFor="studio-comment">First comment</Label><Textarea id="studio-comment" value={firstComment} disabled={saving} rows={4} onChange={(event) => onFirstCommentChange(event.target.value)} /><p className="text-xs text-muted-foreground">{platform === "linkedin" ? "LinkedIn · manual copy only. Not published automatically." : `${PLATFORM_LABELS[platform]} · automatic first-comment delivery after publishing.`}</p><Button type="button" size="sm" variant="outline" disabled={!firstComment} onClick={() => { void navigator.clipboard.writeText(firstComment); toast.success("First comment copied"); }}>Copy first comment</Button></div>}
+      {platform !== "x" && <details open={Boolean(firstComment)} className="space-y-2"><summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">{firstComment ? "First comment" : "Add an optional first comment"}</summary><Label htmlFor="studio-comment">First comment</Label><Textarea id="studio-comment" value={firstComment} disabled={saving} rows={4} onChange={(event) => onFirstCommentChange(event.target.value)} /><p className="text-xs text-muted-foreground">{platform === "linkedin" ? "LinkedIn · manual copy only. Not published automatically." : `${PLATFORM_LABELS[platform]} · automatic first-comment delivery after publishing.`}</p><Button type="button" size="sm" variant="outline" disabled={!firstComment} onClick={() => { void navigator.clipboard.writeText(firstComment); toast.success("First comment copied"); }}>Copy first comment</Button></details>}
 
       <div className="flex flex-wrap items-center gap-1.5">
         <Button size="sm" variant="ghost" disabled={!caption} onClick={copyAll}>

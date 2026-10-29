@@ -1,13 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PlannerImagePreview } from "./PlannerItemEditor";
-import { imageStageLabel, itemLabel, mergePolledRun, runNeedsPolling, savedCopy, warningAcknowledgments, workspaceDate } from "./planner-review";
+import { imageStageLabel, itemLabel, mergePolledRun, nextReviewAction, primaryStatus, reviewStatuses, runNeedsPolling, savedCopy, warningAcknowledgments, workspaceDate } from "./planner-review";
 import { testItem, testRun, testWarning } from "./planner-test-fixtures";
 
 vi.mock("@/api/endpoints/social-media.api", () => ({ default: {} }));
 
 afterEach(cleanup);
 describe("planner review state and artwork", () => {
+  it.each([
+    { item: testItem(), status: "review_text", action: "Review text" },
+    { item: testItem({ copyApproved: true }), status: "choose_visuals", action: "Choose visuals" },
+    { item: testItem({ copyApproved: true, imageIntent: "required", visualState: "failed" }), status: "choose_visuals", action: "Choose visuals" },
+    { item: testItem({ copyApproved: true, imageIntent: "text_only", canSchedule: true }), status: "ready", action: "Review schedule" },
+    { item: testItem({ copyApproved: true, visualState: "ready", reasons: ["past_slot"] }), status: "attention", action: "Resolve issues" },
+    { item: testItem({ isScheduled: true, scheduleState: "accepted" }), status: "scheduled", action: "View post" },
+    { item: testItem({ isScheduled: true, scheduleState: "uncertain" }), status: "attention", action: "View post" },
+    { item: testItem({ post: null, generationState: "failed" }), status: "attention", action: "Resolve issues" },
+    { item: testItem({ generationState: "excluded" }), status: "excluded", action: "View post" },
+    { item: testItem({ textState: "uncertain" }), status: "attention", action: "Resolve issues" },
+  ])("derives one primary $status status and $action action", ({ item, status, action }) => {
+    expect(primaryStatus(item)).toBe(status);
+    expect(nextReviewAction(item)).toBe(action);
+    expect(reviewStatuses.filter(value => value.id === primaryStatus(item))).toHaveLength(1);
+  });
   it("uses workspace today even across a browser-local day boundary", () => {
     expect(workspaceDate("Pacific/Kiritimati", new Date("2027-01-01T12:00:00Z"))).toBe("2027-01-02");
     expect(workspaceDate("America/Los_Angeles", new Date("2027-01-01T01:00:00Z"))).toBe("2026-12-31");

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import apiClient from "@/api/client";
 import PlannerItemEditor from "./PlannerItemEditor";
@@ -11,9 +11,127 @@ vi.mock("@/components/social-media/ai-studio/ResponsivePhonePreview", () => ({ d
 
 const props = { canEdit: true, busy: false, error: "", onClose: vi.fn(), onSave: vi.fn(), onSlot: vi.fn(), onMove: vi.fn(), index: 0, total: 1, workspaceId: "workspace", accountName: "Editorial account", onAttach: vi.fn(), onApprove: vi.fn() };
 beforeEach(() => { vi.clearAllMocks(); props.onSave.mockResolvedValue(false); props.onAttach.mockResolvedValue(true); });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("planner preview workspace", () => {
+  it("reports copy and time dirty changes, saved resets and unmount cleanup", () => {
+    const onDirtyChange = vi.fn();
+    const item = testItem();
+    const { rerender, unmount } = render(<PlannerItemEditor {...props} presentation="inline" item={item} onDirtyChange={onDirtyChange} />);
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Unsaved copy" } });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: item.post!.platforms[0].caption } });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    fireEvent.click(screen.getByText("Posting date and time"));
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "15:30" } });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    rerender(<PlannerItemEditor {...props} presentation="inline" item={{ ...item, slot: { ...item.slot, time: "15:30" } }} onDirtyChange={onDirtyChange} />);
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Another edit" } });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    unmount();
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+  it("does not overwrite newer hashtag edits when an earlier save resolves", async () => {
+    const user = userEvent.setup();
+    let finish!: (value: boolean) => void;
+    props.onSave.mockImplementationOnce(() => new Promise<boolean>(resolve => { finish = resolve; }));
+    render(<PlannerItemEditor {...props} presentation="inline" item={testItem()} />);
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Submitted copy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save copy" }));
+    expect(props.onSave).toHaveBeenCalledWith(expect.objectContaining({ hashtags: ["#Saved", "#Original"] }));
+    await user.click(screen.getByRole("button", { name: "Remove hashtag Original" }));
+    await act(async () => { finish(true); });
+    expect(screen.queryByRole("button", { name: "Remove hashtag Original" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Remove hashtag Saved" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save copy" }));
+    expect(props.onSave).toHaveBeenLastCalledWith(expect.objectContaining({ hashtags: ["#Saved"] }));
+  });
+  it("renders an accessible inline editor with a live preview and no implicit operations", () => {
+    const onGenerate = vi.fn();
+    render(<PlannerItemEditor {...props} presentation="inline" onGenerate={onGenerate} item={testItem()} />);
+    const editor = screen.getByRole("region", { name: "Review your post" });
+    expect(within(editor).getByLabelText("Caption")).toBeTruthy();
+    expect(within(editor).getByRole("region", { name: "Live post preview" })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onGenerate).not.toHaveBeenCalled();
+    expect(props.onApprove).not.toHaveBeenCalled();
+    expect(props.onSave).not.toHaveBeenCalled();
+    expect(apiClient.get).not.toHaveBeenCalled();
+  });
+  it("preserves one editor's copy, tags, comment, time and dirty guard across responsive changes", async () => {
+    const user = userEvent.setup();
+    const media = new EventTarget() as EventTarget & { matches: boolean };
+    media.matches = true;
+    vi.stubGlobal("matchMedia", vi.fn(() => media));
+    const onReviewNext = vi.fn();
+    const onGenerate = vi.fn();
+    render(<PlannerItemEditor {...props} presentation="responsive" onReviewNext={onReviewNext} onGenerate={onGenerate} item={testItem()} />);
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Unsaved responsive copy" } });
+    await user.click(screen.getByRole("button", { name: "Remove hashtag Saved" }));
+    fireEvent.change(screen.getByLabelText("First comment"), { target: { value: "Unsaved comment" } });
+    fireEvent.click(screen.getByText("Posting date and time"));
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "15:30" } });
+    act(() => { media.matches = false; media.dispatchEvent(new Event("change")); });
+    expect(screen.getByRole("dialog", { name: "Review your post" })).toBeTruthy();
+    expect(screen.getAllByLabelText("Caption")).toHaveLength(1);
+    expect((screen.getByLabelText("Caption") as HTMLTextAreaElement).value).toBe("Unsaved responsive copy");
+    expect((screen.getByLabelText("First comment") as HTMLTextAreaElement).value).toBe("Unsaved comment");
+    expect(screen.queryByRole("button", { name: "Remove hashtag Saved" })).toBeNull();
+    fireEvent.click(screen.getByText("Posting date and time"));
+    expect((screen.getByLabelText("Time") as HTMLInputElement).value).toBe("15:30");
+    await user.click(screen.getByRole("button", { name: "Review next" }));
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeTruthy();
+    act(() => { media.matches = true; media.dispatchEvent(new Event("change")); });
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("region", { name: "Review your post" })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect((screen.getByLabelText("Caption") as HTMLTextAreaElement).value).toBe("Unsaved responsive copy");
+    expect(onReviewNext).not.toHaveBeenCalled();
+    expect(onGenerate).not.toHaveBeenCalled();
+    expect(props.onApprove).not.toHaveBeenCalled();
+  });
+  it("does not offer a fresh paid operation while the saved image operation needs reconciliation", () => {
+    const onGenerate = vi.fn();
+    render(<PlannerItemEditor {...props} initialTab="visuals" onGenerate={onGenerate} item={testItem({ copyApproved: true, imageOperationId: "uncertain-operation", imageRetryable: false, visualState: "failed" })} />);
+    const generate = screen.getByRole("button", { name: "Generate new artwork" });
+    expect((generate as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(generate);
+    expect(onGenerate).not.toHaveBeenCalled();
+    expect(screen.getByText(/reconcile the existing image operation/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Upload, paste or choose media" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it("guards all visual choices while copy or proposed time has unsaved edits", async () => {
+    const user = userEvent.setup();
+    const onGenerate = vi.fn();
+    const onTextOnly = vi.fn();
+    const onRetryImage = vi.fn();
+    render(<PlannerItemEditor {...props} onGenerate={onGenerate} onTextOnly={onTextOnly} onRetryImage={onRetryImage} item={testItem({ copyApproved: true })} />);
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Unsaved revision" } });
+    await user.click(screen.getByRole("button", { name: "Visuals" }));
+    const choices = within(screen.getByRole("region", { name: "Visual choices" }));
+    choices.getAllByRole("button").forEach(button => expect((button as HTMLButtonElement).disabled).toBe(true));
+    expect(onGenerate).not.toHaveBeenCalled();
+    expect(onTextOnly).not.toHaveBeenCalled();
+    expect(onRetryImage).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Exact saved caption\nSecond line" } });
+    fireEvent.click(screen.getByText("Posting date and time"));
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "15:30" } });
+    await user.click(screen.getByRole("button", { name: "Visuals" }));
+    within(screen.getByRole("region", { name: "Visual choices" })).getAllByRole("button").forEach(button => expect((button as HTMLButtonElement).disabled).toBe(true));
+    expect(props.onAttach).not.toHaveBeenCalled();
+  });
+  it("keeps Instagram image-only and read-only visual actions disabled", () => {
+    const item = testItem({ copyApproved: true });
+    item.slot.platform = "instagram";
+    render(<PlannerItemEditor {...props} canEdit={false} initialTab="visuals" onGenerate={vi.fn()} onTextOnly={vi.fn()} item={item} />);
+    expect(screen.queryByRole("button", { name: "Use text only" })).toBeNull();
+    expect(screen.getByText("Instagram requires a current image.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Generate image" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Upload, paste or choose media" }) as HTMLButtonElement).disabled).toBe(true);
+  });
   it("uses literal publisher paragraph gaps and marks LinkedIn comments as manual-only", () => {
     const item = testItem();
     item.post!.platforms[0].caption = "Opening\r\n\r\n\r\nSecond paragraph https://example.test/#section";
@@ -62,7 +180,8 @@ describe("planner preview workspace", () => {
     const user = userEvent.setup();
     vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{ id: "owned-image", mediaType: "image", source: "uploaded", url: "https://example.test/owned.png", mimeType: "image/png", fileSizeBytes: 100, createdAt: "2027-01-01T00:00:00Z" }], total: 1, page: 1, pageSize: 12, totalPages: 1 } });
     render(<PlannerItemEditor {...props} item={testItem({ copyApproved: true })} />);
-    await user.click(screen.getByRole("button", { name: "Choose from media" }));
+    await user.click(screen.getByRole("button", { name: "Visuals" }));
+    await user.click(screen.getByRole("button", { name: "Upload, paste or choose media" }));
     const media = screen.getByRole("dialog", { name: "Choose media" });
     expect(within(media).getByLabelText("Choose a media file").getAttribute("accept")).toBe("image/jpeg,image/png,image/webp");
     await user.click(within(media).getByRole("tab", { name: "Your media" }));
@@ -79,7 +198,8 @@ describe("planner preview workspace", () => {
     props.onAttach.mockResolvedValue(false);
     vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{ id: "owned-image", mediaType: "image", url: "https://example.test/owned.png" }], total: 1, page: 1, pageSize: 12, totalPages: 1 } });
     const { rerender } = render(<PlannerItemEditor {...props} item={testItem({ copyApproved: true })} />);
-    await user.click(screen.getByRole("button", { name: "Choose from media" }));
+    await user.click(screen.getByRole("button", { name: "Visuals" }));
+    await user.click(screen.getByRole("button", { name: "Upload, paste or choose media" }));
     await user.click(screen.getByRole("tab", { name: "Your media" }));
     await user.click(await screen.findByRole("button", { name: "Choose image 1" }));
     await user.click(screen.getByRole("button", { name: "Use selected media" }));
@@ -91,20 +211,21 @@ describe("planner preview workspace", () => {
   it("prevents unsaved copy from being approved or bound to an owned image", () => {
     render(<PlannerItemEditor {...props} item={testItem({ copyApproved: true })} />);
     fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Unsaved copy" } });
-    expect((screen.getByRole("button", { name: "Choose from media" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Visuals" }));
+    expect((screen.getByRole("button", { name: "Upload, paste or choose media" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "Approve text" })).toBeNull();
     expect(within(screen.getByRole("region", { name: "Live post preview" })).getByText("Unsaved copy #Saved #Original")).toBeTruthy();
   });
-  it("refreshes clean saved copy but never overwrites typed unsaved input", () => {
+  it.each(["dialog", "inline"] as const)("refreshes clean saved copy but never overwrites typed unsaved input in %s mode", presentation => {
     const first = testItem();
-    const { rerender } = render(<PlannerItemEditor {...props} item={first} />);
+    const { rerender } = render(<PlannerItemEditor {...props} presentation={presentation} item={first} />);
     const changed = testItem({ revision: "second" });
     changed.post!.platforms[0].caption = "Updated saved copy";
-    rerender(<PlannerItemEditor {...props} item={changed} />);
+    rerender(<PlannerItemEditor {...props} presentation={presentation} item={changed} />);
     expect((screen.getByLabelText("Caption") as HTMLTextAreaElement).value).toBe("Updated saved copy");
     fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "My unsaved input" } });
     const third = testItem({ revision: "third" });
-    rerender(<PlannerItemEditor {...props} item={third} />);
+    rerender(<PlannerItemEditor {...props} presentation={presentation} item={third} />);
     expect((screen.getByLabelText("Caption") as HTMLTextAreaElement).value).toBe("My unsaved input");
   });
   it("allows closing a clean read-only preview during unrelated work", () => {

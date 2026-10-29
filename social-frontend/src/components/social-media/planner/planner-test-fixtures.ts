@@ -1,4 +1,5 @@
 import type { PlannerRun, PlannerWarning, RunItem, SlotPreview } from "@/types/planner";
+import "./planner-test-network";
 
 export function testWarning(): PlannerWarning {
   return { code: "scheduled_post_conflict", postId: "existing-post", accountId: "account", accountName: "Main account", status: "scheduled", scheduledAt: "2027-01-02T04:30:00Z", localDate: "2027-01-02", localTime: "10:00", timezone: "Asia/Kolkata", utcOffsetMinutes: 330, excerpt: "An existing scheduled post", fingerprint: "per-warning-fingerprint" };

@@ -11,10 +11,248 @@ vi.mock("@/api/endpoints/planner.api", () => ({ plannerApi: { getRun: vi.fn(), a
 vi.mock("@/api/endpoints/social-media.api", () => ({ default: { listAccounts: vi.fn(), listMediaAssets: vi.fn() } }));
 vi.mock("@/components/social-media/ai-studio/ResponsivePhonePreview", () => ({ default: ({ children }: { children: ReactNode }) => <div aria-label="Mobile post preview">{children}</div> }));
 const props = { workspaceId: "workspace", runId: "run", canEdit: true, canPublish: true };
-beforeEach(() => { vi.clearAllMocks(); vi.mocked(plannerApi.getRun).mockResolvedValue(testRun()); vi.mocked(socialMediaApi.listAccounts).mockResolvedValue([]); });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("matchMedia", vi.fn(() => Object.assign(new EventTarget(), { matches: false }))); vi.mocked(plannerApi.getRun).mockResolvedValue(testRun()); vi.mocked(socialMediaApi.listAccounts).mockResolvedValue([]); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+async function viewPost(user: ReturnType<typeof userEvent.setup>, index = 0) {
+  await user.click((await screen.findAllByRole("button", { name: /^More actions/ }))[index]);
+  await user.click(screen.getByRole("menuitem", { name: "View post" }));
+}
+
+async function generateImage(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Choose visuals" }));
+  expect(plannerApi.image).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Generate image" }));
+  await user.click(within(screen.getByRole("dialog", { name: "Generate an image?" })).getByRole("button", { name: "Generate image" }));
+  await user.click(screen.getByRole("button", { name: "Back to run" }));
+}
+
+async function retryImage(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Choose visuals" }));
+  await user.click(screen.getByRole("button", { name: "Retry saved image operation" }));
+  await user.click(screen.getByRole("button", { name: "Retry existing image" }));
+  await user.click(screen.getByRole("button", { name: "Back to run" }));
+}
 
 describe("dedicated planner review", () => {
+  it.each([
+    { field: "Caption", variant: "unapproved" },
+    { field: "Time", variant: "unapproved" },
+    { field: "Caption", variant: "text_only" },
+    { field: "Time", variant: "text_only" },
+    { field: "Caption", variant: "retry" },
+    { field: "Time", variant: "retry" },
+  ])("blocks same-item list mutations for dirty $field with $variant visuals", async ({ field, variant }) => {
+    const user = userEvent.setup();
+    vi.stubGlobal("matchMedia", vi.fn(() => Object.assign(new EventTarget(), { matches: true })));
+    const item = testItem(variant === "text_only" ? { copyApproved: true, imageIntent: "text_only" } : variant === "retry" ? { copyApproved: true, visualState: "failed", imageOperationId: "operation", imageRequestId: "request", imageRetryable: true } : {});
+    const other = testItem({ id: "other" });
+    vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([item, other]));
+    render(<PlannerRunReview {...props} />);
+    await screen.findByRole("region", { name: "Review your post" });
+    await viewPost(user);
+    const editor = screen.getByRole("region", { name: "Review your post" });
+    if (field === "Time") fireEvent.click(within(editor).getByText("Posting date and time"));
+    const input = within(editor).getByLabelText(field);
+    const original = (input as HTMLInputElement).value;
+    const edited = field === "Time" ? "15:30" : "Unsaved inline copy";
+    fireEvent.change(input, { target: { value: edited } });
+    expect(screen.getByText(/Save or discard this post’s unsaved edits/)).toBeTruthy();
+    await user.click(screen.getAllByRole("button", { name: /^More actions/ })[0]);
+    const names = ["Approve text", "Regenerate text", "Use text only", ...(variant === "text_only" ? ["Add an image"] : variant === "retry" ? ["Regenerate image", "Retry saved image operation"] : [])];
+    for (const name of names) {
+      const action = screen.getByRole("menuitem", { name });
+      expect(action.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(action);
+    }
+    await user.click(screen.getByRole("menuitem", { name: "View post" }));
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+    expect((input as HTMLInputElement).value).toBe(edited);
+    await user.click(screen.getAllByRole("button", { name: /^More actions/ })[1]);
+    expect(screen.getByRole("menuitem", { name: "Regenerate text" }).getAttribute("aria-disabled")).not.toBe("true");
+    await user.keyboard("{Escape}");
+    fireEvent.change(input, { target: { value: original } });
+    await user.click(screen.getAllByRole("button", { name: /^More actions/ })[0]);
+    expect(screen.getByRole("menuitem", { name: "Regenerate text" }).getAttribute("aria-disabled")).not.toBe("true");
+    expect(plannerApi.approveCopy).not.toHaveBeenCalled();
+    expect(plannerApi.regenerateText).not.toHaveBeenCalled();
+    expect(plannerApi.image).not.toHaveBeenCalled();
+    expect(plannerApi.imageIntent).not.toHaveBeenCalled();
+    expect(plannerApi.previewSchedule).not.toHaveBeenCalled();
+  });
+  it.each(["Caption", "Time"])("blocks both schedule entry points for selected dirty %s without blocking other selections", async field => {
+    const user = userEvent.setup();
+    vi.stubGlobal("matchMedia", vi.fn(() => Object.assign(new EventTarget(), { matches: true })));
+    const item = testItem({ copyApproved: true, imageIntent: "text_only", canSchedule: true, reasons: [] });
+    const other = testItem({ ...item, id: "other" });
+    vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([item, other]));
+    vi.mocked(plannerApi.previewSchedule).mockResolvedValue({ previewId: "other-preview", expiresAt: "2027-01-03T00:00:00Z", items: [] });
+    render(<PlannerRunReview {...props} />);
+    const editor = await screen.findByRole("region", { name: "Review your post" });
+    await user.click(screen.getAllByLabelText("Include in schedule")[0]);
+    if (field === "Time") fireEvent.click(within(editor).getByText("Posting date and time"));
+    fireEvent.change(within(editor).getByLabelText(field), { target: { value: field === "Time" ? "15:30" : "Unsaved selected copy" } });
+    const schedule = screen.getByRole("button", { name: "Review selected schedule" });
+    expect((schedule as HTMLButtonElement).disabled).toBe(true);
+    screen.getAllByRole("button", { name: "Review schedule" }).forEach(button => {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(button);
+    });
+    fireEvent.click(schedule);
+    expect(plannerApi.previewSchedule).not.toHaveBeenCalled();
+    expect(plannerApi.confirmSchedule).not.toHaveBeenCalled();
+    expect(screen.getByText(/Save or discard the selected post’s unsaved edits/)).toBeTruthy();
+    await user.click(screen.getAllByLabelText("Include in schedule")[0]);
+    await user.click(screen.getAllByLabelText("Include in schedule")[1]);
+    expect((schedule as HTMLButtonElement).disabled).toBe(false);
+    await user.click(schedule);
+    expect(plannerApi.previewSchedule).toHaveBeenCalledExactlyOnceWith("workspace", "run", ["other"]);
+  });
+  it("resets dirty mutation guards after discarding on item switch and closing the editor", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("matchMedia", vi.fn(() => Object.assign(new EventTarget(), { matches: true })));
+    vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([testItem(), testItem({ id: "other" })]));
+    render(<PlannerRunReview {...props} />);
+    await screen.findByRole("region", { name: "Review your post" });
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Unsaved first item" } });
+    await viewPost(user, 1);
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.queryByText(/Save or discard this post’s unsaved edits/)).toBeNull();
+    expect((screen.getByLabelText("Caption") as HTMLTextAreaElement).value).toBe("Exact saved caption\nSecond line");
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Unsaved second item" } });
+    await user.click(screen.getByRole("button", { name: "Back to run" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.queryByLabelText("Caption")).toBeNull();
+    expect(screen.queryByText(/Save or discard this post’s unsaved edits/)).toBeNull();
+    await user.click(screen.getAllByRole("button", { name: /^More actions/ })[1]);
+    expect(screen.getByRole("menuitem", { name: "Approve text" }).getAttribute("aria-disabled")).not.toBe("true");
+    expect(plannerApi.editCopy).not.toHaveBeenCalled();
+    expect(plannerApi.approveCopy).not.toHaveBeenCalled();
+  });
+  it("selects the first outstanding desktop post locally and guards list, next and filtered selection", async () => {
+    const user = userEvent.setup();
+    const media = new EventTarget() as EventTarget & { matches: boolean };
+    media.matches = true;
+    vi.stubGlobal("matchMedia", vi.fn(() => media));
+    const ready = testItem({ id: "ready", copyApproved: true, imageIntent: "text_only", canSchedule: true, reasons: [] });
+    const review = testItem({ id: "review" });
+    const visual = testItem({ id: "visual", copyApproved: true });
+    vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([ready, review, visual]));
+    render(<PlannerRunReview {...props} />);
+    let editor = await screen.findByRole("region", { name: "Review your post" });
+    expect(within(editor).getByText(/Post 2 of 3/)).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.change(within(editor).getByLabelText("Caption"), { target: { value: "Desktop unsaved copy" } });
+    await user.click(screen.getByRole("button", { name: "Choose visuals" }));
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect((screen.getByLabelText("Caption") as HTMLTextAreaElement).value).toBe("Desktop unsaved copy");
+    await user.click(within(screen.getByRole("group", { name: "Filter posts" }).parentElement!).getAllByRole("button", { name: "Review next" })[0]);
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(within(editor).getByText(/Post 2 of 3/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Ready (1)" }));
+    expect(screen.getByRole("region", { name: "Review your post" })).toBe(editor);
+    await user.click(within(editor).getByRole("button", { name: "Review next" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    editor = screen.getByRole("region", { name: "Review your post" });
+    expect(within(editor).getByText(/Post 3 of 3/)).toBeTruthy();
+    expect(within(editor).getByRole("region", { name: "Visual choices" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+    expect(plannerApi.editCopy).not.toHaveBeenCalled();
+    expect(plannerApi.approveCopy).not.toHaveBeenCalled();
+    expect(plannerApi.image).not.toHaveBeenCalled();
+    expect(plannerApi.regenerateText).not.toHaveBeenCalled();
+    expect(plannerApi.previewSchedule).not.toHaveBeenCalled();
+    expect(socialMediaApi.listMediaAssets).not.toHaveBeenCalled();
+  });
+  it("does not automatically open the mobile editor after loading a plan", async () => {
+    render(<PlannerRunReview {...props} />);
+    await screen.findByRole("button", { name: "Review text" });
+    expect(screen.queryByRole("dialog", { name: "Review your post" })).toBeNull();
+    expect(screen.queryByLabelText("Caption")).toBeNull();
+    expect(plannerApi.image).not.toHaveBeenCalled();
+    expect(plannerApi.approveCopy).not.toHaveBeenCalled();
+  });
+  it("offers visual choices without starting generation, stock search or scheduling", async () => {
+    const user = userEvent.setup();
+    vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([testItem({ copyApproved: true })]));
+    render(<PlannerRunReview {...props} />);
+    await user.click(await screen.findByRole("button", { name: "Choose visuals" }));
+    expect(screen.getByRole("button", { name: "Upload, paste or choose media" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Generate image" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use text only" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await user.click(screen.getByRole("button", { name: "Visuals" }));
+    await user.click(screen.getByRole("button", { name: "Upload, paste or choose media" }));
+    const picker = screen.getByRole("dialog", { name: "Choose media" });
+    expect(within(picker).getByLabelText("Choose a media file").getAttribute("accept")).toBe("image/jpeg,image/png,image/webp");
+    expect(within(picker).getByRole("tab", { name: "Stock" })).toBeTruthy();
+    expect(plannerApi.image).not.toHaveBeenCalled();
+    expect(plannerApi.attachImage).not.toHaveBeenCalled();
+    expect(plannerApi.approveCopy).not.toHaveBeenCalled();
+    expect(plannerApi.previewSchedule).not.toHaveBeenCalled();
+    expect(socialMediaApi.listMediaAssets).not.toHaveBeenCalled();
+  });
+  it("confirms an explicit Facebook or LinkedIn text-only choice at the saved revision", async () => {
+    const user = userEvent.setup();
+    const item = testItem({ copyApproved: true });
+    vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([item]));
+    vi.mocked(plannerApi.imageIntent).mockResolvedValue({ ...item, imageIntent: "text_only", canSchedule: true });
+    render(<PlannerRunReview {...props} />);
+    await user.click(await screen.findByRole("button", { name: "Choose visuals" }));
+    await user.click(screen.getByRole("button", { name: "Use text only" }));
+    expect(plannerApi.imageIntent).not.toHaveBeenCalled();
+    await user.click(within(screen.getByRole("dialog", { name: "Use text only?" })).getByRole("button", { name: "Use text only" }));
+    await waitFor(() => expect(plannerApi.imageIntent).toHaveBeenCalledExactlyOnceWith("workspace", "run", "item", { expectedRevision: "revision", intent: "text_only" }));
+    expect(plannerApi.image).not.toHaveBeenCalled();
+    expect(plannerApi.confirmSchedule).not.toHaveBeenCalled();
+  });
+  it("keeps explicit selections across exclusive filters and previews every selected ID", async () => {
+    const user = userEvent.setup();
+    const review = testItem();
+    const visual = testItem({ id: "visual", copyApproved: true });
+    const ready = testItem({ id: "ready", copyApproved: true, imageIntent: "text_only", canSchedule: true, reasons: [] });
+    const pending = testItem({ id: "pending", isScheduled: true, scheduleState: "uncertain" });
+    vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([review, visual, ready, pending]));
+    vi.mocked(plannerApi.previewSchedule).mockResolvedValue({ previewId: "selection", expiresAt: "2027-01-03T00:00:00Z", items: [] });
+    render(<PlannerRunReview {...props} />);
+    const checkboxes = await screen.findAllByLabelText("Include in schedule");
+    await user.click(checkboxes[0]);
+    expect((screen.getByRole("button", { name: "Review schedule" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Choose visuals (1)" }));
+    expect(screen.getAllByLabelText("Include in schedule")).toHaveLength(1);
+    await user.click(screen.getByLabelText("Include in schedule"));
+    await user.click(screen.getByRole("button", { name: "Ready (1)" }));
+    expect(screen.getByLabelText("Include in schedule").getAttribute("aria-checked")).toBe("false");
+    await user.click(screen.getByRole("button", { name: "Needs attention (1)" }));
+    expect(screen.getByText("Dispatch pending")).toBeTruthy();
+    expect(screen.queryByLabelText("Include in schedule")).toBeNull();
+    expect(screen.getByRole("button", { name: "Scheduled (0)" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "All (4)" }));
+    expect(screen.getAllByLabelText("Include in schedule")[0].getAttribute("aria-checked")).toBe("true");
+    expect(screen.getAllByLabelText("Include in schedule")[1].getAttribute("aria-checked")).toBe("true");
+    await user.click(screen.getByRole("button", { name: "Review selected schedule" }));
+    expect(plannerApi.previewSchedule).toHaveBeenCalledExactlyOnceWith("workspace", "run", ["item", "visual"]);
+    expect(plannerApi.confirmSchedule).not.toHaveBeenCalled();
+  });
+  it("reviews the next outstanding item with dirty guards and never implicitly approves", async () => {
+    const user = userEvent.setup();
+    const other = testItem({ id: "other", copyApproved: true });
+    vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([testItem(), other]));
+    render(<PlannerRunReview {...props} />);
+    await user.click(await screen.findByRole("button", { name: "Review next" }));
+    fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Keep these unsaved edits" } });
+    await user.click(screen.getByRole("button", { name: "Review next" }));
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect((screen.getByLabelText("Caption") as HTMLTextAreaElement).value).toBe("Keep these unsaved edits");
+    await user.click(screen.getByRole("button", { name: "Review next" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.getByText(/Post 2 of 2/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upload, paste or choose media" })).toBeTruthy();
+    expect(plannerApi.approveCopy).not.toHaveBeenCalled();
+    expect(plannerApi.editCopy).not.toHaveBeenCalled();
+    expect(plannerApi.image).not.toHaveBeenCalled();
+    expect(plannerApi.previewSchedule).not.toHaveBeenCalled();
+  });
   it("asks for fresh final warning consent and sends the aggregate fingerprint", async () => {
     const user = userEvent.setup();
     const item = testItem({ copyApproved: true, canSchedule: true, reasons: [] });
@@ -37,7 +275,7 @@ describe("dedicated planner review", () => {
     vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([item]));
     vi.mocked(plannerApi.editSlot).mockRejectedValueOnce({ response: { data: { detail: { code: "conflict_acknowledgment_required", slot } } } }).mockResolvedValue({ ...item, slot });
     render(<PlannerRunReview {...props} />);
-    await user.click(await screen.findByRole("button", { name: "View" }));
+    await viewPost(user);
     fireEvent.click(screen.getByText("Posting date and time"));
     fireEvent.change(screen.getByLabelText("Time"), { target: { value: "14:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Save proposed time" }));
@@ -58,11 +296,10 @@ describe("dedicated planner review", () => {
       return new Promise(resolve => { finish = resolve; });
     });
     render(<PlannerRunReview {...props} />);
-    await user.click(await screen.findByRole("button", { name: "Generate image" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Generate image" }));
+    await generateImage(user);
     await screen.findAllByText("Generating artwork");
     expect(plannerApi.getRun).toHaveBeenCalledTimes(2);
-    await user.click(screen.getAllByRole("button", { name: "View" })[1]);
+    await viewPost(user, 1);
     expect(screen.getByRole("dialog", { name: "Review your post" })).toBeTruthy();
     vi.useFakeTimers();
     await reactAct(async () => { window.dispatchEvent(new Event("online")); });
@@ -81,7 +318,7 @@ describe("dedicated planner review", () => {
     vi.mocked(socialMediaApi.listAccounts).mockResolvedValue([{ id: "account", accountName: "Editorial team" }] as Awaited<ReturnType<typeof socialMediaApi.listAccounts>>);
     render(<PlannerRunReview {...props} />);
     expect(await screen.findByRole("img", { name: "Post artwork thumbnail" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "View" }));
+    await viewPost(user);
     fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Live unsaved caption" } });
     const preview = screen.getByRole("region", { name: "Live post preview" });
     expect(within(preview).getByText("Live unsaved caption #Saved #Original")).toBeTruthy();
@@ -130,7 +367,7 @@ describe("dedicated planner review", () => {
   it("opens exact caption, hashtag values and first comment, guarding dirty navigation", async () => {
     const user = userEvent.setup();
     render(<PlannerRunReview {...props} />);
-    await user.click(await screen.findByRole("button", { name: "View" }));
+    await viewPost(user);
     expect((screen.getByLabelText("Caption") as HTMLTextAreaElement).value).toBe("Exact saved caption\nSecond line");
     expect(screen.getByRole("button", { name: "Remove hashtag Saved" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove hashtag Original" })).toBeTruthy();
@@ -146,7 +383,7 @@ describe("dedicated planner review", () => {
     const user = userEvent.setup();
     vi.mocked(plannerApi.editCopy).mockRejectedValue(new Error("Save failed"));
     render(<PlannerRunReview {...props} />);
-    await user.click(await screen.findByRole("button", { name: "View" }));
+    await viewPost(user);
     fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "New exact caption" } });
     await user.click(screen.getByRole("button", { name: "Save copy" }));
     await waitFor(() => expect(plannerApi.editCopy).toHaveBeenCalledWith("workspace", "run", "item", { expectedRevision: "revision", caption: "New exact caption", hashtags: ["#Saved", "#Original"], firstComment: "Exact first comment" }));
@@ -159,7 +396,8 @@ describe("dedicated planner review", () => {
     vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([item]));
     vi.mocked(plannerApi.image).mockResolvedValue({ ...item, error: "Checkpoint upload failed" });
     render(<PlannerRunReview {...props} />);
-    await user.click(await screen.findByRole("button", { name: "Retry image" }));
+    await user.click(await screen.findByRole("button", { name: "Choose visuals" }));
+    await user.click(screen.getByRole("button", { name: "Retry saved image operation" }));
     expect(plannerApi.image).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Retry existing image" }));
     await waitFor(() => expect(plannerApi.image).toHaveBeenCalledWith("workspace", "run", "item", { expectedRevision: "revision", requestId: "saved-request", mode: "retry", creditsConfirmed: false }));
@@ -197,17 +435,15 @@ describe("dedicated planner review", () => {
         return ready;
       });
     render(<PlannerRunReview {...props} />);
-    await user.click(await screen.findByRole("button", { name: "Retry image" }));
-    await user.click(screen.getByRole("button", { name: "Retry existing image" }));
+    await retryImage(user);
     expect(await screen.findByText(/Retry A response lost/)).toBeTruthy();
     await waitFor(() => expect((screen.getByRole("button", { name: "Refresh saved run" }) as HTMLButtonElement).disabled).toBe(false));
     await user.click(screen.getByRole("button", { name: /More actions/ }));
     await user.click(screen.getByRole("menuitem", { name: "Regenerate image" }));
     await user.click(screen.getByRole("button", { name: "Confirm new artwork credits" }));
     await screen.findAllByText("Operation B needs retry");
-    await waitFor(() => expect((screen.getByRole("button", { name: "Retry image" }) as HTMLButtonElement).disabled).toBe(false));
-    await user.click(screen.getByRole("button", { name: "Retry image" }));
-    await user.click(screen.getByRole("button", { name: "Retry existing image" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Refresh saved run" }) as HTMLButtonElement).disabled).toBe(false));
+    await retryImage(user);
     await waitFor(() => expect(plannerApi.image).toHaveBeenCalledTimes(3));
     const calls = vi.mocked(plannerApi.image).mock.calls;
     expect(calls[0]).toEqual(["workspace", "run", "item", { expectedRevision: "revision", requestId: "request-A", mode: "retry", creditsConfirmed: false }]);
@@ -215,7 +451,7 @@ describe("dedicated planner review", () => {
     expect(requestB).not.toBe("request-A");
     expect(requestB).not.toBe("");
     expect(calls[2]).toEqual(["workspace", "run", "item", { expectedRevision: "revision", requestId: requestB, mode: "retry", creditsConfirmed: false }]);
-    await screen.findByRole("button", { name: "Review schedule" });
+    await screen.findByRole("button", { name: "Resolve issues" });
     expect(plannerApi.confirmSchedule).not.toHaveBeenCalled();
   });
   it("preserves content and distinguishes image HTTP errors from run fetch failures", async () => {
@@ -223,8 +459,7 @@ describe("dedicated planner review", () => {
     vi.mocked(plannerApi.getRun).mockResolvedValueOnce(testRun([testItem({ copyApproved: true })])).mockRejectedValue(new Error("Refresh unavailable"));
     vi.mocked(plannerApi.image).mockRejectedValue(new Error("Image upload interrupted"));
     render(<PlannerRunReview {...props} />);
-    await user.click(await screen.findByRole("button", { name: "Generate image" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Generate image" }));
+    await generateImage(user);
     expect(await screen.findByText(/Image upload interrupted/)).toBeTruthy();
     expect(await screen.findByText(/Refresh failed: Refresh unavailable/)).toBeTruthy();
     expect(screen.getByText(/Exact saved caption/)).toBeTruthy();
@@ -300,7 +535,7 @@ describe("dedicated planner review", () => {
     vi.mocked(plannerApi.getRun).mockResolvedValue(testRun([item]));
     vi.mocked(plannerApi.editSlot).mockResolvedValue({ ...item, slot: { ...item.slot, time: "14:00" } });
     render(<PlannerRunReview {...props} />);
-    await user.click(await screen.findByRole("button", { name: "View" }));
+    await viewPost(user);
     fireEvent.change(screen.getByLabelText("Time"), { target: { value: "14:00" } });
     await user.click(screen.getByRole("button", { name: "Save proposed time" }));
     expect(plannerApi.editSlot).toHaveBeenCalledWith("workspace", "run", "item", { date: "2027-01-02", time: "14:00", timezone: "Asia/Kolkata" });

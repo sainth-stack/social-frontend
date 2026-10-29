@@ -62,6 +62,34 @@ export function itemLabel(item: RunItem): string {
   return "Needs attention";
 }
 
+export const reviewStatuses = [
+  { id: "review_text", label: "Review text" },
+  { id: "choose_visuals", label: "Choose visuals" },
+  { id: "ready", label: "Ready" },
+  { id: "scheduled", label: "Scheduled" },
+  { id: "attention", label: "Needs attention" },
+  { id: "excluded", label: "Excluded" },
+] as const;
+
+export function primaryStatus(item: RunItem): typeof reviewStatuses[number]["id"] {
+  if (item.isScheduled) return item.scheduleState === "accepted" ? "scheduled" : "attention";
+  if (item.generationState === "excluded") return "excluded";
+  if (!item.post || item.textState === "uncertain") return "attention";
+  if (!item.copyApproved) return "review_text";
+  if (item.canSchedule) return "ready";
+  if (item.imageIntent !== "text_only" && item.visualState !== "ready") return "choose_visuals";
+  return "attention";
+}
+
+export function nextReviewAction(item: RunItem): string {
+  const status = primaryStatus(item);
+  if (status === "review_text") return "Review text";
+  if (status === "choose_visuals") return "Choose visuals";
+  if (status === "ready") return "Review schedule";
+  if (status === "attention" && !item.isScheduled) return "Resolve issues";
+  return "View post";
+}
+
 export function displayTime(value: string | null, timezone: string): string {
   if (!value) return "Time not resolved";
   try { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: timezone }).format(new Date(value)); }

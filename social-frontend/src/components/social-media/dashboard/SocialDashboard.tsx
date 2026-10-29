@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { AlertCircle, ArrowRight, ArrowUpRight, BarChart3, CalendarClock, CalendarDays, CheckCircle2, ChevronRight, Clock, FileText, Image as ImageIcon, LayoutTemplate, Lightbulb, Link2, RefreshCcw, Target, Users } from "lucide-react";
+import { AlertCircle, ArrowRight, ArrowUpRight, CalendarClock, CalendarDays, CheckCircle2, ChevronRight, Clock, FileText, LayoutTemplate, Link2, RefreshCcw, Users } from "lucide-react";
 import { ProductDashboardIcon, ProductGenerateIcon } from "@/components/icons/product-icons";
 import { PageHeader } from "@/components/layouts/PageHeader";
 import { PlatformIcon } from "@/components/platform-icon";
@@ -52,12 +52,13 @@ export default function SocialDashboard() {
     <div className="mx-auto max-w-7xl space-y-6" aria-busy={loading}>
       <header className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
         <PageHeader icon={ProductDashboardIcon} title={`${greeting()}, ${firstName}`} description="Your publishing day, at a glance. Let’s keep things moving." />
-        <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
-          <Button className="order-last col-span-2 justify-self-end sm:order-none" variant="outline" size="icon" aria-label="Refresh dashboard" disabled={loading || refreshing || !user?.workspaceId} onClick={() => void reload()}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild><Link href="/dashboard/content-studio/generate"><ProductGenerateIcon className="mr-2 h-4 w-4" />Create a post</Link></Button>
+          <Button variant="outline" asChild><Link href="/dashboard/content-studio/planner"><CalendarClock className="mr-2 h-4 w-4" />Plan content</Link></Button>
+          <Button variant="ghost" size="sm" asChild><Link href="/dashboard/calendar"><CalendarDays className="mr-2 h-4 w-4" />Calendar</Link></Button>
+          <Button variant="ghost" size="icon" aria-label="Refresh dashboard" disabled={loading || refreshing || !user?.workspaceId} onClick={() => void reload()}>
             <RefreshCcw className={cn("h-4 w-4", refreshing && "motion-safe:animate-spin")} />
           </Button>
-          <Button variant="outline" asChild><Link href="/dashboard/calendar"><CalendarDays className="mr-2 h-4 w-4" />View calendar</Link></Button>
-          <Button asChild><Link href="/dashboard/content-studio/generate"><ProductGenerateIcon className="mr-2 h-4 w-4" />Create a post</Link></Button>
         </div>
       </header>
 
@@ -92,46 +93,21 @@ export default function SocialDashboard() {
             </section>
           )}
 
-          <section aria-label="Workspace metrics" className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-            {[
-              { label: "Posts created", value: stats.postsThisWeek.toLocaleString(), detail: "Last 7 days · all statuses", icon: FileText, href: "/dashboard/posts" },
-              { label: "Total reach", value: stats.totalReach.toLocaleString(), detail: "Last 30 days · reported reach", icon: BarChart3, href: "/dashboard/analytics" },
-              { label: "Engagement rate", value: `${(stats.avgEngagementRate * 100).toFixed(1)}%`, detail: "Last 30 days · per impression", icon: Target, href: "/dashboard/analytics" },
-              { label: "Connected accounts", value: stats.connectedAccounts.toLocaleString(), detail: attentionCount ? `${attentionCount} need attention` : stats.connectedAccounts ? "Ready for your next post" : "Connect your first channel", icon: Users, href: "/dashboard/accounts" },
-            ].map(({ label, value, detail, icon: Icon, href }) => (
-              <Link key={label} href={href} className="group min-w-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <Card className="h-full shadow-soft transition-colors group-hover:border-primary/40">
-                  <CardContent className="p-4 sm:p-5">
-                    <div className="flex items-center justify-between gap-2"><h2 className="text-xs text-muted-foreground sm:text-sm">{label}</h2><span className="hidden rounded-lg bg-muted p-2 text-primary sm:block"><Icon className="h-4 w-4" /></span></div>
-                    <p className="mt-3 text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">{value}</p>
-                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{detail}</p>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </section>
+          {(attentionCount > 0 || postLimitReached) && (
+            <section aria-labelledby="dashboard-attention" className="rounded-xl border border-destructive/30 bg-card p-4">
+              <h2 id="dashboard-attention" className="text-sm font-semibold">Needs attention</h2>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {attentionCount > 0 && <PriorityLink href="/dashboard/accounts" title={`${attentionCount} account${attentionCount === 1 ? "" : "s"} need${attentionCount === 1 ? "s" : ""} attention`} detail="Review the connection before scheduling more content." />}
+                {postLimitReached && <PriorityLink href="/dashboard/billing" title="Monthly post allowance reached" detail="Review your plan to keep creating content this month." />}
+              </div>
+            </section>
+          )}
 
-          <nav aria-label="Quick actions" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[
-              { label: "Plan content", hint: "Build your next campaign", href: "/dashboard/content-studio?tab=planner", icon: CalendarClock },
-              { label: "Continue a draft", hint: "Pick up where you left off", href: "/dashboard/posts/drafts", icon: FileText },
-              { label: "Media library", hint: "Your images and videos", href: "/dashboard/content-studio/media", icon: ImageIcon },
-              { label: "View analytics", hint: "See what’s working", href: "/dashboard/analytics", icon: BarChart3 },
-            ].map(({ label, hint, href, icon: Icon }) => (
-              <Link key={label} href={href} className="group flex min-w-0 items-center gap-3 rounded-xl border border-border bg-card p-3 transition hover:border-primary/30 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <Icon className="h-4 w-4 shrink-0 text-primary" />
-                <span className="min-w-0"><span className="block text-xs font-medium sm:text-sm">{label}</span><span className="mt-0.5 hidden text-xs text-muted-foreground lg:block">{hint}</span></span>
-                <ChevronRight className="ml-auto hidden h-4 w-4 shrink-0 text-muted-foreground xl:block" />
-              </Link>
-            ))}
-          </nav>
-
-          <div className="grid items-start gap-5 xl:grid-cols-3">
-            <div className="min-w-0 space-y-5 xl:col-span-2">
+          <div className="min-w-0 space-y-5">
               <Card className="min-w-0 shadow-soft">
                 <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
                   <div><CardTitle className="text-base"><h2>Next in your queue</h2></CardTitle><CardDescription className="mt-1">A preview of your scheduled posts, ordered by time.</CardDescription></div>
-                  <Button variant="ghost" size="sm" asChild><Link href="/dashboard/posts/scheduled">All scheduled posts<ArrowUpRight className="ml-1 h-4 w-4" /></Link></Button>
+                  <div className="flex flex-wrap gap-2"><Button variant="ghost" size="sm" asChild><Link href="/dashboard/posts/drafts">Continue a draft</Link></Button><Button variant="ghost" size="sm" asChild><Link href="/dashboard/posts/scheduled">All scheduled posts<ArrowUpRight className="ml-1 h-4 w-4" /></Link></Button></div>
                 </CardHeader>
                 <CardContent>
                   {upcoming.length ? <ul className="divide-y divide-border">{upcoming.map((post) => <UpcomingPost key={post.id} post={post} />)}</ul> : (
@@ -146,58 +122,65 @@ export default function SocialDashboard() {
                 </CardContent>
               </Card>
 
-              <Card className="min-w-0 shadow-soft">
+              <section aria-label="Workspace metrics" className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-card p-2 lg:grid-cols-4">
+                {[
+                  { label: "Posts created", value: stats.postsThisWeek.toLocaleString(), detail: "Last 7 days · all statuses", href: "/dashboard/posts" },
+                  { label: "Total reach", value: stats.totalReach.toLocaleString(), detail: "Last 30 days · reported reach", href: "/dashboard/analytics" },
+                  { label: "Engagement rate", value: `${(stats.avgEngagementRate * 100).toFixed(1)}%`, detail: "Last 30 days · per impression", href: "/dashboard/analytics" },
+                  { label: "Connected accounts", value: stats.connectedAccounts.toLocaleString(), detail: attentionCount ? `${attentionCount} need attention` : stats.connectedAccounts ? "Ready for your next post" : "Connect your first channel", href: "/dashboard/accounts" },
+                ].map(({ label, value, detail, href }) => (
+                  <Link key={label} href={href} className="min-w-0 rounded-lg p-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <h2 className="text-xs text-muted-foreground">{label}</h2>
+                    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{detail}</p>
+                  </Link>
+                ))}
+              </section>
+
+              <Card className="min-w-0">
                 <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-                  <div><CardTitle className="text-base"><h2>Your connected channels</h2></CardTitle><CardDescription className="mt-1">A quick health check before your next post goes live.</CardDescription></div>
+                  <CardTitle className="text-sm"><h2>Your connected channels</h2></CardTitle>
                   <Button variant="ghost" size="sm" asChild><Link href="/dashboard/accounts">Manage<ArrowUpRight className="ml-1 h-4 w-4" /></Link></Button>
                 </CardHeader>
                 <CardContent>
                   {accounts.length ? (
-                    <ul className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+                    <ul className="flex min-w-0 flex-wrap gap-2">
                       {accounts.map((account) => {
                         const status = connectionState(account.tokenStatus);
-                        return <li key={account.id} className="min-w-0"><Link href="/dashboard/accounts" className="flex h-full min-w-0 items-start gap-3 rounded-lg border border-border p-3 transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><PlatformIcon platform={account.platform} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{account.accountName || PLATFORM_LABELS[account.platform]}</span><span className="mt-1 block text-xs text-muted-foreground">{PLATFORM_LABELS[account.platform]} · {(account.followerCount ?? 0).toLocaleString()} followers</span><span className={cn("mt-2 inline-flex items-center gap-1 text-xs font-medium", status.healthy ? "text-success" : "text-destructive")}>{status.healthy ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}{status.label}</span></span></Link></li>;
+                        return <li key={account.id} className="min-w-0 max-w-full"><Link href="/dashboard/accounts" className="flex min-w-0 items-center gap-2 rounded-lg bg-muted/30 p-2 transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><PlatformIcon platform={account.platform} size="sm" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{account.accountName || PLATFORM_LABELS[account.platform]}</span><span className={cn("inline-flex items-center gap-1 text-xs", status.healthy ? "text-muted-foreground" : "text-destructive")}>{status.healthy ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}{status.label}</span></span></Link></li>;
                       })}
                     </ul>
                   ) : <p className="py-4 text-sm text-muted-foreground">Your connected accounts and their status will appear here.</p>}
                 </CardContent>
               </Card>
 
-              <Card className="min-w-0 shadow-soft">
-                <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0"><div><CardTitle className="text-base"><h2>Recent activity</h2></CardTitle><CardDescription className="mt-1">The latest publishing and workspace updates.</CardDescription></div><Button variant="ghost" size="sm" asChild><Link href="/dashboard/posts">All posts<ArrowUpRight className="ml-1 h-4 w-4" /></Link></Button></CardHeader>
-                <CardContent><RecentActivityFeed items={data.activity} /></CardContent>
-              </Card>
-            </div>
+              <div className="grid items-start gap-3 lg:grid-cols-2">
+                <DashboardDetails title="Recent activity">
+                  <Button variant="link" className="px-0" asChild><Link href="/dashboard/posts">All posts<ArrowUpRight className="ml-1 h-4 w-4" /></Link></Button>
+                  <RecentActivityFeed items={data.activity} />
+                </DashboardDetails>
 
-            <aside aria-label="Workspace priorities and resources" className="min-w-0 space-y-5">
-              <Card className={cn("shadow-soft", (attentionCount > 0 || postLimitReached) && "border-destructive/30")}>
-                <CardHeader><CardTitle className="flex items-center justify-between gap-2 text-base"><h2>Needs attention</h2>{attentionCount === 0 && !postLimitReached && <CheckCircle2 className="h-4 w-4 text-success" />}</CardTitle><CardDescription>Keep your publishing workflow on track.</CardDescription></CardHeader>
-                <CardContent className="space-y-3">
-                  {attentionCount > 0 && <PriorityLink href="/dashboard/accounts" title={`${attentionCount} account${attentionCount === 1 ? "" : "s"} need${attentionCount === 1 ? "s" : ""} attention`} detail="Review the connection before scheduling more content." />}
-                  {postLimitReached && <PriorityLink href="/dashboard/billing" title="Monthly post allowance reached" detail="Review your plan to keep creating content this month." />}
-                  {!attentionCount && !postLimitReached && <p className="text-sm leading-relaxed text-muted-foreground">{stats.connectedAccounts ? "No connection or post allowance issues reported. You’re ready to create." : "Connect your first account when you’re ready to publish."}</p>}
-                  <p className="border-t border-border pt-3 text-xs text-muted-foreground">Based on connection status and your current post allowance.</p>
-                </CardContent>
-              </Card>
-
-              <Card className="shadow-soft">
-                <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Lightbulb className="h-4 w-4 text-primary" /><h2>A little inspiration</h2></CardTitle><CardDescription>Starting points for your next post.</CardDescription></CardHeader>
-                <CardContent className="space-y-3">
+                <DashboardDetails title="A little inspiration">
+                  <p className="text-sm text-muted-foreground">Starting points for your next post.</p>
                   {data.recommendations.length ? data.recommendations.map((idea, index) => (
                     <Link key={`${idea.topic}-${index}`} href={`/dashboard/content-studio/generate?topic=${encodeURIComponent(idea.topic)}`} prefetch={false} className="group block rounded-lg border border-border p-3 transition hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                       <h3 className="text-sm font-medium leading-relaxed">{idea.topic}</h3><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{idea.reason}</p><span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary">Use this idea<ArrowRight className="h-3 w-3" /></span>
                     </Link>
                   )) : <div className="text-sm text-muted-foreground"><p>Tell us about your business to give your content a clearer direction.</p><Button variant="link" className="mt-1 h-auto px-0" asChild><Link href="/dashboard/content-studio/brand-voice">Set up brand profile<ArrowRight className="ml-1 h-3 w-3" /></Link></Button></div>}
-                </CardContent>
-              </Card>
+                  <Button variant="link" className="px-0" asChild><Link href="/dashboard/content-studio/media">Media library<ArrowUpRight className="ml-1 h-4 w-4" /></Link></Button>
+                </DashboardDetails>
+              </div>
 
-              {usage && <Card className="shadow-soft"><CardHeader className="flex flex-row items-center justify-between space-y-0"><CardTitle className="text-base"><h2>Workspace usage</h2></CardTitle><Badge variant="secondary">{PLAN_DISPLAY_NAMES[String(plan).toLowerCase()] ?? plan}</Badge></CardHeader><CardContent className="space-y-4"><UsageRow label="Posts this month" icon={FileText} {...usage.postsThisMonth} /><UsageRow label="Connected accounts" icon={Users} {...usage.accounts} /><UsageRow label="Saved templates" icon={LayoutTemplate} {...usage.templates} /><div className="flex items-center justify-between border-t border-border pt-3 text-xs"><span className="text-muted-foreground">Brand voice feature</span><span className="font-medium">{usage.brandVoice ? "Included" : "Not included"}</span></div><Button variant="outline" className="w-full" asChild><Link href="/dashboard/billing">Manage plan<ArrowUpRight className="ml-2 h-4 w-4" /></Link></Button></CardContent></Card>}
-            </aside>
+              {usage && <DashboardDetails title="Workspace usage"><Badge variant="secondary">{PLAN_DISPLAY_NAMES[String(plan).toLowerCase()] ?? plan}</Badge><div className="grid gap-4 sm:grid-cols-3"><UsageRow label="Posts this month" icon={FileText} {...usage.postsThisMonth} /><UsageRow label="Connected accounts" icon={Users} {...usage.accounts} /><UsageRow label="Saved templates" icon={LayoutTemplate} {...usage.templates} /></div><div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3 text-xs"><div className="flex items-center gap-2"><span className="text-muted-foreground">Brand voice feature</span><span className="font-medium">{usage.brandVoice ? "Included" : "Not included"}</span></div><Button variant="link" size="sm" asChild><Link href="/dashboard/billing">Manage plan<ArrowUpRight className="ml-2 h-4 w-4" /></Link></Button></div></DashboardDetails>}
           </div>
         </>
       ) : null}
     </div>
   );
+}
+
+function DashboardDetails({ title, children }: { title: string; children: React.ReactNode }) {
+  return <details className="group min-w-0 rounded-xl border border-border bg-card"><summary className="cursor-pointer list-none rounded-xl p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"><h2 className="flex items-center justify-between gap-2 text-sm font-medium">{title}<ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground group-open:rotate-90" /></h2></summary><div className="space-y-3 px-4 pb-4">{children}</div></details>;
 }
 
 function PriorityLink({ href, title, detail }: { href: string; title: string; detail: string }) {
@@ -228,5 +211,5 @@ function UsageRow({ label, icon: Icon, used, limit }: { label: string; icon: Rea
 }
 
 function DashboardSkeleton() {
-  return <div role="status" aria-label="Loading dashboard" className="space-y-5"><span className="sr-only">Loading dashboard</span><div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-40 rounded-xl" />)}</div><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-16 rounded-xl" />)}</div><div className="grid gap-5 xl:grid-cols-3"><div className="space-y-5 xl:col-span-2"><Skeleton className="h-96 rounded-xl" /><Skeleton className="h-64 rounded-xl" /></div><div className="space-y-5"><Skeleton className="h-48 rounded-xl" /><Skeleton className="h-96 rounded-xl" /></div></div></div>;
+  return <div role="status" aria-label="Loading dashboard" className="space-y-5"><span className="sr-only">Loading dashboard</span><Skeleton className="h-96 rounded-xl" /><div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-24 rounded-xl" />)}</div><Skeleton className="h-24 rounded-xl" /><div className="grid gap-3 lg:grid-cols-2"><Skeleton className="h-14 rounded-xl" /><Skeleton className="h-14 rounded-xl" /></div><Skeleton className="h-14 rounded-xl" /></div>;
 }

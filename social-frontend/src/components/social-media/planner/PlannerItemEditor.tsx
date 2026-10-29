@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FormInput, FormTextarea } from "@/components/ui/form-field";
@@ -12,6 +12,7 @@ import MediaPicker from "@/components/social-media/media/MediaPicker";
 import type { CopyEdit, RunItem, SlotEdit } from "@/types/planner";
 import { displayTime, itemBusy, savedCopy, workspaceDate } from "./planner-review";
 import PlannerPostPreview from "./PlannerPostPreview";
+import PlannerVisualChoices from "./PlannerVisualChoices";
 
 export function PlannerImagePreview({ url, state }: { url: string | null | undefined; state: string }) {
   const [failed, setFailed] = useState(false);
@@ -21,12 +22,18 @@ export function PlannerImagePreview({ url, state }: { url: string | null | undef
   return <div className="space-y-3">{state !== "ready" && <p className="text-sm text-destructive">This attachment is not a current ready visual ({state.replaceAll("_", " ")}). Do not treat it as approved artwork.</p>}{failed ? <div role="alert" className="rounded-lg border border-destructive p-4 text-sm"><p>Image preview could not load. This is not a successful black-image preview.</p><Button variant="outline" className="mt-3 min-h-11" onClick={() => { setFailed(false); setVersion(value => value + 1); }}>Retry preview loading</Button><p className="mt-2 text-muted-foreground">If the URL expired, close this view and refresh the saved run. No image credits are used by reloading.</p></div> : <img key={`${url}/${version}`} src={url} alt="Full generated artwork for this saved post" className="max-h-96 w-full rounded-lg border bg-muted object-contain" onError={() => setFailed(true)} />}<a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-sm text-primary">Open full-size image</a></div>;
 }
 
-export default function PlannerItemEditor({ item, canEdit, busy, error, onClose, onSave, onSlot, onMove, index, total, accountName = "Connected account", workspaceId, onAttach, onApprove }: {
+export default function PlannerItemEditor({ item, canEdit, busy, error, onClose, onSave, onSlot, onMove, index, total, accountName = "Connected account", workspaceId, onAttach, onApprove, initialTab = "copy", onGenerate, onRetryImage, onTextOnly, onReviewNext, presentation = "dialog", onNavigationGuard, onDirtyChange }: {
   item: RunItem; canEdit: boolean; busy: boolean; error: string; onClose: () => void;
   onSave: (payload: CopyEdit) => Promise<boolean>; onSlot: (payload: SlotEdit) => Promise<boolean>;
   onMove: (direction: number) => void; index: number; total: number;
   accountName?: string; workspaceId?: string; onAttach?: (assetId: string) => Promise<boolean>; onApprove?: () => void;
+  initialTab?: string; onGenerate?: () => void; onRetryImage?: () => void; onTextOnly?: () => void; onReviewNext?: () => void;
+  presentation?: "dialog" | "inline" | "responsive"; onNavigationGuard?: (guard: ((action: () => void) => void) | null) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
+  const headingId = useId();
+  const [desktop, setDesktop] = useState(() => presentation === "responsive" && typeof window !== "undefined" && window.matchMedia("(min-width: 1280px)").matches);
+  const inline = presentation === "inline" || presentation === "responsive" && desktop;
   const initial = savedCopy(item);
   const [caption, setCaption] = useState(initial.caption);
   const [hashtags, setHashtags] = useState(initial.hashtags.join("\n"));
@@ -34,7 +41,7 @@ export default function PlannerItemEditor({ item, canEdit, busy, error, onClose,
   const [date, setDate] = useState(item.slot.date);
   const [time, setTime] = useState(item.slot.time ?? "");
   const [offset, setOffset] = useState("");
-  const [tab, setTab] = useState("copy");
+  const [tab, setTab] = useState(initialTab);
   const [discard, setDiscard] = useState<(() => void) | null>(null);
   const [mediaOpen, setMediaOpen] = useState(false);
   const previous = useRef({ copy: initial, date: item.slot.date, time: item.slot.time ?? "" });
@@ -46,6 +53,20 @@ export default function PlannerItemEditor({ item, canEdit, busy, error, onClose,
   const bodyLimit = item.slot.platform === "linkedin" ? 3000 : 2200;
   const bodyOverflow = bodyLength > bodyLimit;
   const disabled = !canEdit || item.isScheduled || itemBusy(item) || busy;
+
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+  useEffect(() => () => { onDirtyChange?.(false); }, [onDirtyChange]);
+
+  useEffect(() => {
+    if (presentation !== "responsive") return;
+    const media = window.matchMedia("(min-width: 1280px)");
+    const change = () => setDesktop(media.matches);
+    change();
+    media.addEventListener("change", change);
+    return () => media.removeEventListener("change", change);
+  }, [presentation]);
+
+  useEffect(() => { setTab(initialTab); }, [initialTab]);
 
   useEffect(() => {
     const old = previous.current;
@@ -82,21 +103,21 @@ export default function PlannerItemEditor({ item, canEdit, busy, error, onClose,
     return () => { window.removeEventListener("beforeunload", unload); window.removeEventListener("popstate", popstate, true); document.removeEventListener("click", navigation, true); };
   }, [dirty, busy]);
 
-  const leave = (action: () => void) => { if (busy && dirty) return; if (dirty) setDiscard(() => action); else action(); };
+  const leave = useCallback((action: () => void) => { if (busy && dirty) return; if (dirty) setDiscard(() => action); else action(); }, [busy, dirty]);
+  useEffect(() => { onNavigationGuard?.(leave); return () => onNavigationGuard?.(null); }, [leave, onNavigationGuard]);
   const save = async () => {
     if (!item.revision) return;
     const parsed = hashtags === "" ? [] : hashtags.split("\n");
-    if (await onSave({ expectedRevision: item.revision, caption, hashtags: parsed, firstComment })) {
-      setHashtags(parsed.join("\n"));
-    }
+    await onSave({ expectedRevision: item.revision, caption, hashtags: parsed, firstComment });
   };
 
-  return <>
-    <Dialog open onOpenChange={open => { if (!open) leave(onClose); }}><DialogContent className="flex h-dvh max-h-dvh w-full max-w-6xl flex-col overflow-hidden rounded-none p-4 sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:rounded-xl" onInteractOutside={event => { if (dirty) event.preventDefault(); }}>
-      <DialogHeader><DialogTitle>Review your post</DialogTitle><DialogDescription>{accountName} · {item.slot.date} · {item.slot.time} · {item.slot.timezone} · Post {index + 1} of {total}</DialogDescription></DialogHeader>
-      <div className="flex gap-2 md:hidden"><Button className="min-h-11" variant={tab === "copy" ? "default" : "outline"} onClick={() => setTab("copy")}>Copy</Button><Button className="min-h-11" variant={tab === "preview" ? "default" : "outline"} onClick={() => setTab("preview")}>Preview</Button></div>
+  const description = <>{accountName} · {item.slot.date} · {item.slot.time} · {item.slot.timezone} · Post {index + 1} of {total}</>;
+  const content = <>
+      {inline ? <header className="space-y-2"><h2 id={headingId} className="text-lg font-semibold">Review your post</h2><p className="text-sm text-muted-foreground">{description}</p></header> : <DialogHeader><DialogTitle>Review your post</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>}
+      <div role="group" aria-label="Post review mode" className="flex flex-wrap gap-2">{[["copy", "Copy"], ["visuals", "Visuals"], ["preview", "Preview"]].map(([value, label]) => <Button key={value} className="min-h-11" variant={tab === value ? "secondary" : "ghost"} aria-pressed={tab === value} onClick={() => setTab(value)}>{label}</Button>)}</div>
       <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 items-start gap-6 overflow-y-auto overscroll-contain pr-1 md:grid-cols-2">
-        <div className={`${tab !== "copy" ? "hidden md:block" : ""} min-w-0 space-y-4`}>
+        <div className={`${tab === "preview" ? "hidden md:block" : ""} min-w-0 space-y-4`}>
+          <div hidden={tab === "visuals"}>
           <fieldset disabled={disabled || !item.post || !item.revision} className="min-w-0 space-y-5">
             <FormTextarea label="Caption" rows={12} value={caption} maxLength={10000} trailing={`${bodyLength.toLocaleString()} / ${bodyLimit.toLocaleString()}`} error={bodyOverflow ? "Your post is over the platform limit, including hashtags. Shorten it before approval or scheduling." : undefined} helper="Paragraph spacing is preserved. The count includes hashtags and the blank line before them." className="min-h-72 max-h-128 resize-none overflow-y-auto [field-sizing:content]" onChange={event => setCaption(event.target.value)} />
             <TagInput value={hashtags ? hashtags.split("\n") : []} disabled={disabled || !item.post || !item.revision} onChange={values => setHashtags(values.join("\n"))} />
@@ -104,15 +125,19 @@ export default function PlannerItemEditor({ item, canEdit, busy, error, onClose,
             {!!firstComment.trim() && <FirstCommentDelivery platform={item.slot.platform} state={copyDirty ? null : item.post?.platforms.find(row => row.platform === item.slot.platform)?.firstCommentState} />}
             <div className="space-y-3 rounded-lg bg-muted/40 p-3"><p className="text-xs leading-relaxed text-muted-foreground">{copyDirty ? "Save your edits, then approve the updated text before creating artwork." : item.copyApproved ? "Text approved. You can choose an image or create artwork next. Editing this text will require approval again." : "Happy with your post? Approve the text before creating artwork. This does not schedule or publish it."}</p>{!copyDirty && !item.copyApproved && item.post && item.revision && onApprove && <Button className="min-h-11" onClick={onApprove}>Approve text</Button>}</div>
           </fieldset>
+          </div>
           <details open={!item.post} className="rounded-lg border px-3"><summary className="cursor-pointer py-3 text-sm font-medium">Posting date and time</summary><fieldset disabled={disabled} className="min-w-0 space-y-3 pb-3"><legend className="pb-3 text-xs text-muted-foreground">Timezone: {item.slot.timezone}</legend><DatePicker mode="single" label="Date" today={workspaceDate(item.slot.timezone)} value={date} disabled={disabled} onValueChange={value => { setDate(value); setOffset(""); }} /><FormInput label="Time" type="time" value={time} onChange={event => { setTime(event.target.value); setOffset(""); }} />{(item.slot.reasons.includes("ambiguous_local_time_choose_utc_offset") || error.toLowerCase().includes("offset")) && <FormInput label="UTC offset minutes (daylight saving)" type="number" min={-840} max={840} value={offset} onChange={event => setOffset(event.target.value)} />}<Button variant="outline" className="min-h-11" disabled={!slotDirty || !date || !time || date < workspaceDate(item.slot.timezone)} onClick={async () => { if (await onSlot({ date, time, timezone: item.slot.timezone, ...(offset === "" ? {} : { utcOffsetMinutes: Number(offset) }) })) setOffset(""); }}>Save proposed time</Button></fieldset></details>
-          {onAttach && <div className="space-y-2"><Button variant="outline" className="min-h-11" disabled={disabled || dirty || !item.copyApproved || !item.revision || !workspaceId} onClick={() => setMediaOpen(true)}>Choose from media</Button><p className="text-xs text-muted-foreground">After approving saved text, upload or paste an image, choose stock, or reuse your library. No image generation credits are used. Planner supports images only; save videos through the Studio media library as drafts, not scheduled posts.</p></div>}
+          {tab === "visuals" && <PlannerVisualChoices item={item} disabled={disabled || dirty || !item.copyApproved || !item.revision} onMedia={onAttach && workspaceId ? () => setMediaOpen(true) : undefined} onGenerate={onGenerate} onRetry={onRetryImage} onTextOnly={onTextOnly} />}
           {item.post?.imageUrl && <details><summary className="cursor-pointer py-3 text-sm text-primary">Inspect full artwork</summary><PlannerImagePreview url={item.post.imageUrl} state={copyDirty ? "stale" : item.visualState} /></details>}
         </div>
         <div className={`${tab !== "preview" ? "hidden md:block" : ""} min-w-0 space-y-4`}><PlannerPostPreview item={item} accountName={accountName} caption={caption} hashtags={hashtags} firstComment={firstComment} unsaved={copyDirty} /><p className="text-xs text-muted-foreground">{item.isScheduled ? "Scheduled" : "Proposed, not scheduled"}: {displayTime(item.proposedAt, item.slot.timezone)}</p></div>
       </div>
       {(error || item.error) && <p role="alert" className="text-sm text-destructive">{error || item.error}</p>}
-      <DialogFooter className="shrink-0 flex-row flex-wrap border-t bg-background pt-3 pb-safe"><Button variant="secondary" className="min-h-11" disabled={busy && dirty} onClick={() => leave(onClose)}>Back to run</Button><Button variant="outline" className="min-h-11" disabled={busy && dirty || index === 0} onClick={() => leave(() => onMove(-1))}>Previous item</Button><Button variant="outline" className="min-h-11" disabled={busy && dirty || index >= total - 1} onClick={() => leave(() => onMove(1))}>Next item</Button>{canEdit && <Button className="min-h-11" disabled={disabled || !copyDirty || !caption.trim() || !item.revision} onClick={() => void save()}>{busy && copyDirty ? "Saving…" : "Save copy"}</Button>}</DialogFooter>
-    </DialogContent></Dialog>
+      <DialogFooter className="shrink-0 flex-row flex-wrap border-t bg-background pt-3 pb-safe"><Button variant="secondary" className="min-h-11" disabled={busy && dirty} onClick={() => leave(onClose)}>Back to run</Button><Button variant="outline" className="min-h-11" disabled={busy && dirty || index === 0} onClick={() => leave(() => onMove(-1))}>Previous item</Button><Button variant="outline" className="min-h-11" disabled={busy && dirty || index >= total - 1} onClick={() => leave(() => onMove(1))}>Next item</Button>{onReviewNext && <Button variant="outline" className="min-h-11" disabled={busy && dirty} onClick={() => leave(onReviewNext)}>Review next</Button>}{canEdit && copyDirty && <Button className="min-h-11" disabled={disabled || !caption.trim() || !item.revision} onClick={() => void save()}>{busy ? "Saving…" : "Save copy"}</Button>}</DialogFooter>
+    </>;
+
+  return <>
+    {inline ? <section aria-labelledby={headingId} className="flex min-w-0 flex-col gap-4 rounded-xl border bg-background p-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)]">{content}</section> : <Dialog open onOpenChange={open => { if (!open) leave(onClose); }}><DialogContent className="flex h-dvh max-h-dvh w-full max-w-6xl flex-col overflow-hidden rounded-none p-4 sm:w-full sm:rounded-none sm:p-4" onInteractOutside={event => { if (dirty) event.preventDefault(); }}>{content}</DialogContent></Dialog>}
     <MediaPicker workspaceId={workspaceId ?? ""} open={mediaOpen && canEdit && !item.isScheduled && !dirty && item.copyApproved} onOpenChange={setMediaOpen} allowedTypes={["image"]} contextKey={`${item.id}/${item.revision}`} onSelect={asset => {
       if (disabled || dirty || !item.copyApproved || !item.revision || asset.mediaType !== "image" || !onAttach) return false;
       return onAttach(asset.id);

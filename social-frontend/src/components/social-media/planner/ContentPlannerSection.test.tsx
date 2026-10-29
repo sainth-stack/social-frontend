@@ -5,6 +5,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import { Provider } from "react-redux";
 import socialMediaApi from "@/api/endpoints/social-media.api";
 import { ContentPlannerSection } from "./ContentPlannerSection";
+import "./planner-test-network";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/api/endpoints/social-media.api", () => ({ default: { getCalendar: vi.fn(), getPost: vi.fn(), deletePost: vi.fn(), startContentPlanJob: vi.fn(), getContentPlanJob: vi.fn(), updatePost: vi.fn(), approveContentPlanVisual: vi.fn(), regeneratePostContent: vi.fn() } }));

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "@mui/material/styles";
 import { appThemes } from "@/lib/theme";
@@ -9,10 +9,15 @@ import PlatformPreview from "./PlatformPreview";
 
 const globals = readFileSync("src/app/globals.css", "utf8");
 const platforms: SocialPlatform[] = ["linkedin", "instagram", "x", "facebook"];
-const artworkUrl = "https://example.test/generated-original.jpg";
+const artworkUrl = "data:image/png;base64,iVBORw0KGgo=";
 let tokens: HTMLStyleElement;
+const network = vi.fn(() => { throw new Error("Network forbidden in preview tests"); });
 
 beforeEach(() => {
+  vi.stubGlobal("fetch", network);
+  vi.stubGlobal("WebSocket", network);
+  vi.spyOn(XMLHttpRequest.prototype, "send").mockImplementation(network);
+  Object.defineProperty(navigator, "sendBeacon", { configurable: true, value: network });
   tokens = document.createElement("style");
   tokens.textContent = [globals.match(/:root\s*\{[^}]+\}/)?.[0], globals.match(/\.dark\s*\{[^}]+\}/)?.[0]].join("\n");
   document.head.appendChild(tokens);
@@ -22,6 +27,10 @@ afterEach(() => {
   cleanup();
   tokens.remove();
   document.documentElement.classList.remove("dark");
+  expect(network).not.toHaveBeenCalled();
+  Reflect.deleteProperty(navigator, "sendBeacon");
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe.each(["light", "dark"] as const)("%s preview theme", (mode) => {
@@ -29,34 +38,31 @@ describe.each(["light", "dark"] as const)("%s preview theme", (mode) => {
     document.documentElement.classList.toggle("dark", mode === "dark");
   });
 
-  it.each(platforms)("themes %s chrome, captions, polls, and icons without recoloring artwork", (platform) => {
+  it.each(platforms)("uses theme tokens for the %s feed without recoloring artwork or fake app chrome", (platform) => {
     const { container } = render(<ThemeProvider theme={appThemes[mode]}>
       <PlatformPreview platform={platform} caption="Original caption" hashtags={["brand"]} imageUrl={artworkUrl} brandName="Example Brand" pollOptions={["First choice", "Second choice"]} />
     </ThemeProvider>);
     const root = container.firstElementChild!;
     expect(getComputedStyle(document.documentElement).getPropertyValue("--card").trim()).toBe(mode === "dark" ? "#241e19" : "oklch(1 0 0)");
-    expect(getComputedStyle(root).backgroundColor).toBe(["linkedin", "facebook"].includes(platform) ? "var(--background)" : "var(--card)");
-    expect(getComputedStyle(root).color).toBe("var(--foreground)");
-    expect(getComputedStyle(root.firstElementChild!).backgroundColor).toBe("var(--card)");
-    expect(getComputedStyle(screen.getByText(/Original caption/)).color).toBe("var(--foreground)");
-    expect(getComputedStyle(screen.getByText("First choice")).color).toBe("var(--foreground)");
-    expect(root.querySelector('[stroke="var(--muted-foreground)"], [stroke="var(--foreground)"], [fill="var(--foreground)"]')).not.toBeNull();
+    expect(root.className).toContain("bg-card text-card-foreground");
+    expect(root.querySelector("header")?.className).toContain("border-border");
+    expect(screen.getByText(/Original caption/).className).toContain("whitespace-pre-wrap");
+    expect(screen.getByText("First choice").className).toContain("border-border");
     const image = container.querySelector(`img[src="${artworkUrl}"]`)!;
     expect(image).not.toBeNull();
     expect(getComputedStyle(image).filter).toBe("");
     expect(getComputedStyle(root).filter).toBe("");
     expect(screen.getByText(/#brand/)).toBeTruthy();
-    if (platform === "linkedin") expect(getComputedStyle(screen.getByText("in")).backgroundColor).toBe("rgb(10, 102, 194)");
-    if (platform === "facebook") expect(getComputedStyle(screen.getByText("facebook")).color).toBe("rgb(24, 119, 242)");
-    if (platform === "instagram") expect(container.querySelector('[stroke="#ed4956"]')).not.toBeNull();
-    if (platform === "x") expect(container.querySelector('[data-testid="HomeIcon"]')).not.toBeNull();
+    expect(container.querySelector('[class*="Mui"]')).toBeNull();
+    expect(screen.queryByText(/Search|247 votes|10,547 likes|My Network/)).toBeNull();
+    expect(document.querySelector('link[href*="fonts.googleapis.com"]')).toBeNull();
   });
 
   it.each(["linkedin", "instagram", "facebook"] as const)("keeps %s caption expansion working", (platform) => {
     const caption = "Original long caption. ".repeat(15);
     render(<ThemeProvider theme={appThemes[mode]}><PlatformPreview platform={platform} caption={caption} hashtags={[]} /></ThemeProvider>);
     expect(screen.queryByText(caption.trim())).toBeNull();
-    fireEvent.click(screen.getByText(platform === "facebook" ? "See more" : platform === "linkedin" ? "…more" : "more"));
+    fireEvent.click(screen.getByRole("button", { name: "See more" }));
     expect(screen.getByText(caption.trim(), { exact: false })).toBeTruthy();
   });
 
@@ -82,7 +88,7 @@ describe.each(["light", "dark"] as const)("%s preview theme", (mode) => {
 
   it("keeps exports at native dimensions and navigates original artwork", () => {
     const slides = ["one", "two"].map((id) => ({ id, headline: `Artwork ${id}`, body: "Never overlay this copy", renderedAsset: true }));
-    const media = slides.map((slide) => ({ slideId: slide.id, url: `https://example.test/${slide.id}.jpg`, width: 1080, height: 1350 }));
+    const media = slides.map((slide) => ({ slideId: slide.id, url: `${artworkUrl}#${slide.id}`, width: 1080, height: 1350 }));
     render(<ThemeProvider theme={appThemes[mode]}><PhoneFrame><PlatformPreview platform="instagram" caption="Export caption" hashtags={["brand"]} slides={slides} media={media} /></PhoneFrame></ThemeProvider>);
     expect(screen.getByRole("article").className).toContain("bg-card text-card-foreground");
     expect(screen.getByText(/Export caption\s+#brand/)).toBeTruthy();

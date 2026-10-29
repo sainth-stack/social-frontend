@@ -1,0 +1,81 @@
+{
+  "width": 1920,
+  "height": 1080,
+  "fps": 60,
+  "duration": 60,
+  "illustrative": true,
+  "scenes": [
+    {
+      "id": "01-introduction",
+      "duration": 5.5,
+      "caption": "Your expertise. Amplified. One place to create, plan and publish.",
+      "start": 0
+    },
+    {
+      "id": "02-accounts",
+      "duration": 5.5,
+      "caption": "Bring LinkedIn, Instagram and Facebook together in one workspace.",
+      "start": 5
+    },
+    {
+      "id": "03-brand-voice",
+      "duration": 5.5,
+      "caption": "Content that starts with your brand. Your business, your audience, your tone.",
+      "start": 10
+    },
+    {
+      "id": "04-composer",
+      "duration": 5.5,
+      "caption": "Turn a thought into your next post. Start with an idea and let AI help shape the words.",
+      "start": 15
+    },
+    {
+      "id": "05-channel-copy",
+      "duration": 5.5,
+      "caption": "One idea. A voice for each channel. Create and refine copy with a live post preview.",
+      "start": 20
+    },
+    {
+      "id": "06-calendar",
+      "duration": 5.5,
+      "caption": "See your content come together in a clear publishing calendar.",
+      "start": 25
+    },
+    {
+      "id": "07-media",
+      "duration": 5.5,
+      "caption": "Give your ideas a visual identity. Your images and brand assets, together in one place.",
+      "start": 30
+    },
+    {
+      "id": "08-publishing",
+      "duration": 5.5,
+      "caption": "Keep your next posts in view. Plan your publishing across your channels.",
+      "start": 35
+    },
+    {
+      "id": "09-analytics",
+      "duration": 5.5,
+      "caption": "Understand how your content performs with engagement and channel-level reporting. Chart is illustrative.",
+      "start": 40
+    },
+    {
+      "id": "10-channels",
+      "duration": 5.5,
+      "caption": "A clearer view of every channel. Compare supported metrics in one place.",
+      "start": 45
+    },
+    {
+      "id": "11-workspace",
+      "duration": 5.5,
+      "caption": "From one idea to your social presence. Create. Plan. Publish. Understand.",
+      "start": 50
+    },
+    {
+      "id": "12-closing",
+      "duration": 5,
+      "caption": "Give your expertise a voice. Start free with EarnedVoice. No credit card required.",
+      "start": 55
+    }
+  ]
+}

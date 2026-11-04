@@ -27,6 +27,11 @@ export function mergeCreativeItems(previous: CreativeSetItem[], incoming: Creati
 
 export function creativeResultMessage(result: GenerateCreativeSetResult): string | null {
   if (result.status === "processing") return "This creative set is still processing. Check again using Retry visuals; do not start another set.";
+  if (result.status === "failed" && result.errors.length) {
+    const first = result.errors[0];
+    const detail = first.message?.trim();
+    return detail ? `${detail} Try Regenerate for a new run, or Retry visuals with the same request if artwork was partially saved.` : "Visual generation failed. Regenerate to try again.";
+  }
   if (result.status !== "completed") return "Some visuals are missing. Retry visuals reuses this request and saved artwork.";
   return result.warnings.length ? result.warnings.join(" ") : null;
 }

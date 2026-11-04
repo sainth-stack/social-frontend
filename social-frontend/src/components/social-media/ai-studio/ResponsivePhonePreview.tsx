@@ -12,7 +12,7 @@ export default function ResponsivePhonePreview({ children }: { children: ReactNo
     if (!element) return;
     const measure = () => {
       const available = element.getBoundingClientRect().width;
-      if (available > 0) setWidth(Math.max(1, Math.min(390, Math.floor((available - 16) / 1.082))));
+      if (available > 0) setWidth(Math.max(1, Math.min(320, Math.floor((available - 12) / 1.082))));
     };
     measure();
     if (typeof ResizeObserver === "undefined") {
@@ -24,7 +24,7 @@ export default function ResponsivePhonePreview({ children }: { children: ReactNo
     return () => observer.disconnect();
   }, []);
 
-  return <div ref={container} className="flex w-full min-w-0 justify-center py-6" aria-label="Mobile post preview" aria-busy={width === null}>
+  return <div ref={container} className="flex w-full min-w-0 justify-center py-2" aria-label="Mobile post preview" aria-busy={width === null}>
     {width !== null ? <PhoneFrame width={width}>{children}</PhoneFrame> : <div className="h-96 w-full max-w-sm animate-pulse rounded-3xl bg-muted motion-reduce:animate-none" />}
   </div>;
 }

@@ -26,16 +26,17 @@ ImageGenerationMode = Literal["create", "edit"]
 
 def _build_create_prompt(topic: str, style: Optional[str]) -> str:
     style_line = style or (
-        "purposeful editorial illustration, product still life or natural photography as appropriate to the brief, "
-        "restrained palette, clear focal subject, believable materials and refined lighting"
+        "Top-tier B2B campaign photography or editorial illustration matched to the brief, cinematic lighting, "
+        "realistic materials, modern environments, shallow depth of field when using photography"
     )
     return (
-        "Create a business social visual grounded in the supplied message and explicit visual preferences. "
+        "Create premium product-marketing social artwork grounded in the supplied message and visual preferences. "
         f"Subject: {compact_context(topic, 4000)}. Visual style: {compact_context(style_line, 900)}. "
-        "One concrete visual idea, legible at mobile feed size, with the main subject inside a safe central crop. "
-        "Do not fabricate product interfaces, customer evidence, performance charts or identifiable team members. "
-        "Avoid generic corporate stock scenes unless requested. No clipped subjects, duplicated objects or distorted anatomy. "
-        "No watermarks, logos, readable text, garbled letters or simulated screenshots."
+        "One strong campaign moment, legible at mobile feed size, photorealistic when appropriate. "
+        "People must be generic professional models, not identifiable real individuals. "
+        "Screens may show soft abstract UI without readable text or logos. "
+        "Do not paint readable words, logos, or watermarks into the scene. "
+        "Avoid malformed anatomy, duplicated objects, and clipped focal subjects."
     )
 
 
@@ -69,14 +70,19 @@ def generate_post_image(
     mode: ImageGenerationMode = "create",
     source_image_bytes: Optional[bytes] = None,
     prompt_override: Optional[str] = None,
+    negative_prompt: Optional[str] = None,
 ) -> dict[str, str | bytes]:
     if not image_generation_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "AI image generation is not configured. Set BEDROCK_IMAGE_MODEL_ID and "
-                "Bedrock credentials, or upload an image instead."
-            ),
+            detail={
+                "code": "IMAGE_NOT_CONFIGURED",
+                "stage": "provider",
+                "message": (
+                    "AI image generation is not configured. Set BEDROCK_IMAGE_MODEL_ID and "
+                    "Bedrock credentials, or upload an image instead."
+                ),
+            },
         )
 
     if mode == "edit" and not source_image_bytes:
@@ -103,6 +109,7 @@ def generate_post_image(
                 prompt=prompt,
                 size=size,
                 quality=quality,
+                negative_prompt=negative_prompt,
             )
         validate_image_bytes(image_bytes, stage="base")
         return {"imageB64": image_bytes, "source": "ai_generated"}

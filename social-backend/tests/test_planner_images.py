@@ -56,6 +56,51 @@ def test_immediate_queue_and_lost_response_replay(images, setup, db):
     assert images[0].get(setup[0], images[1].id).items[0].visualState == "processing"
 
 
+def test_creative_request_defaults_to_campaign_hero_without_direction(images, setup, db):
+    begin(images, setup)
+    operation = db.social_planner_operations.find_one({"request_id": "image-request"})
+    req = operation["creative_request"]
+    assert req["visualTreatment"] == "campaign_hero"
+    assert req.get("useBrand") is True and req.get("includeLogo") is True
+    assert not req.get("style")
+    assert req["platforms"] == ["instagram"]
+
+
+def test_shared_posting_date_requests_all_platform_exports(db, setup):
+    from tests.test_planner_runs import generated, selection
+
+    service, run = generated(db, setup, selection(platforms=["facebook", "linkedin"]))
+    run = service.get(setup[0], run.id)
+    for row in run.items:
+        service.approve_copy(setup[0], setup[1], run.id, row.id, row.revision)
+    run = service.get(setup[0], run.id)
+    linkedin = next(row for row in run.items if row.slot.platform == "linkedin")
+    captured = []
+
+    def generate(self, workspace, user, payload):
+        captured.append(payload)
+        from app.social.schemas import CreativeSetItem
+
+        return GenerateCreativeSetResponse(
+            creativeSetId="creative",
+            status="completed",
+            items=[
+                CreativeSetItem(slideId="single", platform="facebook", imageUrl="https://cdn.example.test/fb.jpg", assetId="fb", blobKey="social/ws/fb.jpg", width=1080, height=1350),
+                CreativeSetItem(slideId="single", platform="linkedin", imageUrl="https://cdn.example.test/li.jpg", assetId="li", blobKey="social/ws/li.jpg", width=1200, height=1200),
+            ],
+        )
+
+    setup[5].side_effect = generate
+    payload = ImageAction(expectedRevision=linkedin.revision, requestId="shared-date")
+    service.image(setup[0], setup[1], run.id, linkedin.id, payload)
+    assert setup[5].call_count == 1
+    assert captured[0].platforms == ["facebook", "linkedin"]
+    refreshed = service.get(setup[0], run.id)
+    by_platform = {row.slot.platform: row for row in refreshed.items}
+    assert by_platform["facebook"].visualState == "ready"
+    assert by_platform["linkedin"].visualState == "ready"
+
+
 def test_worker_redelivery_and_reentrant_replay_do_not_repeat_artwork(images, setup):
     item = begin(images, setup)
     observed = []
@@ -177,6 +222,8 @@ def test_model_and_direction_are_original_on_retry(images, setup, db):
     assert models == [ModelSelection(text="original-text", image="original-image")] * 2
     request = setup[5].call_args.args[2]
     assert request.style == payload.imageDirection
+    assert request.visualTreatment == "campaign_hero"
+    assert request.useBrand and request.includeLogo
     assert not request.autoCopy and not request.textOverlay
     assert request.caption == images[2].post.platforms[0].caption
 

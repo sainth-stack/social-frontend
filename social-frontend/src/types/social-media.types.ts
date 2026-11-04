@@ -276,6 +276,7 @@ export type GenerateImagePayload = {
   useBrand?: boolean;
   slideIndex?: number;
   slideCount?: number;
+  visualTreatment?: "campaign_hero" | "minimal";
 };
 
 export type GenerateImageResult = {

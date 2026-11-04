@@ -206,6 +206,48 @@ def _paste_logo(canvas: Image.Image, logo: Image.Image, box: tuple[int, int, int
     canvas.alpha_composite(plate, (box[0], box[1]))
 
 
+def _draw_brand_lockup(
+    canvas: Image.Image,
+    *,
+    origin: tuple[int, int],
+    extent: tuple[int, int],
+    brand_name: str,
+    brand_tagline: Optional[str],
+    logo: Optional[Image.Image],
+    primary: tuple[int, int, int],
+) -> None:
+    x0, y0 = origin
+    max_w, max_h = extent
+    short = min(max_w, max_h)
+    margin = int(short * 0.04)
+    pad = int(short * 0.035)
+    draw = ImageDraw.Draw(canvas)
+    name_font = _font(max(18, int(short * 0.048)), True)
+    tag_font = _font(max(13, int(short * 0.028)), False)
+    name_lines, name_font = _fit_text(draw, brand_name, max_width=max_w - margin * 2 - pad * 2, start=name_font.size, minimum=16, max_lines=2, bold=True)
+    tag_lines = _wrap(draw, brand_tagline, tag_font, max_w - margin * 2 - pad * 2)[:2] if brand_tagline else []
+    logo_w = logo.width + int(pad * 0.6) if logo is not None else 0
+    text_block_h = int(_line_height(name_font) * 1.05 * len(name_lines) + (_line_height(tag_font) * 1.1 * len(tag_lines) if tag_lines else 0))
+    block_h = max(text_block_h, logo.height if logo else 0) + pad * 2
+    block_w = min(max_w, max(logo_w + pad * 2 + max((_text_width(draw, line, name_font) for line in name_lines), default=0), int(short * 0.55)))
+    block_w = min(block_w, max_w)
+    scrim = _gradient((block_w, block_h), (0, 0, 0), side="left", coverage=0.95, max_alpha=165)
+    canvas.alpha_composite(scrim, (x0 + margin, y0 + margin))
+    cursor_x = x0 + margin + pad
+    cursor_y = y0 + margin + pad
+    if logo is not None:
+        canvas.alpha_composite(logo, (cursor_x, cursor_y + max(0, (text_block_h - logo.height) // 2)))
+        cursor_x += logo_w
+    for line in name_lines:
+        draw.text((cursor_x, cursor_y), line, font=name_font, fill=(255, 255, 255, 255))
+        cursor_y += int(_line_height(name_font) * 1.05)
+    if tag_lines:
+        cursor_y += int(pad * 0.35)
+        for line in tag_lines:
+            draw.text((cursor_x, cursor_y), line, font=tag_font, fill=(235, 238, 245, 230))
+            cursor_y += int(_line_height(tag_font) * 1.1)
+
+
 def _pill(
     draw: ImageDraw.ImageDraw,
     xy: tuple[int, int],
@@ -238,6 +280,10 @@ def compose_creative(
     primary_color: Optional[str] = None,
     accent_color: Optional[str] = None,
     slide_label: Optional[str] = None,
+    brand_lockup: bool = False,
+    brand_name: Optional[str] = None,
+    brand_tagline: Optional[str] = None,
+    lockup_logo: bool = False,
 ) -> bytes:
     if not isinstance(width, int) or not isinstance(height, int) or min(width, height) < 64 or max(width, height) > 8192 or width * height > 32_000_000:
         raise ValueError("Output dimensions must be between 64 and 8192 pixels within 32 megapixels")
@@ -248,12 +294,16 @@ def compose_creative(
     decoded = decode_image(image_bytes)
     validate_image_content(decoded, stage="base")
     base = ImageOps.contain(decoded, (width, height), Image.LANCZOS)
+    base_x = (width - base.width) // 2
+    base_y = (height - base.height) // 2
     canvas = Image.new("RGBA", (width, height), parse_hex(primary_color, (255, 255, 255)) + (255,))
-    canvas.alpha_composite(base, ((width - base.width) // 2, (height - base.height) // 2))
+    canvas.alpha_composite(base, (base_x, base_y))
     draw = ImageDraw.Draw(canvas)
 
     short = min(width, height)
+    short_art = min(base.width, base.height)
     margin = int(short * 0.065)
+    margin_art = int(short_art * 0.065)
     safe_top = int(height * 0.1) if layout == "story" else margin
     safe_bottom = int(height * 0.16) if layout == "story" else margin
 
@@ -270,16 +320,24 @@ def compose_creative(
     position = logo_position if logo_position in LOGO_POSITIONS else "top-right"
     logo_box: Optional[tuple[int, int, int, int]] = None
     logo: Optional[Image.Image] = None
+    lockup_logo_image: Optional[Image.Image] = None
+    use_lockup = brand_lockup and bool(brand_name)
     if logo_bytes:
-        logo = load_logo(logo_bytes, int(short * 0.2), int(short * 0.075))
-        if logo is not None:
-            logo_box = _logo_box(
-                (width, height),
-                logo,
-                position=position,
-                margin_x=margin,
-                margin_y=safe_top if position.startswith("top") else safe_bottom,
-            )
+        if use_lockup and lockup_logo:
+            lockup_logo_image = load_logo(logo_bytes, int(short_art * 0.14), int(short_art * 0.14))
+        elif not use_lockup:
+            logo = load_logo(logo_bytes, int(short_art * 0.2), int(short_art * 0.075))
+            if logo is not None:
+                art_top = int(base.height * 0.1) if layout == "story" else margin_art
+                art_bottom = int(base.height * 0.16) if layout == "story" else margin_art
+                rel = _logo_box(
+                    (base.width, base.height),
+                    logo,
+                    position=position,
+                    margin_x=margin_art,
+                    margin_y=art_top if position.startswith("top") else art_bottom,
+                )
+                logo_box = (rel[0] + base_x, rel[1] + base_y, rel[2] + base_x, rel[3] + base_y)
 
     region_top = safe_top
     region_bottom = height - safe_bottom
@@ -404,6 +462,18 @@ def compose_creative(
 
     if logo is not None and logo_box:
         _paste_logo(canvas, logo, logo_box)
+        draw = ImageDraw.Draw(canvas)
+
+    if use_lockup:
+        _draw_brand_lockup(
+            canvas,
+            origin=(base_x, base_y),
+            extent=(base.width, base.height),
+            brand_name=brand_name or "",
+            brand_tagline=brand_tagline,
+            logo=lockup_logo_image,
+            primary=primary,
+        )
         draw = ImageDraw.Draw(canvas)
 
     if slide_label:

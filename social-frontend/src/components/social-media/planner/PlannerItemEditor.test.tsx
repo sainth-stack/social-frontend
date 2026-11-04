@@ -95,12 +95,12 @@ describe("planner preview workspace", () => {
   it("does not offer a fresh paid operation while the saved image operation needs reconciliation", () => {
     const onGenerate = vi.fn();
     render(<PlannerItemEditor {...props} initialTab="visuals" onGenerate={onGenerate} item={testItem({ copyApproved: true, imageOperationId: "uncertain-operation", imageRetryable: false, visualState: "failed" })} />);
-    const generate = screen.getByRole("button", { name: "Generate new artwork" });
+    const generate = screen.getByRole("button", { name: "Generate new image" });
     expect((generate as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(generate);
     expect(onGenerate).not.toHaveBeenCalled();
-    expect(screen.getByText(/reconcile the existing image operation/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Upload, paste or choose media" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText(/Refresh the saved run before starting a new generation/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Upload or choose from library" }) as HTMLButtonElement).disabled).toBe(false);
   });
   it("guards all visual choices while copy or proposed time has unsaved edits", async () => {
     const user = userEvent.setup();
@@ -128,9 +128,9 @@ describe("planner preview workspace", () => {
     item.slot.platform = "instagram";
     render(<PlannerItemEditor {...props} canEdit={false} initialTab="visuals" onGenerate={vi.fn()} onTextOnly={vi.fn()} item={item} />);
     expect(screen.queryByRole("button", { name: "Use text only" })).toBeNull();
-    expect(screen.getByText("Instagram requires a current image.")).toBeTruthy();
+    expect(screen.getByText("Instagram requires an image.")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Generate image" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Upload, paste or choose media" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Upload or choose from library" }) as HTMLButtonElement).disabled).toBe(true);
   });
   it("uses literal publisher paragraph gaps and marks LinkedIn comments as manual-only", () => {
     const item = testItem();
@@ -149,7 +149,7 @@ describe("planner preview workspace", () => {
     const comment = screen.getByRole("textbox", { name: "First comment" });
     expect(caption.className).toContain("[field-sizing:content]");
     expect(caption.className).toContain("min-h-72");
-    expect(comment.className).toContain("min-h-28");
+    expect(comment.className).toContain("min-h-24");
     expect(comment.closest("details")).toBeNull();
     expect(document.querySelectorAll(`label[for="${comment.id}"]`)).toHaveLength(1);
     expect(comment.getAttribute("placeholder")).toContain("conversation starter");
@@ -181,7 +181,7 @@ describe("planner preview workspace", () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{ id: "owned-image", mediaType: "image", source: "uploaded", url: "https://example.test/owned.png", mimeType: "image/png", fileSizeBytes: 100, createdAt: "2027-01-01T00:00:00Z" }], total: 1, page: 1, pageSize: 12, totalPages: 1 } });
     render(<PlannerItemEditor {...props} item={testItem({ copyApproved: true })} />);
     await user.click(screen.getByRole("button", { name: "Visuals" }));
-    await user.click(screen.getByRole("button", { name: "Upload, paste or choose media" }));
+    await user.click(screen.getByRole("button", { name: "Upload or choose from library" }));
     const media = screen.getByRole("dialog", { name: "Choose media" });
     expect(within(media).getByLabelText("Choose a media file").getAttribute("accept")).toBe("image/jpeg,image/png,image/webp");
     await user.click(within(media).getByRole("tab", { name: "Your media" }));
@@ -199,7 +199,7 @@ describe("planner preview workspace", () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{ id: "owned-image", mediaType: "image", url: "https://example.test/owned.png" }], total: 1, page: 1, pageSize: 12, totalPages: 1 } });
     const { rerender } = render(<PlannerItemEditor {...props} item={testItem({ copyApproved: true })} />);
     await user.click(screen.getByRole("button", { name: "Visuals" }));
-    await user.click(screen.getByRole("button", { name: "Upload, paste or choose media" }));
+    await user.click(screen.getByRole("button", { name: "Upload or choose from library" }));
     await user.click(screen.getByRole("tab", { name: "Your media" }));
     await user.click(await screen.findByRole("button", { name: "Choose image 1" }));
     await user.click(screen.getByRole("button", { name: "Use selected media" }));
@@ -212,7 +212,7 @@ describe("planner preview workspace", () => {
     render(<PlannerItemEditor {...props} item={testItem({ copyApproved: true })} />);
     fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Unsaved copy" } });
     fireEvent.click(screen.getByRole("button", { name: "Visuals" }));
-    expect((screen.getByRole("button", { name: "Upload, paste or choose media" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Upload or choose from library" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "Approve text" })).toBeNull();
     expect(within(screen.getByRole("region", { name: "Live post preview" })).getByText("Unsaved copy #Saved #Original")).toBeTruthy();
   });

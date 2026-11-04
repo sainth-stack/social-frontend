@@ -54,5 +54,6 @@ describe("coordinated creative exports", () => {
     expect(creativeResultMessage(result)).toContain("Retry visuals");
     expect(creativeResultMessage({ ...result, status: "processing" })).toContain("still processing");
     expect(creativeResultMessage({ ...result, status: "completed", warnings: ["Layout warning"] })).toBe("Layout warning");
+    expect(creativeResultMessage({ ...result, status: "failed", errors: [{ code: "IMAGE_NOT_CONFIGURED", message: "AI image generation is not configured.", slideId: "single", platform: "linkedin" }] })).toContain("not configured");
   });
 });

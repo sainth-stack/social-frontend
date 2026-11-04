@@ -4,7 +4,7 @@ import base64
 import json
 import logging
 import math
-from typing import Any
+from typing import Any, Optional
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -25,10 +25,19 @@ class ImageProviderError(RuntimeError):
         self.stage = "provider"
 
 
+def _matches_supported_image_model(model: str) -> bool:
+    model = (model or "").strip()
+    if not model or model in {"default", "demo-offline"}:
+        return False
+    if model in SUPPORTED_IMAGE_MODEL_IDS:
+        return True
+    return any(model == candidate or model.endswith(f".{candidate}") for candidate in SUPPORTED_IMAGE_MODEL_IDS)
+
+
 def image_generation_configured() -> bool:
     model = (current_models().image or settings.bedrock_image_model_id or DEFAULT_IMAGE_MODEL_ID).strip()
     return bool(
-        model in SUPPORTED_IMAGE_MODEL_IDS
+        _matches_supported_image_model(model)
         and settings.resolved_bedrock_access_key_id
         and settings.resolved_bedrock_secret_access_key
     )
@@ -38,8 +47,12 @@ def _resolved_image_model_id() -> str:
     model = (current_models().image or settings.bedrock_image_model_id or DEFAULT_IMAGE_MODEL_ID).strip()
     if "nova-canvas" in model.lower() or "titan-image-generator" in model.lower():
         raise RuntimeError(f"Bedrock image model {model} is retired. Use {DEFAULT_IMAGE_MODEL_ID} or Stable Image Ultra/Core v1:1.")
-    if model not in SUPPORTED_IMAGE_MODEL_IDS:
+    if not _matches_supported_image_model(model):
         raise RuntimeError(f"Unsupported Bedrock image model: {model}. Select a supported model from /ai-models.")
+    if model not in SUPPORTED_IMAGE_MODEL_IDS:
+        for candidate in SUPPORTED_IMAGE_MODEL_IDS:
+            if model == candidate or model.endswith(f".{candidate}"):
+                return model
     return model
 
 
@@ -134,16 +147,17 @@ def _invoke_raw(body: dict[str, Any], *, model_id: str) -> list[str]:
     return images
 
 
-def _stability_text_to_image_body(*, prompt: str, width: int, height: int) -> dict[str, Any]:
+def _stability_text_to_image_body(*, prompt: str, width: int, height: int, negative_prompt: Optional[str] = None) -> dict[str, Any]:
+    default_negative = (
+        "blurry, watermark, text, letters, words, typography, caption, logo, signature, "
+        "low quality, distorted, deformed hands, extra fingers, oversaturated"
+    )
     return {
         "prompt": prompt[:10000],
         "mode": "text-to-image",
         "aspect_ratio": _aspect_ratio(width, height),
         "output_format": "png",
-        "negative_prompt": (
-            "blurry, watermark, text, letters, words, typography, caption, logo, signature, "
-            "low quality, distorted, deformed hands, extra fingers, oversaturated"
-        ),
+        "negative_prompt": (negative_prompt or default_negative)[:10000],
     }
 
 
@@ -166,10 +180,11 @@ def generate_text_to_image(
     prompt: str,
     size: str = "1024x1024",
     quality: str | None = None,
+    negative_prompt: str | None = None,
 ) -> bytes:
     width, height = _parse_size(size)
     model_id = _resolved_image_model_id()
-    body = _stability_text_to_image_body(prompt=prompt, width=width, height=height)
+    body = _stability_text_to_image_body(prompt=prompt, width=width, height=height, negative_prompt=negative_prompt)
     if model_id == "stability.stable-image-core-v1:1":
         body.pop("mode")
     b64_images = _invoke_raw(body, model_id=model_id)

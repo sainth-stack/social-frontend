@@ -20,9 +20,9 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
 describe("responsive phone preview", () => {
-  it("uses a full 390px screen on desktop instead of a miniature phone", () => {
+  it("uses a full 320px screen on desktop instead of a miniature phone", () => {
     render(<ResponsivePhonePreview>Readable post</ResponsivePhonePreview>);
-    expect(screen.getByTestId("phone").getAttribute("data-width")).toBe("390");
+    expect(screen.getByTestId("phone").getAttribute("data-width")).toBe("320");
     expect(screen.getByText("Readable post")).toBeTruthy();
   });
 
@@ -31,7 +31,7 @@ describe("responsive phone preview", () => {
     render(<ResponsivePhonePreview>Post</ResponsivePhonePreview>);
     const width = Number(screen.getByTestId("phone").getAttribute("data-width"));
     expect(width).toBeGreaterThan(220);
-    expect(width * 1.082 + 16).toBeLessThanOrEqual(available);
+    expect(width * 1.082 + 12).toBeLessThanOrEqual(available);
   });
 
   it("grows when the available column grows without losing the content", () => {
@@ -40,7 +40,7 @@ describe("responsive phone preview", () => {
     const content = screen.getByLabelText("Preview content");
     available = 700;
     act(() => resize([], {} as ResizeObserver));
-    expect(screen.getByTestId("phone").getAttribute("data-width")).toBe("390");
+    expect(screen.getByTestId("phone").getAttribute("data-width")).toBe("320");
     expect(screen.getByLabelText("Preview content")).toBe(content);
   });
 

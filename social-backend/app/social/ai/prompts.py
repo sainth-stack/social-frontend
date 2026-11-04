@@ -321,6 +321,7 @@ def build_system_prompt(
         f"End with a complete sentence — no trailing ellipsis.\n"
         f"Max hashtags: {hashtag_limit} (hashtags array only).\n"
         "The caption field must NEVER contain #hashtags or a hashtag line — hashtags go only in the hashtags JSON array.\n"
+        "Plain text only — no markdown headings, no ## or ** formatting.\n"
         "Return ONLY valid JSON: "
         '{"caption":"...","hashtags":["tag"],"first_comment":""}\n'
         "No markdown fences."

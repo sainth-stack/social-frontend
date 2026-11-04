@@ -400,18 +400,98 @@ class ContentPlanRuns:
                 self.image_locked(workspace, user, run_id, item, post, operation_id, payload)
         return self.serialize_item(workspace, self.item(workspace, run_id, item_id))
 
-    def image_locked(self, workspace, user, run_id, item, post, operation_id, payload):
+    def _planner_date_image_group(self, workspace, run_id, item):
+        date = item["slot"]["date"]
+        group = []
+        for row in self.items.find({"run_id": run_id, "workspace_id": workspace["id"], "state": {"$ne": "excluded"}}):
+            if row["slot"]["date"] != date:
+                continue
+            post = self.db.social_posts.find_one({"id": row["post_id"], "workspace_id": workspace["id"]})
+            if not post or not row.get("copy_approved"):
+                continue
+            intent = post.get("planner_image_intent") or ("required" if row["slot"]["platform"] == "instagram" else "optional")
+            if intent == "text_only":
+                continue
+            group.append({"item": row, "post": post})
+        return group
+
+    @staticmethod
+    def _planner_shared_image_platforms(group):
+        order = {"linkedin": 0, "facebook": 1, "instagram": 2, "twitter": 3, "x": 4, "pinterest": 5, "threads": 6}
+        return sorted({entry["item"]["slot"]["platform"] for entry in group}, key=lambda platform: order.get(platform, 99))
+
+    def _planner_group_needs_image(self, entry):
+        row, post = entry["item"], entry["post"]
+        if row.get("visual_state") == "ready" and post.get("image_url"):
+            return False
+        return True
+
+    def _mark_planner_group_processing(self, group, operation_id, skip_item_id=None):
+        for entry in group:
+            row, post = entry["item"], entry["post"]
+            if skip_item_id and row["id"] == skip_item_id:
+                continue
+            self.items.update_one({"id": row["id"]}, {"$set": {"image_operation_id": operation_id, "visual_state": "processing"}})
+            self.db.social_posts.update_one({"id": post["id"]}, {"$set": {"planner_image_intent": "required", "planner_visual_pending": True}})
+
+    def _apply_planner_group_assets(self, workspace, user, run_id, group, operation_id, assets_by_platform, fence):
         from app.social.ai.image_progress import report_image_stage
+
+        report_image_stage("save")
+        if not self.operations.find_one(fence):
+            raise HTTPException(409, "Image operation expired or was replaced")
+        applied = 0
+        for entry in group:
+            row, post = entry["item"], entry["post"]
+            platform = row["slot"]["platform"]
+            asset = assets_by_platform.get(platform)
+            if not asset:
+                continue
+            if self.item(workspace, run_id, row["id"]).get("image_operation_id") not in (None, operation_id):
+                raise HTTPException(409, "Image operation was replaced")
+            revision = post.get("planner_approved_fingerprint")
+            if not revision:
+                raise HTTPException(409, "Approve the current draft revision before generating an image")
+            self.revision(post, revision)
+            saved = self.db.social_posts.update_one(
+                {"id": post["id"], "status": "draft", "planner_approved_fingerprint": revision},
+                {"$set": {
+                    "image_url": asset.imageUrl,
+                    "image_source": "ai_generated",
+                    "planner_visual_fingerprint": revision,
+                    "planner_visual_pending": False,
+                }},
+            )
+            if not saved.matched_count:
+                raise HTTPException(409, "Post changed; generated asset remains in Media")
+            self.items.update_one({"id": row["id"]}, {"$set": {"visual_state": "ready"}, "$unset": {"error": ""}})
+            applied += 1
+        if not applied:
+            raise HTTPException(502, "Creative set has no matching platform exports for this date")
+        self.operations.update_one(fence, {"$set": {"state": "completed", "stage": "ready", "updated_at": now(), "retryable": False}, "$unset": {"error": "", "claim": ""}})
+
+    def image_locked(self, workspace, user, run_id, item, post, operation_id, payload):
         from app.social.ai.visual_prompt import compact_context
         from app.social.planner_images import validate_binding
 
         revision = self.revision(post, payload.expectedRevision)
         if post["status"] != "draft" or post.get("planner_approved_fingerprint") != revision:
             raise HTTPException(409, "Approve the current draft revision before generating an image")
+        group = self._planner_date_image_group(workspace, run_id, item)
+        if not group:
+            raise HTTPException(409, "No approved channels on this date can receive an image")
+        shared_platforms = self._planner_shared_image_platforms(group)
         current_id = item.get("image_operation_id")
         operation = self.operations.find_one({"id": operation_id})
         validate_binding(operation, payload, revision)
-        if operation and operation.get("async") and operation["state"] != "processing" and operation["state"] != "completed":
+        for entry in group:
+            peer_id = entry["item"].get("image_operation_id")
+            if not peer_id or peer_id == operation_id:
+                continue
+            peer_op = self.operations.find_one({"id": peer_id}) or {}
+            if peer_op.get("state") in ("queued", "processing"):
+                raise HTTPException(409, "An image operation is already active for this date")
+        if operation and operation.get("async") and operation["state"] not in ("processing", "completed"):
             raise HTTPException(409, "Image operation is not claimed")
         if current_id and current_id != operation_id:
             current = self.operations.find_one({"id": current_id}) or {}
@@ -425,6 +505,8 @@ class ContentPlanRuns:
             raise HTTPException(409, "Use retry for the existing image operation or explicitly regenerate")
         if operation and operation["state"] == "completed":
             return
+        if not any(self._planner_group_needs_image(entry) for entry in group):
+            return
         if not operation:
             self.operations.insert_one({"id": operation_id, "workspace_id": workspace["id"], "revision": revision,
                 "mode": payload.mode, "state": "processing", "request_id": payload.requestId,
@@ -434,6 +516,7 @@ class ContentPlanRuns:
             self.operations.update_one({"id": operation_id}, {"$set": {"state": "processing", "updated_at": now()}})
         self.items.update_one({"id": item["id"]}, {"$set": {"image_operation_id": operation_id, "visual_state": "processing"}})
         self.db.social_posts.update_one({"id": post["id"]}, {"$set": {"planner_image_intent": "required", "planner_visual_pending": True}})
+        self._mark_planner_group_processing(group, operation_id, skip_item_id=item["id"])
         row = self.db.social_post_platforms.find_one({"post_id": post["id"]})
         operation = self.operations.find_one({"id": operation_id})
         fence = {"id": operation_id, "state": "processing"}
@@ -441,11 +524,12 @@ class ContentPlanRuns:
             fence.update(claim=operation["claim"], generation=operation["generation"])
         if not operation.get("creative_request"):
             brief = self.load(workspace, run_id)["prompt"]
-            direction = operation.get("image_direction") or "Clean editorial artwork, one clear focal subject, balanced contrast and brand accents. Use a light or neutral setting; dark brand colours are accents, not a dark background. Avoid generic dark code-texture wallpaper, terminal text, unreadable pseudo text and irrelevant tech motifs."
+            direction = (operation.get("image_direction") or "").strip()
             request = GenerateCreativeSetRequest(
-                topic=compact_context(row["caption"], 1800), brief=compact_context(brief, 1800), caption=compact_context(row["caption"], 2200),
-                style=direction,
-                platforms=[row["platform"]], platform=row["platform"], format="post", autoCopy=False, textOverlay=False,
+                topic=compact_context(brief, 1800), brief=compact_context(brief, 1800), caption=compact_context(row["caption"], 2200),
+                style=direction or None,
+                platforms=shared_platforms, platform=shared_platforms[0], format="post", autoCopy=False, textOverlay=False,
+                useBrand=True, includeLogo=True, visualTreatment="campaign_hero",
                 requestId=f"planner:{operation_id}")
             self.operations.update_one(fence, {"$set": {"creative_request": request.model_dump(mode="json")}})
         else:
@@ -460,21 +544,10 @@ class ContentPlanRuns:
                 error = result.errors[0] if result.errors else {}
                 raise HTTPException(502, {"code": error.get("code", "IMAGE_CREATIVE_INCOMPLETE"),
                     "stage": error.get("stage", "generate"), "message": error.get("message", "Creative set incomplete; retry the same requestId to inspect saved artwork")})
-            asset = next((asset for asset in result.items if asset.platform.value == row["platform"]), None)
-            if not asset:
-                raise HTTPException(502, "Creative set has no matching platform export")
-            report_image_stage("save")
-            if not self.operations.find_one(fence):
-                raise HTTPException(409, "Image operation expired or was replaced")
-            if self.item(workspace, run_id, item["id"]).get("image_operation_id") != operation_id:
-                raise HTTPException(409, "Image operation was replaced")
-            self.revision(self.post(workspace, item), revision)
-            saved = self.db.social_posts.update_one({"id": post["id"], "status": "draft", "planner_visual_lock": post["planner_visual_lock"], "planner_visual_lock_until": {"$gt": now()}, "planner_approved_fingerprint": revision},
-                {"$set": {"image_url": asset.imageUrl, "image_source": "ai_generated", "planner_visual_fingerprint": revision, "planner_visual_pending": False}})
-            if not saved.matched_count:
-                raise HTTPException(409, "Post changed; generated asset remains in Media")
-            self.operations.update_one(fence, {"$set": {"state": "completed", "stage": "ready", "updated_at": now(), "retryable": False}, "$unset": {"error": "", "claim": ""}})
-            self.items.update_one({"id": item["id"]}, {"$set": {"visual_state": "ready"}, "$unset": {"error": ""}})
+            assets_by_platform = {
+                asset.platform.value if hasattr(asset.platform, "value") else asset.platform: asset for asset in result.items
+            }
+            self._apply_planner_group_assets(workspace, user, run_id, group, operation_id, assets_by_platform, fence)
         except Exception as exc:
             from app.social.planner_images import fail
 
@@ -491,7 +564,9 @@ class ContentPlanRuns:
                 message = "No reusable artwork is available for this attempt; explicitly request new artwork or attach an owned image"
             failed = fail(self, operation_id, {key: value for key, value in fence.items() if key != "id"}, code, stage, message, retryable)
             if failed:
-                self.items.update_one({"id": item["id"], "image_operation_id": operation_id}, {"$set": {"visual_state": "failed", "error": message}})
+                for entry in group:
+                    self.items.update_one({"id": entry["item"]["id"], "image_operation_id": operation_id},
+                        {"$set": {"visual_state": "failed", "error": message}})
             raise HTTPException(exc.status_code if isinstance(exc, HTTPException) else 502,
                 {"code": code, "stage": stage, "message": message}) from exc
 

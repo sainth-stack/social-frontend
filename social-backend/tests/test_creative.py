@@ -138,16 +138,59 @@ def test_visual_prompt_reserves_overlay_space_only_when_enabled():
     (None, "middle 70%"),
 ])
 def test_business_visual_direction_is_grounded_and_channel_aware(platform, expected):
-    prompt = build_visual_prompt("Founder explains customer onboarding", CreativeSpec(platform=platform), {}, None)
+    prompt = build_visual_prompt("Founder explains customer onboarding", CreativeSpec(platform=platform, visual_treatment="minimal"), {}, None)
     assert expected in prompt
     assert "do not impersonate the founder" in prompt
     assert "never invent charts" in prompt
     assert "one concrete visual idea" in prompt
-    assert "floating dashboards" in prompt
+    assert "Never reuse the same generic social template" in prompt
+
+
+def test_campaign_hero_prompt_targets_premium_marketing():
+    from app.social.ai.creative import _assemble_image_prompt
+
+    prompt = build_visual_prompt("Founder growth platform for B2B SaaS", CreativeSpec(platform="linkedin"), {}, None)
+    assert "premium campaign key art" in prompt.lower() or "top-tier b2b" in prompt.lower()
+    assert "abstract software UI" in prompt
+    assert "composited after generation" in prompt
+    assembled = _assemble_image_prompt(
+        subject="Original brief: EarnedVoice founder credibility",
+        spec=CreativeSpec(platform="linkedin"),
+        brand={"brand_name": "EarnedVoice"},
+        style=None,
+        visual="",
+    )
+    assert "PRIMARY SCENE" in assembled
+    assert "abstract gradient waves" in assembled
+    assert "Photorealistic premium B2B campaign photograph" in assembled
+
+
+def test_campaign_hero_render_passes_negative_prompt(monkeypatch):
+    from app.social.ai import creative
+
+    captured: dict = {}
+
+    def fake_generate(**kwargs):
+        captured.update(kwargs)
+        return {"imageB64": _png()}
+
+    monkeypatch.setattr(creative, "generate_post_image", fake_generate)
+    monkeypatch.setattr(creative, "compose_creative", Mock(return_value=b"jpg"))
+    monkeypatch.setattr(creative, "art_direct", Mock(side_effect=RuntimeError("off")))
+    creative.render_creative_variants(
+        topic="Founder marketing platform",
+        style=None,
+        spec=CreativeSpec(platform="linkedin", visual_treatment="campaign_hero"),
+        platforms=["linkedin"],
+        brand={"brand_name": "EarnedVoice", "tagline": "Your voice simplified"},
+        logo_bytes=None,
+    )
+    assert captured.get("negative_prompt") and "abstract waves" in captured["negative_prompt"]
+    assert "PRIMARY SCENE" in captured.get("prompt_override", "")
 
 
 def test_art_direction_includes_business_quality_constraints(art_direction_response):
-    art_direct("Explain a customer retention lesson", CreativeSpec(platform="linkedin"), {}, None)
+    art_direct("Explain a customer retention lesson", CreativeSpec(platform="linkedin", visual_treatment="minimal"), {}, None)
     system = art_direction_response.call_args.kwargs["messages"][0]["content"]
     assert "credible editorial business communication" in system
     assert "never invent charts" in system
@@ -172,7 +215,7 @@ def test_render_preserves_full_brief_caption_and_safety_rules(monkeypatch, direc
     result = render_creative(topic=topic, style=None, spec=CreativeSpec(caption=caption), brand={})
     prompt = generate.call_args.kwargs["prompt_override"]
     assert topic in prompt and caption in prompt
-    assert "Absolutely no text, letters, numbers, logos, watermarks or UI elements." in prompt
+    assert "composited after generation" in prompt
     assert "without inventing claims" in prompt
     assert result.prompt == prompt and len(prompt) > 1000
     assert compose.call_args.kwargs["copy"] is None and result.copy == OverlayCopy()

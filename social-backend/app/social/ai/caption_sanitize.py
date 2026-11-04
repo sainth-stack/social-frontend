@@ -51,6 +51,7 @@ def normalize_generated_text(text: str, *, include_emojis: bool = False) -> str:
         text = strip_emojis(text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r" *\n *", "\n", text)
+    text = re.sub(r"#{2,}", "#", text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
@@ -72,7 +73,7 @@ def _dedupe_tags(tags: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for raw in tags:
-        tag = str(raw).strip().lstrip("#")
+        tag = re.sub(r"^#+", "", str(raw).strip())
         if not tag:
             continue
         key = tag.casefold()

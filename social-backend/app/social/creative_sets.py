@@ -13,7 +13,7 @@ from pymongo.errors import DuplicateKeyError
 from app.core.mongo_utils import new_id, utcnow
 from app.social.models import SocialImageSource, SocialMediaAssetType, SocialPermission
 from app.social.schemas import GenerateCreativeSetRequest, GenerateCreativeSetResponse
-from app.social.ai.image_progress import image_art_direction, report_image_stage
+from app.social.ai.image_progress import image_art_direction, image_progress, report_image_stage
 
 logger = logging.getLogger(__name__)
 LEASE_SECONDS = 900
@@ -288,16 +288,23 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
                     caption=payload.caption or "", slide_index=index, slide_count=len(slides),
                     render_recipe=row["recipes"].get(slide_id),
                     art_direction=image_art_direction(),
+                    visual_treatment=getattr(payload, "visualTreatment", None) or "campaign_hero",
                 )
                 topic = "\n\n".join(dict.fromkeys(value for value in (payload.topic, payload.brief, slide.get("imagePrompt")) if value))
                 stage = "compose" if base else "provider"
                 if not base:
                     row["attempts"][slide_id] = {"state": "started", "code": "CREATIVE_PROVIDER_UNCERTAIN"}
                     persist()
-                variants = service.render_brand_creative_variants(
-                    workspace, topic, row["style"], spec, missing,
-                    brand=brand, logo_bytes=logo, base_image=base_bytes, on_base_ready=save_base,
-                )
+
+                def track_stage(name: str) -> None:
+                    nonlocal stage
+                    stage = name
+
+                with image_progress(track_stage, art_direction=True):
+                    variants = service.render_brand_creative_variants(
+                        workspace, topic, row["style"], spec, missing,
+                        brand=brand, logo_bytes=logo, base_image=base_bytes, on_base_ready=save_base,
+                    )
                 if slide_id not in row["bases"]:
                     raise RuntimeError("Creative renderer did not persist reusable base artwork")
                 for platform in missing:
@@ -328,16 +335,20 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
                     except Exception as exc:
                         error = _safe_error(exc, stage)
                         logger.warning("Creative export failed set=%s slide=%s platform=%s stage=%s code=%s", row["id"], slide_id, platform, error["stage"], error["code"])
-                        errors.append({"slideId": slide_id, "platform": platform, **error, "message": "Export failed; retry this requestId to reuse saved artwork"})
+                        errors.append({"slideId": slide_id, "platform": platform, **error})
             except _ClaimLost:
                 raise
             except Exception as exc:
                 error = _safe_error(exc, stage)
-                logger.warning("Creative rendering failed set=%s slide=%s stage=%s code=%s", row["id"], slide_id, error["stage"], error["code"])
+                logger.warning(
+                    "Creative rendering failed set=%s slide=%s stage=%s code=%s message=%s",
+                    row["id"], slide_id, error["stage"], error["code"], error.get("message"),
+                    exc_info=True,
+                )
                 if slide_id not in row["bases"] and slide_id in row["attempts"]:
                     row["attempts"][slide_id] = {"state": "failed", "code": error["code"]}
                     persist()
-                errors.extend({"slideId": slide_id, "platform": platform, **error, "message": "Rendering failed; retry this requestId to reuse saved artwork. Without a saved base, new artwork requires a new requestId"} for platform in missing)
+                errors.extend({"slideId": slide_id, "platform": platform, **error} for platform in missing)
         row["status"] = "completed" if len(completed) == len(slides) * len(platforms) else "partial" if row["items"] else "failed"
         row["errors"] = errors
         guard()
@@ -356,10 +367,24 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
 
 def _safe_error(exc: Exception, stage: str) -> dict[str, str]:
     code = getattr(exc, "code", None)
+    message = str(exc).strip() or "Creative rendering failed"
     detail = getattr(exc, "detail", None)
     if isinstance(detail, dict):
         code = detail.get("code") or code
         stage = detail.get("stage") or stage
-    return {"code": code or {"provider": "CREATIVE_PROVIDER_FAILED", "compose": "CREATIVE_COMPOSE_FAILED", "base_download": "CREATIVE_BASE_DOWNLOAD_FAILED",
-        "base_upload": "CREATIVE_BASE_UPLOAD_FAILED", "export_validation": "CREATIVE_EXPORT_INVALID", "export_upload": "CREATIVE_EXPORT_UPLOAD_FAILED"}.get(stage, "CREATIVE_RENDER_FAILED"),
-        "stage": getattr(exc, "stage", stage)}
+        message = str(detail.get("message") or message)
+    elif isinstance(detail, str):
+        message = detail
+    stage_codes = {
+        "provider": "CREATIVE_PROVIDER_FAILED",
+        "compose": "CREATIVE_COMPOSE_FAILED",
+        "base_download": "CREATIVE_BASE_DOWNLOAD_FAILED",
+        "base_upload": "CREATIVE_BASE_UPLOAD_FAILED",
+        "export_validation": "CREATIVE_EXPORT_INVALID",
+        "export_upload": "CREATIVE_EXPORT_UPLOAD_FAILED",
+    }
+    return {
+        "code": code or stage_codes.get(stage, "CREATIVE_RENDER_FAILED"),
+        "stage": getattr(exc, "stage", stage),
+        "message": message,
+    }

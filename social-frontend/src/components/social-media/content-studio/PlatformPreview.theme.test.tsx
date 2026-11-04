@@ -45,7 +45,12 @@ describe.each(["light", "dark"] as const)("%s preview theme", (mode) => {
     const root = container.firstElementChild!;
     expect(getComputedStyle(document.documentElement).getPropertyValue("--card").trim()).toBe(mode === "dark" ? "#241e19" : "oklch(1 0 0)");
     expect(root.className).toContain("bg-card text-card-foreground");
-    expect(root.querySelector("header")?.className).toContain("border-border");
+    const header = root.querySelector("header");
+    if (platform === "linkedin" || platform === "facebook") {
+      expect(header?.className).not.toContain("border-b");
+    } else {
+      expect(header?.className).toContain("border-border");
+    }
     expect(screen.getByText(/Original caption/).className).toContain("whitespace-pre-wrap");
     expect(screen.getByText("First choice").className).toContain("border-border");
     const image = container.querySelector(`img[src="${artworkUrl}"]`)!;

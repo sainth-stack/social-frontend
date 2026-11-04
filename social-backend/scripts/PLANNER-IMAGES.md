@@ -41,7 +41,7 @@ Stages are event-based, not a progress bar: concept creation, actual provider re
 
 ## Visual direction and rollout
 
-The planner defaults to clean editorial artwork, one clear subject, balanced contrast, a light/neutral setting, and brand colours as accents. User direction replaces this style default, so deliberately dark artwork remains allowed. The approved caption is the primary subject, with bounded original brief constraints. Art direction is enabled separately from `autoCopy=false` and `textOverlay=false`; no headline/CTA overlays are enabled. Studio's existing auto-copy semantics and saved render recipes are preserved.
+Planner image generation uses the same **campaign hero** pipeline as AI Studio: one shared hero per posting date, with platform-specific exports (resize/crop) for each channel on that date. Optional `imageDirection` on the Visuals tab replaces the default style hint; an empty direction uses the shared campaign-hero defaults. Art direction runs separately from copy generation with `autoCopy=false` and `textOverlay=false`. Studio's saved render recipes and checkpoint retry semantics are unchanged.
 
 The additive task `app.social.tasks.planner_runs.generate_planner_image` is registered in the existing included module and routed by the existing `planner_runs.*` rule to `social_maintenance`, with `max_retries=0`. Deploy matching API and maintenance worker code before enabling the frontend start endpoint. No database migration or publishing-worker startup is needed for these fields. A worker that does not consume this queue will lead to visible queue expiry rather than endless processing.
 

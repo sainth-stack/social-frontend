@@ -3,21 +3,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { plannerApi } from "@/api/endpoints/planner.api";
-import { PlatformIcon } from "@/components/platform-icon";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardContent } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import socialMediaApi from "@/api/endpoints/social-media.api";
-import type { ConflictAcknowledgment, ImageAction, PlannerRun, PlannerWarnings, RunItem, ScheduleOutcome, SchedulePreview, ScheduleResult, SlotEdit } from "@/types/planner";
-import PlannerItemEditor from "./PlannerItemEditor";
-import { conflictSlot, displayTime, imageStageLabel, itemBusy, mergePolledRun, nextReviewAction, plannerError, plannerPath, primaryStatus, reviewStatuses, runNeedsPolling, savedCopy, slotReasonLabel, warningAcknowledgments } from "./planner-review";
 import PlannerConflictDialog from "./PlannerConflictDialog";
 import { PlannerArtwork } from "./PlannerPostPreview";
+import type { ConflictAcknowledgment, ImageAction, PlannerRun, PlannerWarnings, RunItem, ScheduleOutcome, SchedulePreview, ScheduleResult, SlotEdit } from "@/types/planner";
+import type { PlannerDateGroup } from "./planner-groups";
+import PlannerDateReview from "./PlannerDateReview";
+import PlannerGenerationProgress from "./PlannerGenerationProgress";
+import PlannerImageGenerationProgress from "./PlannerImageGenerationProgress";
+import PlannerRunReviewSkeleton from "./PlannerRunReviewSkeleton";
+import { firstIncompleteGroupIndex, groupAllCopyApproved, groupIsGeneratingImages, groupIsWritingCopy, groupItemsPendingImage, groupPhase, groupReadyToSchedule, groupRunItemsByDate, groupStatusLabel, itemIsWritingCopy, runAllCopyApproved, runImageBatchProgressWithPercent, runIsGeneratingImages, runIsGeneratingText, runItemsPendingImage, runTextGenerationProgress } from "./planner-groups";
+import { conflictSlot, displayTime, mergePolledRun, plannerError, plannerPath, runNeedsPolling, slotReasonLabel, warningAcknowledgments } from "./planner-review";
 
-type Confirmation = { title: string; description: string; label: string; action: () => Promise<unknown>; image?: boolean };
+type Confirmation = { title: string; description: string; label: string; action: () => Promise<unknown> };
 
 export default function PlannerRunReview({ workspaceId, runId, canEdit, canPublish }: { workspaceId: string; runId: string; canEdit: boolean; canPublish: boolean }) {
   const [run, setRun] = useState<PlannerRun | null>(null);
@@ -25,15 +28,12 @@ export default function PlannerRunReview({ workspaceId, runId, canEdit, canPubli
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [editorId, setEditorId] = useState<string | null>(null);
+  const [groupIndex, setGroupIndex] = useState(0);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [editorDirty, setEditorDirty] = useState(false);
-  const [editorTab, setEditorTab] = useState("copy");
-  const [filter, setFilter] = useState("all");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [schedulePreview, setSchedulePreview] = useState<SchedulePreview | null>(null);
   const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null);
-  const [expanded, setExpanded] = useState<string[]>([]);
   const [previewRequest, setPreviewRequest] = useState("");
   const [pollPaused, setPollPaused] = useState(false);
   const [pollVersion, setPollVersion] = useState(0);
@@ -50,26 +50,20 @@ export default function PlannerRunReview({ workspaceId, runId, canEdit, canPubli
   const latest = useRef(run);
   latest.current = run;
   const editorGuard = useRef<((action: () => void) => void) | null>(null);
-  const initialSelection = useRef(false);
   const registerEditorGuard = useCallback((guard: ((action: () => void) => void) | null) => { editorGuard.current = guard; }, []);
-  const selectedEditorDirty = editorDirty && editorId !== null && selected.includes(editorId);
 
   useEffect(() => {
-    if (!run || initialSelection.current) return;
-    const media = window.matchMedia("(min-width: 1280px)");
-    const select = () => {
-      if (!media.matches || initialSelection.current) return;
-      const items = run.items.filter(item => item.generationState !== "excluded");
-      const item = items.find(item => !item.isScheduled && ["review_text", "choose_visuals", "attention"].includes(primaryStatus(item))) ?? items[0];
-      if (!item) return;
-      initialSelection.current = true;
-      setEditorTab(primaryStatus(item) === "choose_visuals" ? "visuals" : "copy");
-      setEditorId(current => current ?? item.id);
-    };
-    select();
-    media.addEventListener("change", select);
-    return () => media.removeEventListener("change", select);
-  }, [run]);
+    if (!run) return;
+    const groups = groupRunItemsByDate(run.items);
+    if (!groups.length) return;
+    setGroupIndex(firstIncompleteGroupIndex(groups));
+  }, [run?.id]);
+
+  useEffect(() => {
+    if (!run || !activeItemId) return;
+    const item = run.items.find((row) => row.id === activeItemId);
+    if (item) setDirection(item.imageDirection ?? "");
+  }, [run, activeItemId]);
 
   const load = useCallback(async (signal: AbortSignal) => {
     const request = ++sequence.current;
@@ -164,29 +158,108 @@ export default function PlannerRunReview({ workspaceId, runId, canEdit, canPubli
       throw err;
     }
   };
-  const image = (item: RunItem, mode: ImageAction["mode"]) => {
+  const startImageRequest = async (item: RunItem, mode: ImageAction["mode"], options?: { creditsConfirmed?: boolean }) => {
     if (!item.revision) return;
     const key = `${item.id}/${item.revision}/${mode}/${mode === "retry" ? item.imageRequestId ?? "" : "new"}`;
-    setDirection(item.imageDirection ?? "");
     let payload = imageAttempts.current.get(key);
     if (!payload) {
-      payload = { expectedRevision: item.revision, requestId: mode === "retry" ? item.imageRequestId ?? "" : crypto.randomUUID(), mode, creditsConfirmed: mode === "regenerate" };
+      payload = {
+        expectedRevision: item.revision,
+        requestId: mode === "retry" ? item.imageRequestId ?? "" : crypto.randomUUID(),
+        mode,
+        creditsConfirmed: options?.creditsConfirmed ?? mode === "regenerate",
+      };
       imageAttempts.current.set(key, payload);
     }
-    if (!payload.requestId) { setActionError("Refresh the run to recover the image request ID before retrying. Do not start a new paid generation."); return; }
+    if (!payload.requestId) {
+      setActionError("Refresh the run to recover the image request ID before retrying. Do not start a new paid generation.");
+      return;
+    }
     const request = payload;
-    ask({ title: mode === "retry" ? "Retry this image operation?" : mode === "regenerate" ? "Generate new artwork?" : "Generate an image?", description: mode === "retry" ? "Reuses the current request ID and saved creative checkpoints. An uncertain attempt without saved artwork cannot be automatically repeated." : mode === "regenerate" ? "This intentionally starts new artwork and may consume another image credit. The current attachment is replaced only after success." : "Uses image allowance separately from text. It does not schedule or publish. Review the artwork after generation.", label: mode === "retry" ? "Retry existing image" : mode === "regenerate" ? "Confirm new artwork credits" : "Generate image", image: mode !== "retry", action: async () => {
-      if (mode !== "retry" && request.imageDirection === undefined) request.imageDirection = directionRef.current;
-      protectedIds.current.add(item.id);
-      setRun(previous => previous ? { ...previous, items: previous.items.map(row => row.id === item.id ? { ...row, visualState: "processing", imageStage: "queued", imageRequestId: request.requestId } : row) } : previous);
-      try {
-        const value = await update(plannerApi.image(workspaceId, runId, item.id, request), true);
-        if (value.visualState === "ready" || value.imageOperationId) imageAttempts.current.delete(key);
-      } catch (err) {
-        protectedIds.current.delete(item.id);
-        throw new Error(`${plannerError(err)} The start response is uncertain. Refresh status or retry the same request; do not request new artwork until reconciled.`);
-      }
-    } });
+    if (mode !== "retry" && request.imageDirection === undefined) request.imageDirection = directionRef.current;
+    protectedIds.current.add(item.id);
+    setRun((previous) =>
+      previous
+        ? {
+            ...previous,
+            items: previous.items.map((row) =>
+              row.id === item.id ? { ...row, visualState: "processing", imageStage: "queued", imageRequestId: request.requestId } : row,
+            ),
+          }
+        : previous,
+    );
+    try {
+      const value = await update(plannerApi.image(workspaceId, runId, item.id, request), true);
+      if (value.visualState === "ready" || value.imageOperationId) imageAttempts.current.delete(key);
+    } catch (err) {
+      protectedIds.current.delete(item.id);
+      throw new Error(
+        `${plannerError(err)} The start response is uncertain. Refresh status or retry the same request; do not request new artwork until reconciled.`,
+      );
+    }
+  };
+
+  const image = (item: RunItem, mode: ImageAction["mode"]) => {
+    if (!item.revision) return;
+    ask({
+      title: mode === "retry" ? "Retry image generation?" : mode === "regenerate" ? "Replace with a new image?" : "Generate image?",
+      description:
+        mode === "retry"
+          ? "Uses your saved attempt and the same request ID. No new image credit if checkpoints can be reused."
+          : mode === "regenerate"
+            ? "Starts fresh artwork and may use another image credit. Your current image stays until the new one succeeds."
+            : "Creates one hero image for this date, resized for each channel. Uses image allowance; does not schedule or publish.",
+      label: mode === "retry" ? "Retry" : mode === "regenerate" ? "Confirm and generate" : "Generate",
+      action: async () => startImageRequest(item, mode),
+    });
+  };
+
+  const startImagesForDateGroup = (group: PlannerDateGroup, title: string) => {
+    const pending = groupItemsPendingImage(group);
+    if (!pending.length) return;
+    const lead = pending[0];
+    const channelCount = group.items.filter((item) => item.copyApproved && item.imageIntent !== "text_only").length;
+    const needsRegenerate = group.items.some((item) => item.post?.imageUrl || item.imageOperationId);
+    ask({
+      title,
+      description: `One hero image for this date, resized for ${channelCount} channel${channelCount === 1 ? "" : "s"}. Uses one image generation.`,
+      label: "Generate image",
+      action: async () => {
+        await startImageRequest(
+          lead,
+          needsRegenerate ? "regenerate" : "generate",
+          needsRegenerate ? { creditsConfirmed: true } : undefined,
+        );
+      },
+    });
+  };
+
+  const promptGenerateAllForGroup = (group: PlannerDateGroup) => {
+    startImagesForDateGroup(group, `Generate image for ${group.date}?`);
+  };
+
+  const promptGenerateAllForRun = () => {
+    const current = latest.current ?? run!;
+    const groups = groupRunItemsByDate(current.items);
+    const dates = groups.filter((group) => groupItemsPendingImage(group).length);
+    if (!dates.length) return;
+    ask({
+      title: "Generate images for this plan?",
+      description: `One hero image per posting day (${dates.length} day${dates.length === 1 ? "" : "s"}), resized per channel.`,
+      label: "Generate all",
+      action: async () => {
+        for (const group of dates) {
+          const pending = groupItemsPendingImage(group);
+          if (!pending.length) continue;
+          const needsRegenerate = group.items.some((item) => item.post?.imageUrl || item.imageOperationId);
+          await startImageRequest(
+            pending[0],
+            needsRegenerate ? "regenerate" : "generate",
+            needsRegenerate ? { creditsConfirmed: true } : undefined,
+          );
+        }
+      },
+    });
   };
   const editSlot = (item: RunItem, payload: SlotEdit): Promise<boolean> => act(async () => {
     try { await update(plannerApi.editSlot(workspaceId, runId, item.id, payload)); }
@@ -197,90 +270,236 @@ export default function PlannerRunReview({ workspaceId, runId, canEdit, canPubli
       throw new Error("Review the other posts at this time before saving the proposed time.");
     }
   });
-  const openSchedule = async (itemIds = selected) => {
-    if (!itemIds.length || editorDirty && editorId !== null && itemIds.includes(editorId)) return;
+  const openSchedule = async (itemIds?: string[]) => {
+    const ids = itemIds ?? run?.items.filter((item) => item.canSchedule && !item.isScheduled).map((item) => item.id) ?? [];
+    if (!ids.length || editorDirty) return;
     await act(async () => {
-      const value = await plannerApi.previewSchedule(workspaceId, runId, [...itemIds]);
+      const value = await plannerApi.previewSchedule(workspaceId, runId, [...ids]);
       if (mounted.current) { setSchedulePreview(value); setPreviewRequest(crypto.randomUUID()); }
     });
   };
   const confirmSchedule = async (consent?: ConflictAcknowledgment[]) => {
-    if (!schedulePreview || !canPublish || editorDirty && schedulePreview.items.some(item => item.itemId === editorId)) return;
+    if (!schedulePreview || !canPublish || editorDirty) return;
     const warnings = schedulePreview.items.filter(item => item.warnings?.length);
     if (!consent && warnings.length) { setConflicts({ rows: warnings, proceed: acknowledged => { void confirmSchedule(acknowledged); } }); return; }
     const previewId = schedulePreview.previewId;
     await act(async () => {
       const value = await plannerApi.confirmSchedule(workspaceId, runId, { previewId, requestId: previewRequest, confirm: true, ...(consent?.length ? { conflictAcknowledgments: consent } : {}) });
-      if (mounted.current) { setScheduleResult(value); setSchedulePreview(null); if (!value.items.some(row => row.outcome === "blocked")) setSelected([]); }
+      if (mounted.current) { setScheduleResult(value); setSchedulePreview(null); }
     }, false);
   };
   const retryDispatch = (itemIds: string[]) => ask({ title: "Retry confirmed scheduling dispatch?", description: "Retries delivery only for previously confirmed schedules. This does not regenerate text or images, or create a new post.", label: "Retry dispatch", action: async () => { const value = await plannerApi.retrySchedule(workspaceId, runId, { requestId: crypto.randomUUID(), itemIds }); if (mounted.current) setScheduleResult(value); } });
   const textOnly = (item: RunItem) => ask({ title: "Use text only?", description: "Removes the image requirement and attachment for this draft. Nothing is scheduled.", label: "Use text only", action: () => update(plannerApi.imageIntent(workspaceId, runId, item.id, { expectedRevision: item.revision!, intent: "text_only" })) });
-  const selectEditor = (item: RunItem, tab = "copy") => { initialSelection.current = true; setActionError(""); setEditorTab(tab); setEditorId(item.id); };
-  const openEditor = (item: RunItem, tab = "copy") => {
-    const action = () => selectEditor(item, tab);
-    if (editorGuard.current && editorId !== item.id) editorGuard.current(action);
+
+  const guarded = (action: () => void) => {
+    if (editorGuard.current) editorGuard.current(action);
     else action();
   };
 
-  if (!run) return <div className="space-y-4"><Link href={plannerPath} className="inline-flex min-h-11 items-center text-sm text-primary">← Planner setup and history</Link>{fetchError ? <div role="alert" className="rounded-lg border p-6"><p>{fetchError}</p><Button className="mt-4 min-h-11" onClick={() => { setPollPaused(false); setPollVersion(value => value + 1); }}>Retry saved run</Button></div> : <div role="status" className="animate-pulse space-y-4 rounded-xl bg-muted p-8"><h1 className="text-xl font-semibold">Loading saved plan…</h1><div className="h-20 rounded bg-background" /><div className="h-20 rounded bg-background" /></div>}</div>;
+  if (!run) return fetchError ? (
+    <div className="space-y-4">
+      <Link href={plannerPath} className="inline-flex min-h-11 items-center text-sm text-primary">← Content planner</Link>
+      <div role="alert" className="rounded-lg border p-6"><p>{fetchError}</p><Button className="mt-4 min-h-11" onClick={() => { setPollPaused(false); setPollVersion(value => value + 1); }}>Retry</Button></div>
+    </div>
+  ) : (
+    <PlannerRunReviewSkeleton />
+  );
 
-  const editorItems = run.items.filter(item => item.generationState !== "excluded");
-  const editorIndex = editorItems.findIndex(item => item.id === editorId);
-  const editor = editorItems[editorIndex];
+  const groups = groupRunItemsByDate(run.items);
+  const textProgress = runTextGenerationProgress(run);
+  const generatingText = runIsGeneratingText(run);
+  const safeGroupIndex = groups.length ? Math.min(groupIndex, groups.length - 1) : 0;
+  const currentGroup = groups[safeGroupIndex];
+  const runImageProgress = runImageBatchProgressWithPercent(run);
+  const generatingImages = runIsGeneratingImages(run);
+  const allCopyApproved = runAllCopyApproved(run);
+  const planPendingImages = runItemsPendingImage(run);
+  const groupGeneratingImages = currentGroup ? groupIsGeneratingImages(currentGroup) : false;
+  const groupPendingImages = currentGroup ? groupItemsPendingImage(currentGroup) : [];
+  const activeItem =
+    currentGroup?.items.find((item) => item.id === activeItemId) ??
+    currentGroup?.items.find((item) => itemIsWritingCopy(item)) ??
+    currentGroup?.items.find((item) => !item.copyApproved && !!item.post) ??
+    currentGroup?.items.find((item) => item.imageIntent !== "text_only" && item.visualState !== "ready") ??
+    currentGroup?.items[0];
+  const activeItemIndex = currentGroup ? Math.max(0, currentGroup.items.findIndex((item) => item.id === activeItem?.id)) : 0;
   const failedIds = run.items.filter(item => ["failed", "pending", "checkpointed"].includes(item.generationState)).map(item => item.id);
   const pendingIds = run.items.filter(item => item.isScheduled && item.scheduleState !== "accepted").map(item => item.id);
-  const visible = run.items.filter(item => filter === "all" || primaryStatus(item) === filter).sort((a, b) => a.slot.date.localeCompare(b.slot.date));
-  const needsReview = [...editorItems.slice(editorIndex + 1), ...editorItems.slice(0, editorIndex + 1)].filter(item => !item.isScheduled && ["review_text", "choose_visuals", "attention"].includes(primaryStatus(item)));
-  const nextItem = [...editorItems.slice(editorIndex + 1), ...editorItems.slice(0, Math.max(0, editorIndex))].find(item => needsReview.includes(item) && item.id !== editorId);
-  const running = ["queued", "running", "recovering"].includes(run.status);
+  const running = ["queued", "running", "recovering"].includes(run.status) || (run.status === "partial" && generatingText);
   const scheduleBlocked = schedulePreview?.items.some(item => !["ready", "already_scheduled", "scheduled"].includes(item.outcome));
+  const schedulableIds = run.items.filter((item) => item.canSchedule && !item.isScheduled).map((item) => item.id);
+  const allReady = groups.length > 0 && groups.every((group) => groupReadyToSchedule(group));
+  const phase = currentGroup ? groupPhase(currentGroup) : "text";
+  const dayComplete = currentGroup ? phase === "done" && groupReadyToSchedule(currentGroup) && !groupIsWritingCopy(currentGroup) : false;
 
-  return <div className="mx-auto max-w-6xl space-y-6 pb-6">
-    <header className="space-y-3"><Link href={plannerPath} className="inline-flex min-h-11 items-center text-sm text-primary">← Planner setup and history</Link><div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="font-display text-2xl font-semibold">Review your plan</h1><p className="mt-2 text-sm text-muted-foreground">{run.timezone} · <span className="capitalize">{run.status}</span> · {run.items.filter(item => item.post).length} / {run.items.filter(item => item.generationState !== "excluded").length} saved drafts</p></div><Button variant="outline" className="min-h-11" disabled={busy || refreshing} onClick={() => { setPollPaused(false); setPollVersion(value => value + 1); }}>{refreshing ? "Refreshing…" : "Refresh saved run"}</Button></div><p className="break-words text-sm text-muted-foreground">{run.prompt}</p></header>
-    {(fetchError || actionError) && <div role="alert" className="space-y-2 rounded-lg border border-destructive p-4 text-sm text-destructive">{fetchError && <p>Refresh failed: {fetchError}. Previously loaded content is retained.</p>}{actionError && <p>{actionError}</p>}</div>}
-    {pollPaused && <p role="status" className="text-sm text-muted-foreground">Automatic refresh paused. Use Refresh saved run to reconnect.</p>}
-    {running && <div role="status" className="rounded-lg border bg-muted/30 p-4 text-sm">Text generation is {run.status}. Saved drafts appear below. You can leave and reopen this run; nothing is scheduled automatically.{run.dispatchState !== "accepted" && <p className="mt-2">Generation dispatch: {run.dispatchState}. This is not a publishing result.</p>}</div>}
-    {run.cancelled && <p role="status" className="rounded-lg border p-4 text-sm">Generation cancelled. Already saved drafts remain reviewable. No successful drafts are regenerated by retrying missing slots.</p>}
-    <div className="flex flex-wrap items-center justify-between gap-3"><div role="group" aria-label="Filter posts" className="flex flex-wrap gap-2">{[{ id: "all", label: "All" }, ...reviewStatuses].map(status => <Button key={status.id} variant={filter === status.id ? "secondary" : "ghost"} aria-pressed={filter === status.id} aria-label={`${status.label} (${status.id === "all" ? run.items.length : run.items.filter(item => primaryStatus(item) === status.id).length})`} onClick={() => setFilter(status.id)}>{status.label}<span className="ml-2 text-muted-foreground">{status.id === "all" ? run.items.length : run.items.filter(item => primaryStatus(item) === status.id).length}</span></Button>)}</div><div className="flex flex-wrap gap-2">{!!needsReview.length && <Button variant="outline" onClick={() => { const item = needsReview[0]; openEditor(item, primaryStatus(item) === "choose_visuals" ? "visuals" : "copy"); }}>Review next</Button>}<DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" aria-label="More run actions">More</Button></DropdownMenuTrigger><DropdownMenuContent align="end">{canEdit && running && <DropdownMenuItem disabled={busy} onSelect={() => ask({ title: "Cancel remaining text generation?", description: "Already saved drafts are kept. Any in-flight paid request may finish before cancellation takes effect.", label: "Cancel generation", action: async () => { const value = await plannerApi.cancelRun(workspaceId, runId); if (mounted.current) setRun(value); } })}>Cancel remaining generation</DropdownMenuItem>}{canEdit && !running && !!failedIds.length && <DropdownMenuItem disabled={busy} onSelect={() => ask({ title: "Retry failed or missing slots?", description: "Only failed, missing and checkpointed slots are requested. Saved drafts are not regenerated. New text attempts may use text allowance; uncertain paid attempts cannot be blindly replayed.", label: "Retry missing text", action: async () => { const value = await plannerApi.retryRun(workspaceId, runId, failedIds); if (mounted.current) setRun(value); } })}>Retry {failedIds.length} missing text slots</DropdownMenuItem>}{canPublish && !!pendingIds.length && <DropdownMenuItem disabled={busy} onSelect={() => retryDispatch(pendingIds)}>Retry {pendingIds.length} pending dispatches</DropdownMenuItem>}<DropdownMenuItem disabled={busy || refreshing} onSelect={() => { setPollPaused(false); setPollVersion(value => value + 1); }}>Refresh saved run</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div></div>
-    {!visible.length && <p className="rounded-lg border border-dashed p-8 text-sm text-muted-foreground">{run.items.length ? "No items match this filter." : "No draft items yet. The saved run will refresh while generation is queued."}</p>}
-    <div className="grid min-w-0 items-start gap-6 xl:grid-cols-[minmax(18rem,1fr)_minmax(0,2fr)]">
-    <div className="min-w-0 space-y-4">{visible.map((item, index) => {
-      const dirty = editorDirty && editorId === item.id;
-      const disabled = busy || itemBusy(item) || item.isScheduled || !canEdit || !item.revision;
-      const mutationDisabled = disabled || dirty;
-      const status = primaryStatus(item);
-      const name = accountNames[item.slot.accountId ?? ""] ?? item.slot.warnings?.[0]?.accountName ?? "Connected account";
-      return <section key={item.id} className="space-y-3">{(index === 0 || visible[index - 1].slot.date !== item.slot.date) && <h2 className="text-sm font-semibold">{item.slot.date}</h2>}<Card className={editorId === item.id ? "border-primary" : undefined}><CardContent className="space-y-3 p-4"><div className="flex gap-4"><PlannerArtwork item={item} thumbnail /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><h3 className="flex items-center gap-2 font-semibold capitalize"><PlatformIcon platform={item.slot.platform} size="sm" />{item.slot.platform}</h3><p className="mt-1 break-words text-sm text-muted-foreground">{name} · {item.slot.time ?? "Choose a time"}</p></div><span className="rounded-full bg-muted px-3 py-1 text-xs font-medium">{item.isScheduled && item.scheduleState !== "accepted" ? "Dispatch pending" : reviewStatuses.find(value => value.id === status)?.label}</span></div><p className={`mt-2 whitespace-pre-wrap break-words text-sm ${expanded.includes(item.id) ? "" : "line-clamp-2"}`}>{savedCopy(item).caption || (item.generationState === "excluded" ? "Excluded during setup." : "Text is not yet available.")}</p></div></div>
-        {itemBusy(item) && <p role="status" className="text-sm text-muted-foreground">{imageStageLabel(item) || "Saving text…"}</p>}
-        {item.error && <p role="alert" className="text-sm text-destructive">{item.error}</p>}{item.imageError && item.visualState === "failed" && <p role="alert" className="text-sm text-destructive">{item.imageError.message} · {item.imageError.stage}</p>}{!!item.reasons.length && !item.isScheduled && <p className="break-words text-xs text-muted-foreground">Next: {item.reasons.map(slotReasonLabel).join(" · ")}</p>}{item.textState === "uncertain" && <p className="text-sm text-destructive">Text attempt uncertain. Refresh before another paid attempt.</p>}{!!item.imageWarnings?.length && <p className="text-xs text-muted-foreground">Artwork may have low visibility. Inspect it before scheduling.</p>}
-        <div className="flex flex-wrap items-center gap-2">
-          {item.generationState !== "excluded" && <Button variant="outline" className="min-h-11" disabled={status === "ready" ? busy || !canEdit || !selected.includes(item.id) || selectedEditorDirty : status === "review_text" ? disabled : false} onClick={() => status === "ready" ? void openSchedule() : openEditor(item, status === "choose_visuals" ? "visuals" : "copy")}>{nextReviewAction(item)}</Button>}
-            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" className="min-h-11" aria-label={`More actions for ${name}`}>More</Button></DropdownMenuTrigger><DropdownMenuContent align="end">
-              {item.generationState !== "excluded" && <DropdownMenuItem onSelect={() => openEditor(item)}>View post</DropdownMenuItem>}
-              {item.post && <DropdownMenuItem onSelect={() => setExpanded(values => values.includes(item.id) ? values.filter(value => value !== item.id) : [...values, item.id])}>{expanded.includes(item.id) ? "Show less text" : "Expand text"}</DropdownMenuItem>}
-              {item.post && <>
-              <DropdownMenuItem disabled={mutationDisabled || item.copyApproved} onSelect={() => void act(() => update(plannerApi.approveCopy(workspaceId, runId, item.id, { expectedRevision: item.revision! })))}>Approve text</DropdownMenuItem>
-              <DropdownMenuItem disabled={mutationDisabled || item.textState === "uncertain"} onSelect={() => ask({ title: "Regenerate saved text?", description: "Uses text allowance and replaces the saved copy only after success. Text approval and image binding will be invalidated.", label: "Regenerate text", action: () => regenerateText(item) })}>Regenerate text</DropdownMenuItem>
-              {!item.imageOperationId && item.imageIntent === "text_only" && <DropdownMenuItem disabled={mutationDisabled || !item.copyApproved} onSelect={() => image(item, "generate")}>Add an image</DropdownMenuItem>}
-              {(item.imageOperationId || item.post.imageUrl) && <DropdownMenuItem disabled={mutationDisabled || !item.copyApproved} onSelect={() => image(item, "regenerate")}>Regenerate image</DropdownMenuItem>}
-              {item.imageOperationId && item.imageRetryable && item.visualState === "failed" && <DropdownMenuItem disabled={mutationDisabled || !item.copyApproved} onSelect={() => image(item, "retry")}>Retry saved image operation</DropdownMenuItem>}
-              {item.slot.platform !== "instagram" && <DropdownMenuItem disabled={mutationDisabled || item.imageIntent === "text_only"} onSelect={() => textOnly(item)}>Use text only</DropdownMenuItem>}
-              </>}
-            </DropdownMenuContent></DropdownMenu>
+  const goToGroup = (index: number) => guarded(() => {
+    setGroupIndex(index);
+    setActiveItemId(null);
+    setActionError("");
+  });
+
+  const maybePromptImagesForGroup = (groupKey: string) => {
+    if (!mounted.current || !latest.current) return;
+    const fresh = groupRunItemsByDate(latest.current.items).find((group) => group.key === groupKey);
+    if (fresh && groupAllCopyApproved(fresh) && groupItemsPendingImage(fresh).length) promptGenerateAllForGroup(fresh);
+  };
+
+  const approveItem = (item: RunItem) => {
+    if (!currentGroup) return;
+    const groupKey = currentGroup.key;
+    void act(async () => {
+      await update(plannerApi.approveCopy(workspaceId, runId, item.id, { expectedRevision: item.revision! }));
+    }).then((success) => {
+      if (success) maybePromptImagesForGroup(groupKey);
+    });
+  };
+  const approveAllInGroup = () => {
+    if (!currentGroup) return;
+    const groupKey = currentGroup.key;
+    void act(async () => {
+      for (const item of currentGroup.items) {
+        if (!item.copyApproved && item.revision) {
+          await update(plannerApi.approveCopy(workspaceId, runId, item.id, { expectedRevision: item.revision }));
+        }
+      }
+    }).then((success) => {
+      if (success) maybePromptImagesForGroup(groupKey);
+    });
+  };
+
+  return <div className="mx-auto max-w-5xl space-y-6 pb-24" aria-busy={generatingText || generatingImages || busy}>
+    <header className="space-y-3">
+      <Link href={plannerPath} className="inline-flex min-h-11 items-center text-sm text-primary">← Content planner</Link>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-semibold">Approve your plan</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {generatingText
+              ? `Generating posts · ${textProgress.saved} of ${textProgress.total} saved · ${run.timezone}`
+              : `${groups.length} posting ${groups.length === 1 ? "day" : "days"} · ${run.timezone} · ${run.status === "completed" ? "Ready to review" : run.status.replaceAll("_", " ")}`}
+          </p>
         </div>
-        {dirty && <p role="status" className="text-sm text-muted-foreground">Save or discard this post’s unsaved edits before changing its saved text or visuals.</p>}
-        {canEdit && item.post && !item.isScheduled && <div className="border-t pt-3"><label className="flex min-h-11 items-center gap-3 text-sm"><Checkbox className="size-5" checked={selected.includes(item.id)} disabled={busy || !!schedulePreview} aria-describedby={!item.canSchedule ? `schedule-unavailable-${item.id}` : undefined} onCheckedChange={checked => { setSelected(values => checked === true ? [...values, item.id] : values.filter(value => value !== item.id)); setScheduleResult(null); }} />Include in schedule</label>{!item.canSchedule && <p id={`schedule-unavailable-${item.id}`} className="pl-8 text-xs text-muted-foreground">Not ready to schedule. Resolve the review steps above before confirming.</p>}</div>}
-      </CardContent></Card></section>;
-    })}</div>
-    {editor ? <PlannerItemEditor key={editor.id} presentation="responsive" onNavigationGuard={registerEditorGuard} onDirtyChange={setEditorDirty} item={editor} canEdit={canEdit} busy={busy} error={actionError} index={editorIndex} total={editorItems.length} initialTab={editorTab} accountName={accountNames[editor.slot.accountId ?? ""]} workspaceId={workspaceId} onClose={() => setEditorId(null)} onMove={direction => selectEditor(editorItems[editorIndex + direction])} onReviewNext={nextItem ? () => selectEditor(nextItem, primaryStatus(nextItem) === "choose_visuals" ? "visuals" : "copy") : undefined} onGenerate={() => image(editor, editor.imageOperationId || editor.post?.imageUrl ? "regenerate" : "generate")} onRetryImage={editor.imageOperationId && editor.imageRetryable && editor.visualState === "failed" ? () => image(editor, "retry") : undefined} onTextOnly={() => textOnly(editor)} onSave={payload => act(() => update(plannerApi.editCopy(workspaceId, runId, editor.id, payload)))} onSlot={payload => editSlot(editor, payload)} onApprove={() => void act(() => update(plannerApi.approveCopy(workspaceId, runId, editor.id, { expectedRevision: editor.revision! })))} onAttach={assetId => act(() => update(plannerApi.attachImage(workspaceId, runId, editor.id, { expectedRevision: editor.revision!, assetId })))} /> : <section aria-label="Post review" className="hidden rounded-xl border border-dashed p-8 text-sm text-muted-foreground xl:block">Choose a post to review its copy, visuals and preview.</section>}
-    </div>
-    {!canPublish && <p className="text-sm text-muted-foreground">{canEdit ? "Editor access: approve text, create images and preview selected schedules. A publisher or admin must confirm scheduling." : "Viewer access: saved plans are read-only. An editor can change content and a publisher can schedule."} Server permission and readiness checks remain authoritative.</p>}
-    {scheduleResult && <section aria-labelledby="schedule-results" className="space-y-3 rounded-xl border p-4"><h2 id="schedule-results" className="text-lg font-semibold">Scheduling outcomes</h2><ScheduleRows rows={scheduleResult.items} items={run.items} accountNames={accountNames} /><p className="text-sm text-muted-foreground">Dispatch pending is not confirmed delivery. Fix blocked items and preview them again. Saved schedule states remain visible after reload.</p><Link href="/dashboard/calendar" className="inline-flex min-h-11 items-center text-sm text-primary">View calendar →</Link></section>}
-    {canEdit && <div className="mobile-action-bar flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background p-4"><p className="text-sm"><strong>{selected.length}</strong> explicitly selected · {run.items.filter(item => selected.includes(item.id) && item.canSchedule && !item.isScheduled).length} ready · {run.timezone}</p>{selectedEditorDirty && <p role="status" className="text-sm text-muted-foreground">Save or discard the selected post’s unsaved edits before reviewing its schedule.</p>}<Button className="min-h-11" disabled={busy || !selected.length || selectedEditorDirty} onClick={() => void openSchedule()}>Review selected schedule</Button></div>}
-    <Dialog open={!!confirmation} onOpenChange={open => { if (!open && !busy) setConfirmation(null); }}><DialogContent><DialogHeader><DialogTitle>{confirmation?.title}</DialogTitle><DialogDescription>{confirmation?.description}</DialogDescription></DialogHeader>{confirmation?.image && <label className="space-y-2 text-sm">Image direction (optional)<Textarea maxLength={1500} rows={3} value={direction} onChange={event => setDirection(event.target.value)} placeholder="Clean editorial artwork by default. Describe a subject or a different style." /></label>}<DialogFooter><Button variant="outline" className="min-h-11" onClick={() => setConfirmation(null)}>Cancel</Button><Button className="min-h-11" onClick={() => { const action = confirmation?.action; setConfirmation(null); if (action) void act(action); }}>{confirmation?.label}</Button></DialogFooter></DialogContent></Dialog>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="min-h-11" disabled={busy || refreshing} onClick={() => { setPollPaused(false); setPollVersion((value) => value + 1); }}>
+            {refreshing ? <><Loader2 className="mr-2 size-4 animate-spin motion-reduce:animate-none" aria-hidden />Syncing…</> : "Refresh"}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button variant="ghost" className="min-h-11" aria-label="More run actions">More</Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {canEdit && running && <DropdownMenuItem disabled={busy} onSelect={() => ask({ title: "Cancel remaining text generation?", description: "Saved drafts are kept. In-flight requests may still finish.", label: "Cancel generation", action: async () => { const value = await plannerApi.cancelRun(workspaceId, runId); if (mounted.current) setRun(value); } })}>Cancel generation</DropdownMenuItem>}
+              {canEdit && !running && !!failedIds.length && <DropdownMenuItem disabled={busy} onSelect={() => ask({ title: "Retry failed slots?", description: "Only missing or failed slots are regenerated.", label: "Retry missing text", action: async () => { const value = await plannerApi.retryRun(workspaceId, runId, failedIds); if (mounted.current) setRun(value); } })}>Retry {failedIds.length} missing slots</DropdownMenuItem>}
+              {canPublish && !!pendingIds.length && <DropdownMenuItem disabled={busy} onSelect={() => retryDispatch(pendingIds)}>Retry pending dispatch</DropdownMenuItem>}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+      <p className="break-words text-sm text-muted-foreground">{run.prompt}</p>
+    </header>
+    {busy && (
+      <p role="status" className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
+        <Loader2 className="size-4 shrink-0 animate-spin text-primary motion-reduce:animate-none" aria-hidden />
+        Saving your changes…
+      </p>
+    )}
+    {(fetchError || actionError) && <div role="alert" className="space-y-2 rounded-lg border border-destructive p-4 text-sm text-destructive">{fetchError && <p>{fetchError}</p>}{actionError && <p>{actionError}</p>}</div>}
+    {pollPaused && <p role="status" className="text-sm text-muted-foreground">Live updates paused. Tap Refresh.</p>}
+    {generatingText && <PlannerGenerationProgress progress={textProgress} runStatus={run.status} />}
+    {!generatingText && generatingImages && (
+      <PlannerImageGenerationProgress progress={runImageProgress} />
+    )}
+    {!generatingText && !generatingImages && allCopyApproved && planPendingImages.length > 0 && canEdit && (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
+        <p className="text-sm text-muted-foreground">Copy is approved. Add one image per posting day (resized per channel).</p>
+        <Button className="min-h-11" disabled={busy || editorDirty} onClick={() => promptGenerateAllForRun()}>
+          Generate images
+        </Button>
+      </div>
+    )}
+    {run.cancelled && <p role="status" className="rounded-lg border p-4 text-sm">Generation was cancelled. Saved drafts can still be reviewed.</p>}
+
+    {groups.length > 0 && (
+      <nav aria-label="Posting dates" className="flex gap-2 overflow-x-auto pb-1">
+        {groups.map((group, index) => {
+          const selected = index === safeGroupIndex;
+          return (
+            <button
+              key={group.key}
+              type="button"
+              disabled={editorDirty && !selected}
+              className={cn(
+                "shrink-0 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                selected ? "border-primary bg-primary/5" : "hover:bg-muted/50",
+                editorDirty && !selected && "opacity-50",
+              )}
+              onClick={() => goToGroup(index)}
+            >
+              <span className="block font-medium">{group.date}</span>
+              <span className="text-xs text-muted-foreground">{groupStatusLabel(group)}</span>
+            </button>
+          );
+        })}
+      </nav>
+    )}
+
+    {!groups.length && !generatingText && <p className="rounded-lg border border-dashed p-8 text-sm text-muted-foreground">No drafts in this run yet.</p>}
+
+    {currentGroup && activeItem && (
+      <PlannerDateReview
+        group={currentGroup}
+        groupIndex={safeGroupIndex}
+        groupCount={groups.length}
+        activeItem={activeItem}
+        activeItemIndex={activeItemIndex}
+        accountName={accountNames[activeItem.slot.accountId ?? ""] ?? "Connected account"}
+        workspaceId={workspaceId}
+        canEdit={canEdit}
+        busy={busy}
+        error={actionError}
+        dirty={editorDirty}
+        imageDirection={direction}
+        onImageDirectionChange={setDirection}
+        onActiveItem={(itemId) => guarded(() => setActiveItemId(itemId))}
+        onSave={async (payload) => act(async () => { await update(plannerApi.editCopy(workspaceId, runId, activeItem.id, payload)); })}
+        onSlot={(payload) => editSlot(activeItem, payload)}
+        onApproveItem={() => approveItem(activeItem)}
+        onApproveAll={() => approveAllInGroup()}
+        onRegenerateText={() => ask({ title: "Regenerate text?", description: "Uses text allowance for this channel. You will need to approve again.", label: "Regenerate", action: () => regenerateText(activeItem) })}
+        onGenerateAllImages={() => currentGroup && promptGenerateAllForGroup(currentGroup)}
+        groupGeneratingImages={groupGeneratingImages}
+        groupPendingImageCount={groupPendingImages.length}
+        onGenerate={() => image(activeItem, activeItem.imageOperationId || activeItem.post?.imageUrl ? "regenerate" : "generate")}
+        onRetryImage={activeItem.imageOperationId && activeItem.imageRetryable && activeItem.visualState === "failed" ? () => image(activeItem, "retry") : undefined}
+        onTextOnly={() => textOnly(activeItem)}
+        onAttach={(assetId) => act(() => update(plannerApi.attachImage(workspaceId, runId, activeItem.id, { expectedRevision: activeItem.revision!, assetId })))}
+        onNavigationGuard={registerEditorGuard}
+        onDirtyChange={setEditorDirty}
+      />
+    )}
+
+    {groups.length > 0 && (
+      <footer className="mobile-action-bar flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background p-4">
+        <Button variant="outline" className="min-h-11" disabled={busy || editorDirty || safeGroupIndex <= 0} onClick={() => goToGroup(safeGroupIndex - 1)}>
+          Previous day
+        </Button>
+        {safeGroupIndex < groups.length - 1 ? (
+          <Button className="min-h-11" disabled={busy || editorDirty || !dayComplete} onClick={() => goToGroup(safeGroupIndex + 1)}>
+            Next day
+          </Button>
+        ) : allReady && schedulableIds.length > 0 ? (
+          <Button className="min-h-11" disabled={busy || editorDirty || !canPublish} onClick={() => void openSchedule(schedulableIds)}>
+            Confirm schedule ({schedulableIds.length})
+          </Button>
+        ) : (
+          <p className="text-sm text-muted-foreground">Finish text and images for each day, then confirm schedule.</p>
+        )}
+      </footer>
+    )}
+
+    {!canPublish && allReady && <p className="text-sm text-muted-foreground">A publisher or admin must confirm the schedule after you finish review.</p>}
+    {scheduleResult && <section aria-labelledby="schedule-results" className="space-y-3 rounded-xl border p-4"><h2 id="schedule-results" className="text-lg font-semibold">Scheduling outcomes</h2><ScheduleRows rows={scheduleResult.items} items={run.items} accountNames={accountNames} /><Link href="/dashboard/calendar" className="inline-flex min-h-11 items-center text-sm text-primary">View calendar →</Link></section>}
+    <Dialog open={!!confirmation} onOpenChange={open => { if (!open && !busy) setConfirmation(null); }}><DialogContent><DialogHeader><DialogTitle>{confirmation?.title}</DialogTitle><DialogDescription>{confirmation?.description}</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" className="min-h-11" onClick={() => setConfirmation(null)}>Cancel</Button><Button className="min-h-11" onClick={() => { const action = confirmation?.action; setConfirmation(null); if (action) void act(action); }}>{confirmation?.label}</Button></DialogFooter></DialogContent></Dialog>
     <PlannerConflictDialog rows={conflicts?.rows ?? null} onChangeTime={() => { setConflicts(null); setSchedulePreview(null); }} onContinue={() => { const current = conflicts; setConflicts(null); current?.proceed(warningAcknowledgments(current.rows)); }} />
-    <Dialog open={!!schedulePreview && !conflicts} onOpenChange={open => { if (!open && !busy) setSchedulePreview(null); }}><DialogContent className="max-w-3xl"><DialogHeader><DialogTitle>Confirm selected schedules</DialogTitle><DialogDescription>Review the exact account, date and timezone for each selected post. Nothing publishes now.</DialogDescription></DialogHeader>{schedulePreview && <><ScheduleRows rows={schedulePreview.items} items={run.items} accountNames={accountNames} /><p className="text-xs text-muted-foreground">Review valid until {displayTime(schedulePreview.expiresAt, run.timezone)} · {run.timezone}</p>{scheduleBlocked && <p role="alert" className="text-sm text-destructive">At least one selected item needs attention. Return to review and fix it or change the selection. Nothing is silently excluded.</p>}</>}{actionError && <p role="alert" className="text-sm text-destructive">{actionError} Retrying this confirmation reuses its request ID.</p>}<DialogFooter><Button variant="outline" className="min-h-11" disabled={busy} onClick={() => setSchedulePreview(null)}>Back to review</Button><Button className="min-h-11" disabled={busy || !canPublish || !schedulePreview?.items.length || scheduleBlocked} onClick={() => void confirmSchedule()}>Confirm schedule</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={!!schedulePreview && !conflicts} onOpenChange={open => { if (!open && !busy) setSchedulePreview(null); }}><DialogContent className="max-w-3xl"><DialogHeader><DialogTitle>Confirm schedule</DialogTitle><DialogDescription>These posts will be scheduled for their proposed times. Nothing publishes immediately.</DialogDescription></DialogHeader>{schedulePreview && <><ScheduleRows rows={schedulePreview.items} items={run.items} accountNames={accountNames} /><p className="text-xs text-muted-foreground">Valid until {displayTime(schedulePreview.expiresAt, run.timezone)} · {run.timezone}</p>{scheduleBlocked && <p role="alert" className="text-sm text-destructive">Fix blocked items before confirming.</p>}</>}{actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}<DialogFooter><Button variant="outline" className="min-h-11" disabled={busy} onClick={() => setSchedulePreview(null)}>Back</Button><Button className="min-h-11" disabled={busy || !canPublish || !schedulePreview?.items.length || scheduleBlocked} onClick={() => void confirmSchedule()}>Confirm schedule</Button></DialogFooter></DialogContent></Dialog>
   </div>;
 }
 

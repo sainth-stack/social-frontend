@@ -729,7 +729,7 @@ class SocialMediaService:
                     workspace,
                     topic,
                     image_style,
-                    CreativeSpec(format="post", platform=platform.value, caption=caption, auto_copy=False),
+                    CreativeSpec(format="post", platform=platform.value, caption=caption, auto_copy=False, visual_treatment="campaign_hero"),
                 )
                 record_ai_usage(self.db, workspace["id"], "image", user_id=user["id"])
                 upload = upload_social_image_bytes(

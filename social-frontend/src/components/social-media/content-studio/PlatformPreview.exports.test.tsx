@@ -4,6 +4,25 @@ import { axe } from "vitest-axe";
 import PlatformPreview from "./PlatformPreview";
 import CarouselSlideRenderer from "./CarouselSlideRenderer";
 import fixtures from "@/lib/socialCaption.fixtures.json";
+import type { SocialPlatform } from "@/types/social-media.types";
+
+function previewPublisherBody(container: HTMLElement, platform: SocialPlatform): string | undefined {
+  const article = container.querySelector("article");
+  if (!article) return undefined;
+  if (platform === "linkedin" || platform === "facebook") {
+    const copyWrap = article.querySelector("header + div");
+    const paragraphs = copyWrap?.querySelectorAll("p") ?? [];
+    return [paragraphs[0]?.textContent, paragraphs[1]?.textContent].filter(Boolean).join("\n\n");
+  }
+  const bodyId = article.querySelector("button[aria-controls]")?.getAttribute("aria-controls");
+  const caption = bodyId ? article.ownerDocument.getElementById(bodyId) : article.querySelector("p.whitespace-pre-wrap");
+  return caption?.textContent ?? undefined;
+}
+
+function previewCopyNodeIndex(container: HTMLElement): number {
+  const nodes = Array.from(container.querySelector("article")!.children);
+  return nodes.findIndex((node) => node.tagName === "P" || Boolean(node.querySelector("p.whitespace-pre-wrap")));
+}
 
 const network = vi.fn(() => { throw new Error("Network forbidden in preview tests"); });
 beforeEach(() => {
@@ -26,7 +45,7 @@ const media = slides.map((slide) => ({ slideId: slide.id, assetId: slide.id, blo
 describe("actual platform exports", () => {
   it.each(fixtures)("keeps exact authored publisher body: $name", ({ caption, hashtags, expected }) => {
     const { container } = render(<PlatformPreview platform="linkedin" caption={caption} hashtags={hashtags} media={[]} />);
-    expect(container.querySelector("article > p")?.textContent).toBe(expected);
+    expect(previewPublisherBody(container, "linkedin")).toBe(expected);
   });
 
   it.each(["linkedin", "facebook", "instagram"] as const)("keeps %s comments separate and labels delivery honestly", (platform) => {
@@ -34,10 +53,10 @@ describe("actual platform exports", () => {
     const comment = screen.getByRole("region", { name: "First comment preview" });
     expect(comment.textContent).toContain("Exact comment\n\nMore  context");
     expect(comment.textContent).toContain(platform === "linkedin" ? "manual copy only, not published automatically" : "automatic delivery after publishing");
-    expect(container.querySelector("article > p")?.textContent).toBe("Authored #Inline\n\n\nBody\n\n#Tag #Tag");
+    expect(previewPublisherBody(container, platform)).toBe("Authored #Inline\n\n\nBody\n\n#Tag #Tag");
     const nodes = Array.from(container.querySelector("article")!.children);
     const imageBlock = nodes.findIndex((node) => Boolean(node.querySelector("img")));
-    const copy = nodes.findIndex((node) => node.tagName === "P");
+    const copy = previewCopyNodeIndex(container);
     expect(platform === "instagram" ? imageBlock < copy : copy < imageBlock).toBe(true);
   });
 
@@ -152,7 +171,7 @@ describe("actual platform exports", () => {
     const button = screen.getByRole("button", { name: "See more" });
     expect(button.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(button);
-    expect(container.querySelector("article > p")?.textContent).toBe(`${caption}\n\n#Tag #Tag`);
+    expect(previewPublisherBody(container, "x")).toBe(`${caption}\n\n#Tag #Tag`);
     expect(screen.getByRole("button", { name: "See less" }).getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "See less" }));
     fireEvent.click(screen.getByRole("button", { name: "See more" }));

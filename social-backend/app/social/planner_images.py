@@ -81,6 +81,8 @@ def start(service, workspace, user, run_id, item_id, payload):
             service.items.update_one({"id": item_id}, {"$set": {"image_operation_id": operation_id, "visual_state": "processing"}})
             service.db.social_posts.update_one({"id": post["id"], "planner_visual_lock": post["planner_visual_lock"]},
                 {"$set": {"planner_image_intent": "required", "planner_visual_pending": True}})
+            group = service._planner_date_image_group(workspace, run_id, item)
+            service._mark_planner_group_processing(group, operation_id, skip_item_id=item_id)
     if dispatch:
         from app.social.tasks.planner_runs import generate_planner_image
 

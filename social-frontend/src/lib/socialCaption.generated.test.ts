@@ -7,6 +7,15 @@ describe("generated plain text defense", () => {
     expect(sanitizeCaptionAndHashtags(cleaned, [])).toEqual({ caption: "Launch update\nUseful ideas for teams.", hashtags: ["Business"] });
   });
 
+  it("collapses double-hash markdown in tags and body", () => {
+    expect(normalizeGeneratedText("##Heading inline ##still")).toBe("#Heading inline #still");
+    expect(sanitizeCaptionAndHashtags("Body", ["##EarnedVoice", "##Social"])).toEqual({
+      caption: "Body",
+      hashtags: ["EarnedVoice", "Social"],
+    });
+    expect(sanitizeCaptionAndHashtags("Body", ["##EarnedVoice", "##Social"]).hashtags.every((t) => !t.includes("##"))).toBe(true);
+  });
+
   it("removes complete emoji sequences while preserving multilingual copy, numbers, URLs, and punctuation", () => {
     const text = "👨‍👩‍👧‍👦 👍🏽 🇮🇳 1️⃣ #️⃣ 🚀\nதமிழ் café C# costs $20. Visit https://example.test/a_b?q=1";
     expect(normalizeGeneratedText(text)).toBe("தமிழ் café C# costs $20. Visit https://example.test/a_b?q=1");

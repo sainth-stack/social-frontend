@@ -7,7 +7,7 @@ function dedupeTags(tags: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of tags) {
-    const tag = raw.trim().replace(/^#/, "");
+    const tag = raw.trim().replace(/^#+/, "");
     if (!tag) continue;
     const key = tag.toLowerCase();
     if (seen.has(key)) continue;
@@ -53,7 +53,8 @@ export function sanitizeCaptionAndHashtags(
 ): { caption: string; hashtags: string[] } {
   const inline = extractInlineHashtags(caption);
   const cleanCaption = stripHashtagsFromCaption(caption);
-  const merged = dedupeTags([...hashtags, ...inline]).slice(0, maxTags);
+  const normalizedTags = (hashtags ?? []).map((tag) => normalizeGeneratedText(String(tag)));
+  const merged = dedupeTags([...normalizedTags, ...inline]).slice(0, maxTags);
   return { caption: cleanCaption, hashtags: merged };
 }
 
@@ -70,17 +71,23 @@ export function normalizeGeneratedText(value: string, includeEmojis = false): st
   if (!includeEmojis) {
     text = text.replace(/(?:\p{Regional_Indicator}{2}|[0-9#*]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)/gu, "");
   }
+  text = text.replace(/#{2,}/g, "#");
   return text.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 export function formatPostBody(caption: string, hashtags: string[]): string {
-  const body = trimPublisherText((caption ?? "").replace(/\r\n?/g, "\n"));
+  const body = trimPublisherText((caption ?? "").replace(/\r\n?/g, "\n").replace(/#{2,}/g, "#"));
   const tagLine = formatTagsForDisplay(hashtags);
   return [body, tagLine].filter(Boolean).join("\n\n");
 }
 
 export function formatTagsForDisplay(hashtags: string[]): string {
-  return (hashtags ?? []).filter((tag) => typeof tag === "string").map((tag) => trimPublisherText(trimPublisherText(tag).replace(/^#+/, ""))).filter(Boolean).map((tag) => `#${tag}`).join(" ");
+  return (hashtags ?? [])
+    .filter((tag) => typeof tag === "string")
+    .map((tag) => trimPublisherText(normalizeGeneratedText(tag)).replace(/^#+/, ""))
+    .filter(Boolean)
+    .map((tag) => `#${tag}`)
+    .join(" ");
 }
 
 function trimPublisherText(text: string): string {

@@ -95,7 +95,7 @@ function imageChoice(name = "Add an image") {
 
 function visualButton() {
   visitStep("Visuals");
-  return screen.getByRole("button", { name: "Generate approved visuals", hidden: true });
+  return screen.getByRole("button", { name: "Generate image", hidden: true });
 }
 
 function writingOptions() {
@@ -109,7 +109,7 @@ async function attach(user: ReturnType<typeof userEvent.setup>, chosen = asset) 
   vi.spyOn(socialMediaApi, "uploadImage").mockResolvedValue({ imageUrl: chosen.url, assetId: chosen.id, source: "uploaded" });
   vi.spyOn(socialMediaApi, "uploadVideo").mockResolvedValue({ videoUrl: chosen.url, assetId: chosen.id, source: "uploaded" });
   vi.spyOn(socialMediaApi, "getMediaAsset").mockResolvedValue(chosen);
-  await user.click(screen.getByRole("button", { name: "Add your media" }));
+  await user.click(screen.getByRole("button", { name: "Use my media" }));
   await user.upload(screen.getByLabelText("Choose a media file"), new File(["media"], chosen.mediaType === "image" ? "photo.png" : "clip.mp4", { type: chosen.mimeType }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose media" })).toBeNull());
 }
@@ -131,7 +131,7 @@ describe("Studio shared media integration", () => {
     expect(screen.getByRole("img", { name: "Attached media" })).toBeTruthy();
     expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringContaining("/generate-creative-set"), expect.anything(), expect.anything());
     await user.click(screen.getByRole("button", { name: "Approve copy" }));
-    expect((screen.getByRole("button", { name: "Generate approved visuals" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Generate image" }) as HTMLButtonElement).disabled).toBe(true);
     vi.mocked(apiClient.post).mockResolvedValueOnce(response({ id: "saved", platforms: [] }));
     await user.click(screen.getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(savedPayload().platforms).toHaveLength(2));
@@ -181,8 +181,8 @@ describe("Studio shared media integration", () => {
     const user = userEvent.setup();
     renderStudio();
     await user.click(screen.getByRole("button", { name: type }));
-    expect((screen.getByRole("button", { name: "Add your media" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/Carousel and Thread do not support manual attachments/)).toBeTruthy();
+    visitStep("Visuals");
+    expect((screen.getByRole("button", { name: "Use my media" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("previews and saves video drafts while leaving publishing and scheduling disabled", async () => {
@@ -904,7 +904,7 @@ describe("AIStudioPage", () => {
     renderStudio();
     fireEvent.change(screen.getByLabelText("What do you want to post?"), { target: { value: "Share our latest business update" } });
     await user.click(imageChoice());
-    const visualButton = screen.getByRole("button", { name: "Generate approved visuals" });
+    const visualButton = screen.getByRole("button", { name: "Generate image" });
     expect((visualButton as HTMLButtonElement).disabled).toBe(true);
     await user.click(visualButton);
     expect(apiClient.post).not.toHaveBeenCalled();
@@ -1282,7 +1282,7 @@ describe("guided Studio safety", () => {
     visitStep("Visuals");
     expect(screen.getByRole("switch", { name: "Add an image" }).getAttribute("aria-checked")).toBe("false");
     expect(apiClient.post).not.toHaveBeenCalled();
-    expect((screen.getByRole("button", { name: "Generate approved visuals" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Generate image" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("requires inline reapproval of changed visuals without generating on approval or navigation", async () => {
@@ -1294,14 +1294,14 @@ describe("guided Studio safety", () => {
     await user.click(screen.getByRole("button", { name: "Generate image" }));
     fireEvent.change(screen.getByLabelText("Visual art direction (optional)"), { target: { value: "Minimal illustration" } });
     expect(screen.getByText(/Changing visual setup resets approval/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Generate approved visuals" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Generate image" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "Approve copy" }));
     expect(apiClient.post).toHaveBeenCalledTimes(approvedCalls);
     visitStep("Finish");
     visitStep("Visuals");
     expect(screen.getByRole("button", { name: "Copy approved" })).toBeTruthy();
     expect(apiClient.post).toHaveBeenCalledTimes(approvedCalls);
-    await user.click(screen.getByRole("button", { name: "Generate approved visuals" }));
+    await user.click(screen.getByRole("button", { name: "Generate image" }));
     await screen.findByRole("link", { name: "Download" });
     expect(apiClient.post).toHaveBeenCalledTimes(approvedCalls + 1);
   });

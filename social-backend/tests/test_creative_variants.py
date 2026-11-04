@@ -146,6 +146,29 @@ def test_manual_multiline_copy_retained_without_character_truncation(models):
     assert "".join(_wrap(draw, token, _font(20, False), 100)) == token
 
 
+def test_logo_stays_on_artwork_when_canvas_letterboxes():
+    artwork = Image.new("RGB", (900, 700), (64, 64, 64))
+    buf = BytesIO()
+    artwork.save(buf, format="PNG")
+    logo = _png((100, 100), (255, 0, 0, 255), "RGBA")
+    data = compose_creative(
+        buf.getvalue(),
+        width=1080,
+        height=1080,
+        layout="post",
+        copy=OverlayCopy(headline="Headline", subtext="Body", cta="Go"),
+        logo_bytes=logo,
+        logo_position="top-right",
+        primary_color="#ffffff",
+    )
+    img = Image.open(BytesIO(data)).convert("RGB")
+    scale = min(1080 / 900, 1080 / 700)
+    disp_h = int(700 * scale)
+    base_y = (1080 - disp_h) // 2
+    sample = img.getpixel((1060, max(8, base_y // 2)))
+    assert sample[0] > 250 and sample[1] > 250 and sample[2] > 250
+
+
 def test_exif_orientation_and_safe_padding_preserve_full_artwork():
     source = Image.new("RGB", (80, 40), "red")
     exif = Image.Exif()

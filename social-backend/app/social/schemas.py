@@ -371,6 +371,7 @@ class GenerateImageRequest(BaseModel):
     useBrand: bool = True
     slideIndex: Optional[int] = Field(default=None, ge=1, le=20)
     slideCount: Optional[int] = Field(default=None, ge=1, le=20)
+    visualTreatment: str = Field(default="campaign_hero", pattern=r"^(campaign_hero|minimal)$")
 
 
 class GenerateImageResponse(BaseModel):

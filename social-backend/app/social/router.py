@@ -812,6 +812,7 @@ def generate_image(
             caption=payload.caption or "",
             slide_index=payload.slideIndex,
             slide_count=payload.slideCount,
+            visual_treatment=payload.visualTreatment,
         )
     with selected_models(models), metering_scope(db, workspace["id"], user["id"], "image"):
         return SocialMediaService(db).generate_image(

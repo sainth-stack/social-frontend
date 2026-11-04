@@ -146,6 +146,7 @@ const STUDIO_TABS = [
 ] as const;
 
 const PLATFORMS: SocialPlatform[] = ["instagram", "facebook", "linkedin", "x"];
+const STUDIO_DEFAULT_ACCOUNT = "__default__";
 const CONTENT_TYPES = [
   "Caption",
   "Carousel",
@@ -156,6 +157,28 @@ const CONTENT_TYPES = [
 ];
 const TONES = ["Professional", "Friendly", "Luxury", "Casual", "Funny"];
 const LENGTHS = ["Short", "Medium", "Long"];
+
+function normalizeStudioHashtags(tags: string[]): string[] {
+  return sanitizeCaptionAndHashtags(
+    "",
+    tags.map((tag) => normalizeGeneratedText(String(tag)).replace(/^#+/u, "")),
+  ).hashtags;
+}
+
+function autoVisualFormat(contentType: string): CreativeFormat {
+  switch (contentType) {
+    case "Promotional":
+      return "product";
+    case "Educational":
+      return "quote";
+    case "Announcement":
+      return "banner";
+    case "Carousel":
+      return "carousel";
+    default:
+      return "post";
+  }
+}
 
 const CONTENT_TYPE_TO_FORMAT: Record<string, string> = {
   Caption: "single",
@@ -535,12 +558,12 @@ function GenerateTab({
   const [workspaceFirstComment, setWorkspaceFirstComment] = useState(false);
   const [commentContextReady, setCommentContextReady] = useState(false);
   const includeComment = includeCommentOverride ?? workspaceFirstComment;
-  const [alsoGenerateImage, setAlsoGenerateImage] = useState(false);
+  const [alsoGenerateImage, setAlsoGenerateImage] = useState(true);
   const [artDirection, setArtDirection] = useState("");
   const [copyApproval, setCopyApproval] = useState<{ version: 1; fingerprint: string } | null>(null);
   const imagePreferenceChanged = useRef(false);
   const [visualFormat, setVisualFormat] = useState<VisualFormat>("auto");
-  const [headlineOnImage, setHeadlineOnImage] = useState(true);
+  const [headlineOnImage, setHeadlineOnImage] = useState(false);
   const [includeLogo, setIncludeLogo] = useState(true);
   const [logoPosition, setLogoPosition] = useState<LogoPosition>("top-right");
   const [logoId, setLogoId] = useState<string | null>(null);
@@ -679,7 +702,7 @@ function GenerateTab({
         setArtDirection(options.artDirection ?? "");
         setCta(options.cta ?? options.creativeRequest?.cta ?? "");
         setVisualFormat((options.visualFormat === "product" || options.visualFormat === "carousel" ? "auto" : options.visualFormat) ?? (options.creativeRequest?.format === "product" || options.creativeRequest?.format === "carousel" ? "auto" : options.creativeRequest?.format) ?? "auto");
-        setHeadlineOnImage(options.headlineOnImage ?? options.creativeRequest?.textOverlay ?? true);
+        setHeadlineOnImage(options.headlineOnImage ?? options.creativeRequest?.textOverlay ?? false);
         setIncludeLogo(options.includeLogo ?? options.creativeRequest?.includeLogo ?? true);
         setLogoId(options.logoId ?? options.creativeRequest?.logoId ?? null);
         setLogoPosition(options.logoPosition ?? options.creativeRequest?.logoPosition ?? "top-right");
@@ -932,11 +955,7 @@ function GenerateTab({
   });
 
   const resolvedVisualFormat: CreativeFormat =
-    visualFormat !== "auto"
-      ? visualFormat
-      : type === "Promotional"
-        ? "product"
-        : "post";
+    visualFormat !== "auto" ? visualFormat : autoVisualFormat(type);
 
   const approvedPlatforms = selectedPlatforms.map((platform) => {
     const variation = activeVariation?.platform === platform ? activeVariation : variations?.find((item) => item.platform === platform);
@@ -973,7 +992,8 @@ function GenerateTab({
 
   const runCreativeSet = async (retry = false, statusOnly = false) => {
     if (prefillMedia) return;
-    if (!copyApproved || !canApproveCopy) { toast.error("Review all selected captions and slides, then approve copy before generating visuals."); return; }
+    if (!canApproveCopy) { toast.error("Write or generate captions on the Text step first."); return; }
+    if (!copyApproved) setCopyApproval({ version: 1, fingerprint });
     const list = type === "Carousel" ? slides : null;
     const platforms = selectedPlatforms.filter((platform) => platform !== "x");
     if (!platforms.length || type === "Thread") return;
@@ -992,7 +1012,7 @@ function GenerateTab({
       slides: list?.length ? list.map(({ id, headline, body, imagePrompt }) => ({ id, headline, body, imagePrompt })) : undefined,
       textOverlay: headlineOnImage,
       autoCopy: !list?.length, includeEmojis: includeEmojis && !brandForbidsEmoji, includeLogo: includeLogo && Boolean(selectedLogo),
-      logoId: selectedLogo?.id ?? null, logoPosition, useBrand: true,
+      logoId: selectedLogo?.id ?? null, logoPosition, useBrand: true, visualTreatment: "campaign_hero",
     };
     const sameRequest = request.requestId === creativeRequest?.requestId;
     if (!sameRequest) {
@@ -1178,7 +1198,7 @@ function GenerateTab({
   const generateImage = async (retry = false, statusOnly = false, confirmed = false) => {
     if (!canEdit || operationLocked.current || loading || imageLoading || slidesLoading || saving) return;
     if (!retry && !statusOnly && !confirmed && (creativeRequest || creativeItems.length || generatedImageUrl)) { setPendingAction("artwork"); return; }
-    if (!copyApproved) { toast.error("Review all selected captions and slides, then approve copy before generating visuals."); return; }
+    if (!canApproveCopy) { toast.error("Write or generate captions on the Text step first."); return; }
     if (!orgId || prompt.trim().length < 5) {
       toast.error("Add a prompt (at least 5 characters) first");
       return;
@@ -1259,10 +1279,10 @@ function GenerateTab({
   const format = (CONTENT_TYPE_TO_FORMAT[type] ?? "single") as "single" | "carousel" | "thread" | "poll";
   const publishLimitation = type === "Thread"
     ? "Threads are copy-only. Native X reply-chain publishing and scheduling are not supported. Copy each tweet to publish manually."
-    : !copyApproved
-      ? "Review every selected platform caption and slide, then choose Approve copy before publishing or scheduling."
+    : !copyApproved && !canApproveCopy
+      ? "Review every selected platform caption and slide before publishing or scheduling."
     : alsoGenerateImage && !hasMediaAttached
-      ? "Visuals are selected but not generated. Generate visuals after approving copy, or turn off Add an image to use approved text only."
+      ? "Generate your image on the Visuals step, or turn off Add an image to publish text only."
     : visualsStale
       ? "Visuals are out of date or incomplete. Regenerate visuals before publishing or scheduling."
       : type === "Carousel" && !carouselReady(selectedPlatforms, slides, creativeItems)
@@ -1601,7 +1621,6 @@ function GenerateTab({
           </div>
         </CardHeader>
         <CardContent className="p-4 sm:p-6"><fieldset disabled={!canEdit || busy || saving} onChangeCapture={markVisualsStale} className="min-w-0 space-y-5">
-          <div className="space-y-2"><Button type="button" variant="outline" disabled={!orgId || type === "Carousel" || type === "Thread"} onClick={() => setMediaPickerOpen(true)}><Upload className="mr-1.5 h-4 w-4" />Add your media</Button><p className="text-xs text-muted-foreground">Upload or paste an image, choose stock, or reuse your library before generating copy. Manual media uses no AI image credits. Single-image posts and draft-only videos are supported; Carousel and Thread do not support manual attachments.</p></div>
           {prefillMedia && (
             <div className="flex items-center justify-between rounded-lg border border-border bg-accent/40 px-3 py-2 text-xs">
               <span className="flex items-center gap-2">
@@ -1622,7 +1641,7 @@ function GenerateTab({
           <MediaAttribution provenance={prefillMedia?.provenance} />
           {prefillMedia && (prefillMedia.mediaType === "video" ? <video src={prefillMedia.url} controls playsInline preload="metadata" aria-label="Attached draft video" className="max-h-60 w-full rounded-lg" /> : <img src={prefillMedia.url} alt="Attached media" className="max-h-60 w-full rounded-lg object-contain" />)}
 
-          <div hidden={stage !== "brief"} className="space-y-5">
+          <div hidden={stage !== "brief"} className="space-y-4">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="studio-brief" className="text-sm font-semibold">
@@ -1708,7 +1727,58 @@ function GenerateTab({
             </div>
           </div>
 
-          <div className="space-y-3">{resolvedTargets.map(({ platform, account, ready }) => <div key={platform} className="space-y-1"><Label htmlFor={`studio-account-${platform}`}>{PLATFORM_LABELS[platform]} account</Label><select id={`studio-account-${platform}`} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm" value={targetAccounts[platform] ?? ""} onChange={(event) => { markVisualsStale(); setTargetAccounts((previous) => ({ ...previous, [platform]: event.target.value || null })); }}><option value="">Default{account ? ` · ${account.accountName}` : " · no connected account"}</option>{targetAccounts[platform] && !accounts.some((item) => item.id === targetAccounts[platform]) && <option value={targetAccounts[platform]!}>Saved account · unavailable</option>}{accounts.filter((item) => item.platform === platform).map((item) => <option key={item.id} value={item.id}>{item.accountName}{!item.isActive ? " · disconnected" : ""}</option>)}</select><p className="text-xs text-muted-foreground">{ready ? "Connected destination" : "Not ready to publish · drafting is available"}</p></div>)}</div>
+          {resolvedTargets.length > 0 ? (
+            <div className="space-y-2">
+              <Label className="text-xs font-medium text-muted-foreground">Post as</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {resolvedTargets.map(({ platform, account }) => {
+                  const platformAccounts = accounts.filter((item) => item.platform === platform);
+                  const selectedId = targetAccounts[platform] ?? null;
+                  const selectValue = selectedId ?? STUDIO_DEFAULT_ACCOUNT;
+                  return (
+                  <div key={platform} className="flex min-w-0 items-center gap-2">
+                    <PlatformIcon platform={platform} size="sm" className="shrink-0 text-muted-foreground" />
+                    <Select
+                      value={selectValue}
+                      onValueChange={(value) => {
+                        markVisualsStale();
+                        setTargetAccounts((previous) => ({
+                          ...previous,
+                          [platform]: value === STUDIO_DEFAULT_ACCOUNT ? null : value,
+                        }));
+                      }}
+                    >
+                      <SelectTrigger
+                        id={`studio-account-${platform}`}
+                        className="h-9 min-w-0 flex-1 text-xs"
+                        aria-label={`${PLATFORM_LABELS[platform]} account`}
+                      >
+                        <SelectValue placeholder={account?.accountName ?? "Default account"} />
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        <SelectItem value={STUDIO_DEFAULT_ACCOUNT}>
+                          {account?.accountName ?? "Default account"}
+                        </SelectItem>
+                        {selectedId && !platformAccounts.some((item) => item.id === selectedId) ? (
+                          <SelectItem value={selectedId}>Saved (unavailable)</SelectItem>
+                        ) : null}
+                        {platformAccounts.map((item) => (
+                          <SelectItem key={item.id} value={item.id} disabled={!item.isActive}>
+                            {item.accountName}
+                            {!item.isActive ? " (offline)" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  );
+                })}
+              </div>
+              {resolvedTargets.some((target) => !target.ready) ? (
+                <p className="text-[10px] text-muted-foreground">Connect accounts in Settings to publish.</p>
+              ) : null}
+            </div>
+          ) : null}
 
           {type === "Carousel" && <div className="space-y-2"><Label htmlFor="studio-slide-count">Slide count</Label><select id="studio-slide-count" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={slideCount} onChange={(event) => setSlideCount(Number(event.target.value))}>{[2, 3, 4, 5, 6, 7, 8].map((count) => <option key={count} value={count}>{count} slides</option>)}</select></div>}
           <button type="button" aria-expanded={writingOpen} onClick={() => setWritingOpen((open) => !open)} className="flex min-h-11 w-full items-center justify-between rounded-lg border border-border px-3 text-sm font-medium">Writing options<span className="text-xs text-muted-foreground">{tone} · {length} · {effectiveVariations} version{effectiveVariations > 1 ? "s" : ""}</span></button>
@@ -1718,16 +1788,15 @@ function GenerateTab({
             <SegmentedControl ariaLabel="Tone" value={tone} options={TONES} onChange={(value) => { markVisualsStale(); setTone(value); }} />
             <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs text-muted-foreground">Caption length</span><SegmentedControl ariaLabel="Length" value={length} options={LENGTHS} onChange={setLength} /></div>
             <ToggleRow id="studio-hashtags" label="Hashtags" checked={includeHashtags} onChange={setIncludeHashtags} />
-            <ToggleRow id="studio-first-comment" label="Generate first comment" hint={type === "Thread" ? "Threads do not support first comments." : "Facebook and Instagram: automatic delivery. LinkedIn: manual copy only. Existing comments are kept when off."} checked={type !== "Thread" && includeComment} disabled={type === "Thread"} onChange={setIncludeCommentOverride} />
+            <ToggleRow id="studio-first-comment" label="Generate first comment" hint={type === "Thread" ? "Not supported for threads." : undefined} checked={type !== "Thread" && includeComment} disabled={type === "Thread"} onChange={setIncludeCommentOverride} />
             <ToggleRow id="studio-emojis" label="Emojis" hint={brandForbidsEmoji ? "Your brand profile never uses emojis" : undefined} checked={includeEmojis && !brandForbidsEmoji} disabled={brandForbidsEmoji} onChange={setIncludeEmojis} />
           </section>
-          <div className="mt-3 flex items-center gap-3"><Label htmlFor="studio-versions">Versions</Label><select id="studio-versions" className="h-11 rounded-md border border-input bg-background px-3 text-sm" disabled={!canMultiVariation || multiPlatform} value={effectiveVariations} onChange={(event) => setVariationsWanted(Number(event.target.value) as 1 | 2 | 3)}>{[1, 2, 3].map((count) => <option key={count} value={count}>{count}</option>)}</select>{(!canMultiVariation || multiPlatform) && <span className="text-xs text-muted-foreground">Multiple versions need an eligible plan and one channel.</span>}</div>
+          <div className="mt-3 flex items-center gap-3"><Label htmlFor="studio-versions">Versions</Label><select id="studio-versions" className="h-11 rounded-md border border-input bg-background px-3 text-sm" disabled={!canMultiVariation || multiPlatform} value={effectiveVariations} onChange={(event) => setVariationsWanted(Number(event.target.value) as 1 | 2 | 3)}>{[1, 2, 3].map((count) => <option key={count} value={count}>{count}</option>)}</select>{(!canMultiVariation || multiPlatform) && <span className="text-xs text-muted-foreground">One channel required.</span>}</div>
           </div>
           </div>
 
           <div hidden={stage !== "visuals"} className="space-y-4">
           <div className="grid gap-2 sm:grid-cols-3"><Button type="button" variant="outline" disabled={!orgId || type === "Carousel" || type === "Thread"} onClick={() => setMediaPickerOpen(true)}>Use my media</Button><Button type="button" variant="outline" aria-pressed={alsoGenerateImage && !prefillMedia} disabled={!!prefillMedia || type === "Thread" || selectedPlatforms.every((platform) => platform === "x")} onClick={() => { markVisualsStale(); setAlsoGenerateImage(true); }}>Generate image</Button><Button type="button" variant="outline" aria-pressed={!alsoGenerateImage && !hasMediaAttached} disabled={!canEdit || busy || saving || type === "Carousel" || selectedPlatforms.includes("instagram")} onClick={() => { onClearMedia(); removeGeneratedImage(); }}>Text only</Button></div>
-          <p className="text-sm text-muted-foreground">Choose explicitly. Manual media uses no AI image credits. Instagram and carousels need images; X and threads stay text-only. Video is draft-only.</p>
           <div className="space-y-3 rounded-xl border border-border p-3">
             <ToggleRow
               id="studio-visual"
@@ -1736,18 +1805,16 @@ function GenerateTab({
                 prefillMedia
                   ? "Media already attached"
                   : type === "Carousel"
-                    ? `${slideCount} coordinated slides · up to ${slideCount} image generations`
-                    : `Sized for ${PLATFORM_LABELS[previewPlatform]}, matched to your caption`
+                    ? `${slideCount} slides`
+                    : `Optimized for ${PLATFORM_LABELS[previewPlatform]}`
               }
               checked={alsoGenerateImage && !prefillMedia}
               disabled={!!prefillMedia || type === "Thread" || type === "Carousel" || selectedPlatforms.includes("instagram") || selectedPlatforms.every((platform) => platform === "x")}
               onChange={(value) => { imagePreferenceChanged.current = true; setAlsoGenerateImage(value); }}
             />
-            <p className="text-xs leading-relaxed text-muted-foreground">This selects visual intent only. Create and approve copy first, then explicitly generate visuals. Shared artwork is sized for each channel; up to {type === "Carousel" ? slideCount : 1} paid image generation{type === "Carousel" ? "s" : ""}. X stays text-only.</p>
             {alsoGenerateImage && !prefillMedia && <div className="space-y-2">
-              <Label htmlFor="studio-art-direction">Visual art direction (optional)</Label>
-              <Textarea id="studio-art-direction" value={artDirection} maxLength={2000} rows={3} placeholder="Medium: product photography. Subject: our desk lamp. Style: warm, minimal studio. Avoid: people, invented labels, extra text." onChange={(event) => setArtDirection(event.target.value)} />
-              <p className="text-xs text-muted-foreground">Describe the medium, subject, style and anything to avoid. This guides artwork; it does not guarantee exact products or factual image details.</p>
+              <Label htmlFor="studio-art-direction">Image style (optional)</Label>
+              <Textarea id="studio-art-direction" value={artDirection} maxLength={2000} rows={2} placeholder="e.g. founder at desk with microphone, modern office, soft daylight — or your own scene" onChange={(event) => setArtDirection(event.target.value)} />
             </div>}
             {alsoGenerateImage && !prefillMedia ? (
               <>
@@ -1793,6 +1860,7 @@ function GenerateTab({
                   </button>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium">{selectedLogo ? "Logo on image" : "No logo yet"}</p>
+                    <p className="text-[10px] text-muted-foreground">Campaign visuals add your brand name and tagline on the artwork.</p>
                     <button
                       type="button"
                       onClick={() => setLogoPickerOpen(true)}
@@ -1834,7 +1902,7 @@ function GenerateTab({
                 <ToggleRow
                   id="studio-headline"
                   label="Headline on image"
-                  hint="Short headline and button in your brand colors"
+                  hint="Adds headline and CTA in your brand colors"
                   checked={headlineOnImage}
                   onChange={(value) => { markVisualsStale(); setHeadlineOnImage(value); }}
                 />
@@ -1898,7 +1966,7 @@ function GenerateTab({
               )}
             </Button>
             <Button type="button" variant="outline" className="w-full" disabled={!canEdit || busy || saving || format !== "single"} onClick={writeManually}>Write myself</Button>
-            <p role="status" className="text-center text-xs text-muted-foreground">{slidesLoading ? "Creating slide visuals…" : imageLoading ? "Creating your visual…" : loading ? "Writing your content…" : "Copy only. Review and approve it before generating visuals. Nothing posts automatically."}</p>
+            <p role="status" className="text-center text-xs text-muted-foreground">{slidesLoading ? "Creating slide visuals…" : imageLoading ? "Creating your visual…" : loading ? "Writing your content…" : "Review copy next, then generate images if you want them."}</p>
             {(hasContent || busy) && <Button type="button" variant="outline" className="w-full" onClick={() => moveToStage("text")}>Continue to text<Pencil className="ml-2 h-3.5 w-3.5" /></Button>}
           </div>
         </fieldset></CardContent>
@@ -1907,7 +1975,7 @@ function GenerateTab({
       <Card hidden={stage !== "text" && stage !== "visuals"} className="min-w-0 shadow-soft">
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base">{stage === "visuals" ? "Visual results" : "Channel copy"}</CardTitle>
+            <CardTitle className="text-base">{stage === "visuals" ? "Your image" : "Channel copy"}</CardTitle>
             {variations && (
               <Badge variant="secondary" className="text-[10px]">
                 {multiPlatform
@@ -1921,13 +1989,14 @@ function GenerateTab({
         </CardHeader>
         <CardContent className="min-w-0 space-y-4 p-4 pt-0 sm:p-6 sm:pt-0" aria-busy={loading}>
           <fieldset disabled={!canEdit || resumeInitializing} className="min-w-0 space-y-4">
-          <section aria-label="Copy approval workflow" className="space-y-3 rounded-xl border border-border bg-muted/30 p-3">
-            <p role="status" className="text-sm text-muted-foreground">{copyApproved ? "Copy approved for all selected channels and slides. Generate visuals separately if selected, or publish approved text only." : "Review and edit every selected channel caption and every slide. Approve copy when ready; approval never generates images or uses image credits. Any copy, channel, version or generation-setting change requires approval again."}</p>
-            {stage === "visuals" && !copyApproved && <p className="text-sm font-medium">Changing visual setup resets approval. Review the updated setup and approve it here before generating. No automatic approval.</p>}
+          <section aria-label="Copy approval workflow" hidden={stage !== "text"} className="space-y-3 rounded-xl border border-border bg-muted/30 p-3">
+            <p role="status" className="text-sm text-muted-foreground">{copyApproved ? "Copy approved." : "Edit captions, then continue to generate your image."}</p>
+            <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" disabled={!canEdit || busy || saving || !approvalContextReady || !canApproveCopy || copyApproved} onClick={() => { if (!operationLocked.current) setCopyApproval({ version: 1, fingerprint }); }}>{copyApproved ? "Copy approved" : "Approve copy"}</Button>
-            {stage === "visuals" && <Button type="button" variant="ghost" onClick={() => moveToStage("text")}>Review text</Button>}
+            </div>
           </section>
-          {stage === "visuals" && <Button type="button" variant={hasMediaAttached ? "outline" : "default"} className="w-full" disabled={!canEdit || busy || saving || !copyApproved || !alsoGenerateImage || !!prefillMedia || !orgId || prompt.trim().length < 5 || type === "Thread" || (type === "Carousel" && !slides?.length)} onClick={() => void generateImage()}>{imageLoading ? "Creating image…" : "Generate approved visuals"}</Button>}
+          {stage === "visuals" && !canApproveCopy && <p className="text-sm text-muted-foreground">Generate copy on the Text step, then come back to create your image.</p>}
+          {stage === "visuals" && <Button type="button" variant={hasMediaAttached ? "outline" : "default"} className="w-full" size="lg" disabled={!canEdit || busy || saving || !alsoGenerateImage || !!prefillMedia || !orgId || !canApproveCopy || prompt.trim().length < 5 || type === "Thread" || (type === "Carousel" && !slides?.length)} onClick={() => void generateImage()}>{imageLoading ? "Creating image…" : "Generate image"}</Button>}
           {/* Platform switch — only when more than one platform */}
           {selectedPlatforms.length > 1 && (
             <div className="flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
@@ -2007,9 +2076,10 @@ function GenerateTab({
                 caption={activeVariation.caption}
                 hashtags={previewHashtags}
                 platformHashtags={activeVariation.hashtags}
+                includeHashtags={includeHashtags}
                 firstComment={activeVariation.firstComment}
                 onFirstCommentChange={(firstComment) => updateActiveCopy({ firstComment })}
-                onHashtagsChange={(hashtags) => updateActiveCopy({ hashtags })}
+                onHashtagsChange={(tags) => updateActiveCopy({ hashtags: normalizeStudioHashtags(tags) })}
                 saving={!canEdit || saving || busy}
                 onCaptionChange={updateActiveCaption}
                 onSaveDraft={() => void saveDraft()}
@@ -2024,7 +2094,18 @@ function GenerateTab({
             )}
           </div>
 
-          {activeVariation && type !== "Thread" && <div className="space-y-2"><TagInput id="studio-shared-tags" label="Additional shared hashtags" value={hashtags} disabled={busy || saving} onChange={setHashtags} /><p className="text-xs text-muted-foreground">Only these manual additions are shared. Generated hashtags stay with their own channel.{!includeHashtags ? " Hashtags are off and will not be included." : ""}</p></div>}
+          {activeVariation && type !== "Thread" && includeHashtags ? (
+            <div className="space-y-2">
+              <TagInput
+                id="studio-shared-tags"
+                compact
+                label="Shared hashtags"
+                value={normalizeStudioHashtags(hashtags)}
+                disabled={busy || saving}
+                onChange={(tags) => setHashtags(normalizeStudioHashtags(tags))}
+              />
+            </div>
+          ) : null}
 
           {type === "Carousel" && slides?.length ? <section aria-label="Slide editor" className="space-y-3">
             <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">Slides · {slides.length}</h3><Badge variant="secondary">{PLATFORM_LABELS[previewPlatform]}</Badge></div>
@@ -2037,16 +2118,17 @@ function GenerateTab({
           </section> : null}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           {variations?.length && <Button type="button" variant="outline" disabled={!canEdit || busy || saving || !commentContextReady || prompt.trim().length < 5} onClick={() => setPendingAction("generate")}><RefreshCcw className="h-4 w-4" />Regenerate text</Button>}
-          <div className="mobile-action-bar flex flex-wrap items-center justify-between gap-3 border-t border-border bg-card py-3"><p className="text-sm text-muted-foreground">Approval covers every selected channel and slide.</p><Button type="button" disabled={!canEdit || busy || saving || !approvalContextReady || !canApproveCopy} onClick={() => { if (!operationLocked.current) { setCopyApproval({ version: 1, fingerprint }); moveToStage("visuals"); } }}>Approve text and continue</Button></div>
+          <div className="mobile-action-bar flex flex-wrap items-center justify-end gap-3 border-t border-border bg-card py-3"><Button type="button" disabled={!canEdit || busy || saving || !approvalContextReady || !canApproveCopy} onClick={() => { if (!operationLocked.current) { setCopyApproval({ version: 1, fingerprint }); moveToStage("visuals"); } }}>Approve &amp; continue</Button></div>
           </div>
 
           <div hidden={stage !== "visuals"} className="space-y-4">
-          {(visualMessage || creativeRequest || visualsStale || (type === "Carousel" && slides?.length)) && <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+          {(visualMessage || (creativeRequest && (retryUnavailable || creativeProcessing))) && <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
             {visualMessage && <p role="status" className="text-sm text-muted-foreground">{visualMessage}</p>}
-            {retryUnavailable && <p className="text-sm text-muted-foreground">Retry is unavailable for artwork without a saved base. New artwork requires your confirmation and may use additional image credits.</p>}
-            {creativeRequest && <Button type="button" variant="outline" disabled={busy || saving || !copyApproved || !alsoGenerateImage || retryUnavailable} onClick={() => void generateImage(true, creativeProcessing)}><RefreshCcw className="h-3.5 w-3.5" />{creativeProcessing ? "Check visual status" : "Retry visuals"}</Button>}
-            {creativeRequest && !creativeProcessing && <Button type="button" variant="outline" disabled={busy || saving || !copyApproved} onClick={() => void generateImage(true, true)}>Refresh saved visual status</Button>}
-            <Button type="button" variant="outline" disabled={busy || saving || !copyApproved || !alsoGenerateImage || type === "Thread" || !prompt.trim()} onClick={() => setPendingAction("artwork")}><RefreshCcw className="h-3.5 w-3.5" />Regenerate visuals</Button>
+            {retryUnavailable && <p className="text-sm text-muted-foreground">Start a new image from the Regenerate button — retry is not available for this request.</p>}
+            {creativeRequest && !retryUnavailable && <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={busy || saving || !alsoGenerateImage || !canApproveCopy} onClick={() => void generateImage(true, creativeProcessing)}><RefreshCcw className="h-3.5 w-3.5" />{creativeProcessing ? "Check status" : "Retry"}</Button>
+              {!creativeProcessing && <Button type="button" variant="outline" size="sm" disabled={busy || saving || !canApproveCopy} onClick={() => void generateImage(true, true)}>Refresh status</Button>}
+            </div>}
           </div>}
 
           {(imageLoading || previewImageUrl || slideImages.length > 0) && !prefillMedia && (
@@ -2075,7 +2157,7 @@ function GenerateTab({
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={busy || saving || !copyApproved || !alsoGenerateImage}
+                    disabled={busy || saving || !alsoGenerateImage || !canApproveCopy}
                     onClick={() => setPendingAction("artwork")}
                   >
                     <RefreshCcw className={cn("mr-1 h-3.5 w-3.5", (imageLoading || slidesLoading) && "animate-spin")} />
@@ -2146,9 +2228,9 @@ function GenerateTab({
       </Card>
       <Card hidden={stage !== "finish"}><CardHeader><CardTitle>Ready to share?</CardTitle></CardHeader><CardContent className="space-y-5"><ul className="space-y-3 text-sm"><li>{copyApproved ? "✓ Text approved for the current setup" : "Text needs explicit approval"}</li><li>{publishLimitation || requiredImageMissing ? "Visuals or copy need attention" : "✓ Visual requirements checked"}</li><li>{overLimit ? "A caption exceeds its channel limit" : "✓ Caption lengths checked"}</li>{resolvedTargets.map(({ platform, account, ready }) => <li key={platform}>{ready ? "✓" : "!"} {PLATFORM_LABELS[platform]} · {account?.accountName ?? "No connected destination"}</li>)}</ul>{targetLimitation && <p role="status" className="text-sm text-muted-foreground">{targetLimitation}</p>}{!canPublish && <p className="text-sm text-muted-foreground">{canEdit ? "Save your draft and hand it off to a publisher." : "A publisher must finish this post."}</p>}{teamReviewRequired && <p className="text-sm text-muted-foreground">Team review is required before publishing. Submit the draft, then finish from the reviewed post. Text approval is not team approval.</p>}<div className="mobile-action-bar flex flex-wrap gap-3 border-t border-border bg-card py-3"><Button type="button" disabled={finishBlocked} onClick={() => setPublishConfirmOpen(true)}><ProductPublishIcon className="h-4 w-4" />Publish now</Button><Button type="button" variant="outline" disabled={finishBlocked} onClick={() => setScheduleOpen(true)}><Calendar className="h-4 w-4" />Schedule</Button>{canEdit && teamReviewEnabled && <Button type="button" variant="outline" disabled={!hasPersistableContent || busy || saving || !copyApproved} onClick={() => void handleSubmitApproval()}>Submit for team review</Button>}</div><p className="text-xs text-muted-foreground">Nothing is published or scheduled until you confirm. Save draft remains available above.</p></CardContent></Card>
       </div>
-      <aside id="studio-live-preview" aria-label="Live post preview" className={cn("min-w-0 rounded-xl border border-border bg-card p-4 xl:sticky xl:top-24 xl:col-span-5", previewOpen ? "block" : "hidden xl:block")}>
-        <h3 className="mb-2 text-sm font-semibold">Live preview</h3><p className="mb-5 text-xs text-muted-foreground">Approximate {PLATFORM_LABELS[previewPlatform]} preview · final appearance may vary.</p>
-        <div className="mb-4 flex flex-wrap gap-2">{selectedPlatforms.map((platform) => <Button key={platform} type="button" size="sm" variant="outline" aria-label={`Preview ${PLATFORM_LABELS[platform]}`} aria-pressed={previewPlatform === platform} onClick={() => selectPlatformTab(platform)}>{PLATFORM_LABELS[platform]}</Button>)}</div>
+      <aside id="studio-live-preview" aria-label="Live post preview" className={cn("min-w-0 rounded-xl border border-border bg-card p-3 xl:sticky xl:top-24 xl:col-span-5", previewOpen ? "block" : "hidden xl:block")}>
+        <h3 className="mb-1.5 text-sm font-semibold">Live preview</h3>
+        <div className="mb-2 flex flex-wrap gap-1.5">{selectedPlatforms.map((platform) => <Button key={platform} type="button" size="sm" variant="outline" className="h-8 px-2.5 text-xs" aria-label={`Preview ${PLATFORM_LABELS[platform]}`} aria-pressed={previewPlatform === platform} onClick={() => selectPlatformTab(platform)}>{PLATFORM_LABELS[platform]}</Button>)}</div>
         <ResponsivePhonePreview><PlatformPreview key={previewPlatform} platform={previewPlatform} caption={previewCaption} hashtags={previewHashtags} firstComment={type === "Thread" ? "" : activeVariation?.firstComment} imageUrl={failedImageUrls.includes(previewImageUrl ?? "") ? null : previewImageUrl} videoUrl={previewVideoUrl} brandName={brandKit?.brandName || "Your Brand"} account={previewAccount} slides={previewSlides} media={creativeRequest || creativeItems.length ? creativeMedia(creativeItems, previewPlatform, type === "Carousel" ? slides : null).filter((item) => !failedImageUrls.includes(item.url)) : undefined} tweets={type === "Thread" ? tweets : undefined} /></ResponsivePhonePreview>
       </aside>
     </div>
@@ -2167,6 +2249,7 @@ function CaptionEditor({
   caption,
   hashtags,
   platformHashtags,
+  includeHashtags,
   firstComment,
   onFirstCommentChange,
   onHashtagsChange,
@@ -2178,6 +2261,7 @@ function CaptionEditor({
   caption: string;
   hashtags: string[];
   platformHashtags: string[];
+  includeHashtags: boolean;
   firstComment: string;
   onFirstCommentChange: (text: string) => void;
   onHashtagsChange: (tags: string[]) => void;
@@ -2227,8 +2311,47 @@ function CaptionEditor({
         </div>
       </div>
 
-      <div className="space-y-2"><Label htmlFor="studio-platform-tags">{PLATFORM_LABELS[platform]} hashtags</Label><Textarea id="studio-platform-tags" value={platformHashtags.join("\n")} disabled={saving} rows={3} onChange={(event) => onHashtagsChange(event.target.value.split("\n"))} /><p className="text-xs text-muted-foreground">One tag per line. Order and duplicates are preserved.</p></div>
-      {platform !== "x" && <details open={Boolean(firstComment)} className="space-y-2"><summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">{firstComment ? "First comment" : "Add an optional first comment"}</summary><Label htmlFor="studio-comment">First comment</Label><Textarea id="studio-comment" value={firstComment} disabled={saving} rows={4} onChange={(event) => onFirstCommentChange(event.target.value)} /><p className="text-xs text-muted-foreground">{platform === "linkedin" ? "LinkedIn · manual copy only. Not published automatically." : `${PLATFORM_LABELS[platform]} · automatic first-comment delivery after publishing.`}</p><Button type="button" size="sm" variant="outline" disabled={!firstComment} onClick={() => { void navigator.clipboard.writeText(firstComment); toast.success("First comment copied"); }}>Copy first comment</Button></details>}
+      {includeHashtags ? (
+        <TagInput
+          id="studio-platform-tags"
+          compact
+          label={`${PLATFORM_LABELS[platform]} hashtags`}
+          value={normalizeStudioHashtags(platformHashtags)}
+          disabled={saving}
+          onChange={onHashtagsChange}
+        />
+      ) : null}
+
+      {platform !== "x" && (
+        <details open={Boolean(firstComment)} className="space-y-2">
+          <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">
+            {firstComment ? "First comment" : "Add an optional first comment"}
+          </summary>
+          <Label htmlFor="studio-comment">First comment</Label>
+          <Textarea
+            id="studio-comment"
+            value={firstComment}
+            disabled={saving}
+            rows={3}
+            onChange={(event) => onFirstCommentChange(event.target.value)}
+          />
+          {platform === "linkedin" ? (
+            <p className="text-[11px] text-muted-foreground">Copied manually after publish on LinkedIn.</p>
+          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!firstComment}
+            onClick={() => {
+              void navigator.clipboard.writeText(firstComment);
+              toast.success("First comment copied");
+            }}
+          >
+            Copy first comment
+          </Button>
+        </details>
+      )}
 
       <div className="flex flex-wrap items-center gap-1.5">
         <Button size="sm" variant="ghost" disabled={!caption} onClick={copyAll}>

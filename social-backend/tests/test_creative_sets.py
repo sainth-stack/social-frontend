@@ -327,6 +327,37 @@ def test_real_renderer_composition_retry_reuses_durable_base(creative_sets, monk
     assert all(call.kwargs["copy"] is None for call in compose.call_args_list)
 
 
+def test_slides_get_own_subject_shared_series_look_and_fallback_warning(creative_sets, monkeypatch):
+    from app.social.ai import creative
+    from app.social.ai.compositor import OverlayCopy
+
+    service, _, payload, *_ = creative_sets
+    monkeypatch.setattr(service, "render_brand_creative_variants", SocialMediaService.render_brand_creative_variants.__get__(service))
+    image = Mock(return_value={"imageB64": _image()})
+    monkeypatch.setattr(creative, "generate_post_image", image)
+    seen = []
+
+    def direct(topic, spec, brand, style):
+        seen.append((topic, spec))
+        if spec.slide_index == 3:
+            raise RuntimeError("offline")
+        concept = creative.VisualConcept(concept_type="educational", subject=f"Subject for {spec.slide_prompt}",
+                                         medium="flat vector illustration", palette="teal and sand")
+        return concept, OverlayCopy()
+
+    monkeypatch.setattr(creative, "art_direct", direct)
+    result = _generate(creative_sets, payload.model_copy(update={"autoCopy": False, "platforms": payload.platforms[:1]}))
+    assert result.status == "completed", result.errors
+    assert [spec.slide_prompt for _, spec in seen] == ["Visual 0", "Visual 1", "Visual 2"]
+    assert seen[0][1].series_style == ""
+    assert all(spec.series_style == "flat vector illustration; palette teal and sand" for _, spec in seen[1:])
+    assert all("Visual" not in topic and payload.topic in topic for topic, _ in seen)
+    prompts = [call.kwargs["prompt_override"] for call in image.call_args_list]
+    assert prompts[0].startswith("Subject for Visual 0") and prompts[2].startswith("Visual 2")
+    assert "Series look shared by every slide: flat vector illustration" in prompts[2]
+    assert result.warnings == [creative.FALLBACK_WARNING]
+
+
 def test_status_lookup_is_workspace_scoped_and_does_no_generation(creative_sets):
     service, workspace, _, renderer, *_ = creative_sets
     result = _generate(creative_sets)

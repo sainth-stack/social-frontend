@@ -202,12 +202,39 @@ def test_empty_platforms_fail_before_model_calls(models):
     models[1].assert_not_called()
 
 
-def test_carousel_prompt_keeps_shared_context_without_forcing_photography():
-    style = "Vector editorial diagrams, shared indigo and amber palette. " * 5
-    prompt = creative.build_visual_prompt("Seedling lifecycle", CreativeSpec(format="carousel", slide_index=2, slide_count=3), {}, style)
-    assert style.strip() in prompt
-    assert "series palette" in prompt and "central safe region" in prompt
-    assert "premium commercial photography" not in prompt
+def test_carousel_slide_uses_slide_subject_series_look_and_style():
+    style = "Vector editorial diagrams, shared indigo and amber palette"
+    spec = CreativeSpec(format="carousel", slide_index=2, slide_count=3, slide_prompt="Seedling roots spreading through dark soil",
+                        series_style="flat vector illustration; palette indigo and amber")
+    prompt = creative.build_visual_prompt("Seedling lifecycle", spec, {}, style)
+    assert prompt.startswith("Seedling roots spreading through dark soil")
+    assert f"Style direction: {style}" in prompt
+    assert "Series look shared by every slide: flat vector illustration" in prompt
+    assert "photography" not in prompt
+
+
+def test_recipe_records_negative_prompt_and_series_look(models):
+    image, direction = models
+    direction.return_value = (creative.VisualConcept(concept_type="educational", subject="Seedling roots spreading through soil",
+                              medium="flat vector illustration", palette="indigo and amber", avoid=["bugs"]), OverlayCopy())
+    recipes = []
+    callback = Mock()
+    callback.on_recipe_ready = recipes.append
+    render_creative_variants(topic="Seedling care", style=None, spec=CreativeSpec(format="carousel", slide_index=1, slide_count=3),
+                             platforms=["instagram"], brand={}, logo_bytes=None, on_base_ready=callback)
+    recipe = recipes[0]
+    assert recipe["prompt"] == image.call_args.kwargs["prompt_override"]
+    assert recipe["negativePrompt"] == image.call_args.kwargs["negative_prompt"] and "bugs" in recipe["negativePrompt"]
+    assert "cartoon" not in recipe["negativePrompt"]
+    assert recipe["series"] == "flat vector illustration; palette indigo and amber"
+    image.reset_mock()
+    direction.reset_mock()
+    render_creative_variants(topic="Seedling care", style=None,
+                             spec=CreativeSpec(format="carousel", slide_index=1, slide_count=3, render_recipe=recipe),
+                             platforms=["instagram"], brand={}, logo_bytes=None)
+    direction.assert_not_called()
+    assert image.call_args.kwargs["prompt_override"] == recipe["prompt"]
+    assert image.call_args.kwargs["negative_prompt"] == recipe["negativePrompt"]
 
 
 def test_art_direct_sanitizes_actual_response_and_retains_brand_policy_without_visual_branding(monkeypatch):
@@ -229,7 +256,7 @@ def test_art_direct_sanitizes_actual_response_and_retains_brand_policy_without_v
     assert "Photorealistic commercial quality unless" not in system
     assert "slide 2 of 3" in user and style.strip() in user
     assert "Hidden Brand" not in user
-    assert visual == "Editorial illustration"
+    assert visual.subject == "Editorial illustration"
     assert copy == OverlayCopy("Grow", "First detail\nSecond detail", "Join")
 
 

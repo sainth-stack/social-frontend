@@ -25,19 +25,14 @@ ImageGenerationMode = Literal["create", "edit"]
 
 
 def _build_create_prompt(topic: str, style: Optional[str]) -> str:
-    style_line = style or (
-        "Top-tier B2B campaign photography or editorial illustration matched to the brief, cinematic lighting, "
-        "realistic materials, modern environments, shallow depth of field when using photography"
-    )
-    return (
-        "Create premium product-marketing social artwork grounded in the supplied message and visual preferences. "
-        f"Subject: {compact_context(topic, 4000)}. Visual style: {compact_context(style_line, 900)}. "
-        "One strong campaign moment, legible at mobile feed size, photorealistic when appropriate. "
-        "People must be generic professional models, not identifiable real individuals. "
-        "Screens may show soft abstract UI without readable text or logos. "
-        "Do not paint readable words, logos, or watermarks into the scene. "
-        "Avoid malformed anatomy, duplicated objects, and clipped focal subjects."
-    )
+    parts = [
+        compact_context(topic, 600),
+        f"Style: {compact_context(style, 400)}" if style else "Medium: the photography or editorial illustration style that best fits this subject",
+        "Single clear focal subject, generic models rather than identifiable real people",
+        "No text, letters, numbers, logos or watermarks anywhere in the image",
+        "High detail, professional finish",
+    ]
+    return ". ".join(part.rstrip(". ") for part in parts if part) + "."
 
 
 def _build_edit_prompt(topic: str, style: Optional[str]) -> str:

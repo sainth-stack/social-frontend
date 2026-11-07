@@ -524,6 +524,8 @@ class ContentPlanRuns:
             fence.update(claim=operation["claim"], generation=operation["generation"])
         if not operation.get("creative_request"):
             brief = self.load(workspace, run_id)["prompt"]
+            angle = DAY_FOCUS_ANGLES[int(item.get("order") or 0) % len(DAY_FOCUS_ANGLES)]
+            brief = f"{compact_context(brief, 1700)}\n\nToday's angle: {angle}"
             direction = (operation.get("image_direction") or "").strip()
             request = GenerateCreativeSetRequest(
                 topic=compact_context(brief, 1800), brief=compact_context(brief, 1800), caption=compact_context(row["caption"], 2200),

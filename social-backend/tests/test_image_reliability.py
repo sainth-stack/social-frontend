@@ -103,7 +103,7 @@ def test_default_aspect_padding_is_white_but_explicit_dark_brand_is_preserved():
     assert all(abs(actual - expected) < 5 for actual, expected in zip(branded.getpixel((64, 4))[:3], (17, 34, 51)))
 
 
-def test_prompt_budget_keeps_caption_brief_brand_style_and_tail_constraints(monkeypatch):
+def test_prompt_budget_keeps_subject_first_with_style_brand_and_tail_constraints(monkeypatch):
     subject = "Physical bicycle repair workshop. " + "Routine maintenance context. " * 1000 + "Only show real bicycle tools, no robots."
     caption = "Approved message: repair instead of replace. " + "Community reuse context. " * 1000 + "Never show fabricated performance charts."
     style = "Linocut illustration. " + "Handmade textured visual. " * 500 + "Keep the red and cream palette."
@@ -111,10 +111,11 @@ def test_prompt_budget_keeps_caption_brief_brand_style_and_tail_constraints(monk
              "tones": ["Warm " * 1000], "words_to_use": ["Workshop " * 1000], "primary_color": "#ff0000", "accent_color": "#eeeeee"}
     spec = CreativeSpec(caption=caption, format="carousel")
     prompt = creative.build_visual_prompt(subject, spec, brand, style)
-    assert len(prompt) < 8800
-    for constraint in ("Physical bicycle repair", "repair instead of replace", "Only show real bicycle tools", "no robots",
-                       "Never show fabricated performance charts", "Cycle Neighbors", "Bicycle repair", "Local cyclists", "Linocut illustration", "red and cream palette"):
+    assert len(prompt) < 2000
+    assert prompt.startswith("Physical bicycle repair workshop")
+    for constraint in ("Only show real bicycle tools", "no robots", "Bicycle repair", "Linocut illustration", "red and cream palette", "vibrant red"):
         assert constraint in prompt
+    assert "Workshop Workshop" not in prompt and "Warm Warm" not in prompt
     body = bedrock_image._stability_text_to_image_body(prompt=prompt, width=1080, height=1350)
     assert body["prompt"] == prompt
     generate = Mock(return_value={"imageB64": encoded(textured())})
@@ -122,9 +123,10 @@ def test_prompt_budget_keeps_caption_brief_brand_style_and_tail_constraints(monk
     monkeypatch.setattr(creative, "art_direct", lambda *args: ("Detailed subordinate visual. " * 1000 + "Keep bicycle tools visible.", OverlayCopy()))
     creative.render_creative(topic=subject, style=style, spec=spec, brand=brand)
     sent = generate.call_args.kwargs["prompt_override"]
-    assert len(sent) < 10000
+    assert len(sent) < 2000
     assert "Keep bicycle tools visible" in sent
-    assert "Only show real bicycle tools" in sent
+    negative = generate.call_args.kwargs["negative_prompt"]
+    assert "robot" in negative and "cartoon" not in negative and len(negative) <= 1000
 
 
 @pytest.mark.parametrize("raw,code", [

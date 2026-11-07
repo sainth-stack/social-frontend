@@ -37,98 +37,70 @@ _DEFAULT_SIZES = {
     "product": (1080, 1080),
 }
 
-_COMPOSITION = {
-    "post": "Hero subject in the upper two-thirds, calm uncluttered lower third with soft tonal gradient for headline space.",
-    "banner": "Wide cinematic composition, main subject on the right third, clean open negative space on the left half.",
-    "story": "Vertical full-bleed composition, subject centered in the middle, clean top and bottom areas free of detail.",
-    "carousel": "Editorial magazine composition, subject in the upper area, calm lower third, consistent series look.",
-    "quote": "Abstract atmospheric background, soft textures, gentle depth of field, no people facing camera, minimal detail in the center.",
-    "product": "Studio product hero shot on a styled surface, soft shadows, premium commercial lighting, subject centered with breathing room below.",
+CONCEPT_TYPES = ("product", "food", "people", "place", "event", "educational", "data", "quote", "abstract")
+_PHOTO_CONCEPTS = frozenset({"product", "food", "people", "place", "event"})
+
+_MEDIUM = {
+    "product": "premium commercial product photography on a styled surface, controlled softbox lighting, crisp material detail",
+    "food": "editorial food photography, natural window light, appetizing texture, shallow depth of field",
+    "people": "authentic lifestyle documentary photography, candid natural moment, 50mm lens, shallow depth of field",
+    "place": "architectural and environmental photography, wide establishing view, natural golden-hour light",
+    "event": "vibrant event photography capturing the real atmosphere, engaged attendees, natural venue lighting",
+    "educational": "clean editorial illustration built on one clear visual metaphor, flat shapes, generous negative space",
+    "data": "minimal conceptual editorial illustration of the idea using bold geometric shapes, no charts or numbers",
+    "quote": "atmospheric fine-art background with soft textured light and a calm low-detail center",
+    "abstract": "conceptual editorial still life built around one symbolic object, refined studio lighting",
 }
 
-_DEFAULT_STYLE = (
-    "Premium, prompt-specific visual design: pick the best medium for this exact brief—editorial photography, "
-    "illustration, flat design, collage, infographic scene, or product still life—not a reusable ad template."
+_CONCEPT_KEYWORDS = (
+    ("food", r"bakery|bread|sourdough|caf[eé]|coffee|restaurant|recipe|menu|dish|chef|kitchen|food|meal|dessert|cake|pizza|catering|brunch"),
+    ("event", r"\bevent|webinar|conference|summit|workshop|meetup|grand opening|festival|expo\b|exhibition|launch party"),
+    ("place", r"real estate|property|apartment|villa|hotel|resort|travel|destination|interior|showroom|venue|storefront|clinic|\bgym\b"),
+    ("people", r"\bapps?\b|software|saas|platform|dashboard|\bcrm\b|automation"),
+    ("product", r"product|collection|device|gadget|bottle|packaging|skincare|cosmetic|shoe|apparel|fashion|jewel|furniture|launch"),
+    ("data", r"\d+\s?%|percent|statistic|survey|benchmark|growth rate|\broi\b|revenue|report"),
+    ("educational", r"how to|\btips?\b|guide|\bsteps?\b|checklist|mistakes|lessons?\b|explained|framework|myth|ways to|best practices"),
+    ("quote", r"\bquote\b|motivation|inspiration|mindset"),
+    ("people", r"team|founder|customer|client|hiring|community|employee|coach|patient|student|runner|athlete|family|retailer|people"),
 )
 
-_CAMPAIGN_HERO_STYLE = (
-    "Top-tier B2B product marketing photography like leading SaaS brands: cinematic natural or studio light, "
-    "shallow depth of field, realistic materials, modern office or studio environments, and a single strong story moment."
-)
-
-_ANTI_TEMPLATE = (
-    "Never reuse the same generic social template: avoid default gradient orbs, floating phone or laptop mockups, "
-    "3D device frames, fake dashboards, decorative blobs, or stock handshakes unless the brief explicitly requests them. "
-    "Every image must look distinct and faithful to this brief's subject, setting and mood."
-)
-
-_ANTI_TEMPLATE_HERO = (
-    "Avoid lazy clip-art social templates: no random gradient orbs, decorative blobs, or unrelated stock icons. "
-    "Every image must feel like a bespoke campaign still, not a reusable Canva layout."
-)
-
-_BUSINESS_DIRECTION = (
-    "Make the approved message understandable through one concrete visual idea, not a collage of unrelated symbols. "
-    "For educational or thought-leadership posts, use an editorial concept or a simple visual metaphor tied to the actual insight. "
-    "For launches, show the supplied product category or benefit without fabricating a product interface. "
-    "For founder or team stories, use an illustrative scene unless real reference photography is supplied; "
-    "do not impersonate the founder, a customer or an employee. "
-    "For case studies, never invent charts, customer identities, testimonials, badges or performance evidence. "
-    "Avoid generic corporate handshakes, floating dashboards, decorative robots and rockets unless explicitly requested. "
-    "Use deliberate hierarchy, believable materials and lighting, clean edges, and adequate breathing room; "
-    "avoid clutter, malformed anatomy, duplicated objects and clipped focal subjects."
-)
-
-_CAMPAIGN_HERO_DIRECTION = (
-    "Create premium campaign key art that a top product company would publish: one clear story tied to the brief and caption. "
-    "Prefer photorealistic editorial scenes—founder-style desk setups, podcast microphones, team collaboration, product in use, "
-    "or category-appropriate environments—with believable lighting and composition. "
-    "Use diverse generic professional talent when people help the story; never impersonate a real named person from the brief. "
-    "Monitors and laptops may show soft, abstract software UI (blurred panels, charts without readable numbers); "
-    "do not render readable words, logos, or watermarks inside the generated pixels—brand type is added afterward. "
-    "Do not invent customer names, testimonials, awards, or performance statistics. "
-    "Avoid malformed anatomy, duplicated limbs, clipped faces, and cluttered collages."
-)
-
-_CHANNEL_DIRECTION = {
-    "linkedin": "LinkedIn: credible editorial business communication, a restrained professional treatment, one useful insight visible at feed size; not a loud stock advertisement.",
-    "instagram": "Instagram: visually immediate storytelling with a strong subject, intentional texture or lighting and a cohesive palette; prioritize the supplied business and audience over generic lifestyle imagery.",
-    "facebook": "Facebook: approachable, specific community or product storytelling with one clear focal point and natural visual detail; avoid clickbait treatments.",
+_CHANNEL_MOOD = {
+    "linkedin": "credible, professional and editorial",
+    "instagram": "visually striking with rich texture and color",
+    "facebook": "warm, approachable and human",
+    "pinterest": "aspirational and richly detailed",
+    "threads": "authentic and conversational",
+    "twitter": "bold and instantly readable at small size",
+    "x": "bold and instantly readable at small size",
 }
 
-_CHANNEL_DIRECTION_HERO = {
-    "linkedin": "LinkedIn: polished B2B campaign photography—credible, aspirational, executive-ready at feed size.",
-    "instagram": "Instagram: bold, immediate campaign storytelling with rich texture, color grade, and a single focal subject.",
-    "facebook": "Facebook: warm, human campaign photography with one clear focal point and natural detail.",
-}
+_NO_TEXT = "No text, letters, numbers, logos or watermarks anywhere in the image"
+
+_BASE_NEGATIVE = (
+    "text, letters, words, typography, caption, watermark, logo, signature, blurry, low quality, jpeg artifacts, "
+    "distorted, deformed, malformed hands, extra fingers, duplicated objects, cropped subject"
+)
+_PHOTO_NEGATIVE = "cartoon, clip art, 3d render, plastic skin, oversaturated"
+_ILLUSTRATION_NEGATIVE = "photorealistic photo, cluttered background, busy collage"
+_CLICHES = (
+    ("corporate handshake", "handshake"), ("floating laptop mockup", "laptop"), ("floating phone mockup", "phone"),
+    ("gradient blobs", "gradient"), ("decorative orbs", "orb"), ("generic stock photo", "stock"), ("robot", "robot"), ("rocket", "rocket"),
+)
+_ILLUSTRATED_RE = re.compile(r"illustrat|vector|flat design|cartoon|3d|watercolou?r|drawing|sketch|anime|painting|line art|linocut|collage", re.I)
+
+_INSTRUCTION_RE = re.compile(
+    r"^(?:(?:tone|content type|brand|industry|tagline(?:\s*/\s*positioning)?|target audience|format|platform|words to (?:prefer|avoid|use))\s*:|"
+    r"use all approved|visual art direction|content plan\b|write for\b|must be clearly different|do not invent|preferred cta|no watermarks|"
+    r"choose a specific visual|single strong focal|approved (?:post )?caption|premium \w+ marketing visual|today'?s (?:creative )?angle|creative angle)",
+    re.I,
+)
+_LABEL_RE = re.compile(r"^(?:original brief|campaign context|campaign brief(?: \(source of truth\))?|brief|topic|subject)\s*:\s*", re.I)
+
+FALLBACK_WARNING = "AI art direction was unavailable, so this image used a simplified prompt from your brief. Regenerate for a more tailored concept."
 
 
 def _is_campaign_hero(spec: CreativeSpec) -> bool:
     return (spec.visual_treatment or "campaign_hero") == "campaign_hero"
-
-
-def _business_direction(spec: CreativeSpec) -> str:
-    return _CAMPAIGN_HERO_DIRECTION if _is_campaign_hero(spec) else _BUSINESS_DIRECTION
-
-
-def _anti_template(spec: CreativeSpec) -> str:
-    return _ANTI_TEMPLATE_HERO if _is_campaign_hero(spec) else _ANTI_TEMPLATE
-
-
-def _channel_direction(spec: CreativeSpec) -> str:
-    key = spec.platform or ""
-    if _is_campaign_hero(spec):
-        return _CHANNEL_DIRECTION_HERO.get(key, "Campaign-quality composition with the focal subject inside the central safe region.")
-    return _CHANNEL_DIRECTION.get(key, "Keep one central focal subject inside the middle 70% of the frame so square and portrait platform exports preserve the meaning.")
-
-
-def _no_text_in_pixels(spec: CreativeSpec) -> str:
-    if _is_campaign_hero(spec):
-        return (
-            "Do not paint readable words, letters, numbers, logos, or watermarks into the generated scene; "
-            "screens may show abstract blurred UI only. Brand name, tagline, and optional headline overlays are composited after generation."
-        )
-    return "Absolutely no text, letters, numbers, logos, watermarks or UI elements."
 
 
 @dataclass
@@ -151,6 +123,22 @@ class CreativeSpec:
     render_recipe: Optional[dict] = None
     art_direction: bool = False
     visual_treatment: str = "campaign_hero"
+    slide_prompt: str = ""
+    series_style: str = ""
+
+
+@dataclass
+class VisualConcept:
+    concept_type: str = "abstract"
+    subject: str = ""
+    setting: str = ""
+    medium: str = ""
+    composition: str = ""
+    lighting: str = ""
+    palette: str = ""
+    mood: str = ""
+    avoid: list[str] = field(default_factory=list)
+    source: str = "llm"
 
 
 @dataclass
@@ -161,6 +149,9 @@ class CreativeResult:
     copy: OverlayCopy = field(default_factory=OverlayCopy)
     prompt: str = ""
     logo_applied: bool = False
+    negative_prompt: str = ""
+    concept: Optional[VisualConcept] = None
+    warnings: list[str] = field(default_factory=list)
 
 
 def target_size(fmt: str, platform: Optional[str]) -> tuple[int, int]:
@@ -218,23 +209,14 @@ def _sanitize_copy(copy: OverlayCopy, spec: CreativeSpec, brand: dict) -> Overla
     })
 
 
-def _composition(spec: CreativeSpec) -> str:
+def _frame(spec: CreativeSpec) -> str:
     width, height = target_size(spec.format, spec.platform)
     divisor = gcd(width, height)
     orientation = "portrait" if height > width else "landscape" if width > height else "square"
-    frame = (
-        f"Compose for {spec.platform or 'social media'} {spec.format}, "
-        f"{width}x{height}, {width // divisor}:{height // divisor} {orientation} frame. "
-        "Keep the main subject legible at mobile feed size. "
-    )
+    frame = f"{width // divisor}:{height // divisor} {orientation} frame for {spec.platform or 'social media'} {spec.format} ({width}x{height})"
     if spec.text_overlay or spec.format == "quote":
-        return frame + _COMPOSITION.get(spec.format, _COMPOSITION["post"])
-    if _is_campaign_hero(spec):
-        return frame + (
-            "Full-bleed campaign scene filling the frame: immersive environment, cinematic depth, "
-            "subject placed using rule-of-thirds; keep faces and key props inside the central safe region."
-        )
-    return frame + "Use the full frame for the visual; no reserved headline area or text panel."
+        return f"{frame}, focal subject in the upper two-thirds, calm uncluttered lower third reserved for a headline"
+    return f"{frame}, full-bleed with the focal subject inside the central safe area, no reserved headline area"
 
 
 def _brand_lines(brand: dict) -> list[str]:
@@ -261,66 +243,119 @@ def _palette_phrase(brand: dict) -> str:
     return f"Color palette harmonized with brand colors: {' and '.join(colors)} accents."
 
 
-_CAMPAIGN_HERO_NEGATIVE = (
-    "Do not output abstract gradient waves, aurora blobs, fluid glass wallpapers, generic AI-blue backgrounds, "
-    "decorative 3D shapes, or stock illustration unless the brief explicitly requests abstract art."
-)
+def _brand_palette(brand: dict) -> str:
+    colors = [c for c in (describe_color(brand.get("primary_color")), describe_color(brand.get("accent_color"))) if c]
+    return f"{' and '.join(colors)} accents" if colors else ""
 
 
-def _default_campaign_scene(topic: str) -> str:
-    return (
-        "Photorealistic premium B2B campaign photograph tied to the brief: a diverse professional in a modern office or studio, "
-        "confident natural pose, shallow depth of field, soft window light, optional monitor with blurred abstract SaaS UI, "
-        "real materials and believable environment — not wallpaper or metaphor art. "
-        f"Context: {compact_context(topic, 400)}."
-    )
+def _brief_core(text: Optional[str], limit: int = 420) -> str:
+    seen: set[str] = set()
+    pieces: list[str] = []
+    for chunk in re.split(r"\n+|(?<=[.!?])\s+", text or ""):
+        chunk = _LABEL_RE.sub("", " ".join(chunk.split())).strip()
+        if len(chunk) < 3 or _INSTRUCTION_RE.match(chunk):
+            continue
+        chunk = " ".join(re.sub(r"(?<!\w)[#@]\w+", "", chunk).split()).strip(" .")
+        if chunk and chunk.casefold() not in seen:
+            seen.add(chunk.casefold())
+            pieces.append(chunk)
+    return compact_context(". ".join(pieces), limit)
 
 
-def _assemble_image_prompt(*, subject: str, spec: CreativeSpec, brand: dict, style: Optional[str], visual: str) -> str:
-    body = build_visual_prompt(subject, spec, brand, style)
+def classify_concept(text: str) -> str:
+    lowered = (text or "").lower()
+    for kind, pattern in _CONCEPT_KEYWORDS:
+        if re.search(pattern, lowered):
+            return kind
+    return "abstract"
+
+
+def _treatment_medium(concept_type: str, spec: CreativeSpec) -> str:
+    medium = _MEDIUM.get(concept_type, _MEDIUM["abstract"])
     if not _is_campaign_hero(spec):
-        if visual:
-            return f"{body} Art direction (subordinate to the brief and caption): {compact_context(visual, 1100)}"
-        return body
-    lead = compact_context(visual, 1100) if visual else _default_campaign_scene(subject)
-    return " ".join(
-        part
-        for part in (
-            f"PRIMARY SCENE — render exactly this photorealistic campaign photograph: {lead}.",
-            _CAMPAIGN_HERO_NEGATIVE,
-            body,
-        )
-        if part
+        medium += ", restrained minimal styling, generous negative space"
+    return medium
+
+
+def fallback_concept(topic: str, spec: CreativeSpec, brand: dict) -> VisualConcept:
+    brand = brand if spec.use_brand else {}
+    pieces = [spec.slide_prompt, spec.headline if spec.slide_index else "", _brief_core(topic)]
+    if not any(pieces) and spec.caption:
+        pieces.append(_brief_core(spec.caption, 300))
+    subject = compact_context("; ".join(dict.fromkeys(p.strip() for p in pieces if p and p.strip())), 420)
+    if not subject:
+        subject = compact_context(clean_generated_text(topic or "", include_emojis=False), 300)
+    industry = _clean(brand.get("industry"), 80)
+    kind = classify_concept(f"{subject} {industry}")
+    return VisualConcept(
+        concept_type=kind,
+        subject=subject,
+        setting=f"authentic real-world {industry} context" if industry else "",
+        medium=_treatment_medium(kind, spec),
+        source="fallback",
     )
+
+
+def _coerce_concept(value: Any) -> VisualConcept:
+    if isinstance(value, VisualConcept):
+        if not value.subject.strip():
+            raise ValueError("Art direction returned no visual subject")
+        return value
+    subject = compact_context(clean_generated_text(str(value or ""), include_emojis=False), 600)
+    if not subject:
+        raise ValueError("Art direction returned no visual subject")
+    return VisualConcept(concept_type=classify_concept(subject), subject=subject)
+
+
+def compile_image_prompt(concept: VisualConcept, spec: CreativeSpec, brand: dict, style: Optional[str]) -> str:
+    brand = brand if spec.use_brand else {}
+    medium = concept.medium or _treatment_medium(concept.concept_type, spec)
+    palette = concept.palette or _brand_palette(brand)
+    parts = [
+        compact_context(concept.subject, 420),
+        concept.setting and f"Setting: {compact_context(concept.setting, 200)}",
+        f"Medium: {compact_context(medium, 240)}",
+        style and f"Style direction: {compact_context(style, 320)}",
+        spec.series_style and f"Series look shared by every slide: {compact_context(spec.series_style, 240)}",
+        concept.composition and f"Composition: {compact_context(concept.composition, 200)}",
+        f"Framing: {_frame(spec)}",
+        concept.lighting and f"Lighting: {compact_context(concept.lighting, 160)}",
+        f"Mood: {compact_context(concept.mood, 120) if concept.mood else _CHANNEL_MOOD.get(spec.platform or '', 'premium, specific and purposeful')}",
+        palette and f"Palette: {compact_context(palette, 160)}",
+        concept.concept_type in ("people", "event") and "Generic models, not identifiable real people",
+        _NO_TEXT,
+        "High detail, professional finish",
+    ]
+    return ". ".join(str(p).strip().rstrip(".") for p in parts if p) + "."
+
+
+def build_negative_prompt(concept: VisualConcept, style: Optional[str] = None, topic: str = "") -> str:
+    art = f"{concept.medium} {style or ''}"
+    if _ILLUSTRATED_RE.search(art):
+        photographic = False
+    elif re.search(r"photo", art, re.I):
+        photographic = True
+    else:
+        photographic = concept.concept_type in _PHOTO_CONCEPTS
+    requested = f"{topic} {concept.subject} {style or ''}".lower()
+    parts = [_BASE_NEGATIVE, _PHOTO_NEGATIVE if photographic else _ILLUSTRATION_NEGATIVE]
+    parts.append(", ".join(term for term, key in _CLICHES if not re.search(rf"(?<!no )(?<!avoid )(?<!without )\b{key}", requested)))
+    parts.append(", ".join(concept.avoid[:6]))
+    return ", ".join(p for p in parts if p)[:1000]
+
+
+def series_signature(concept: VisualConcept, spec: CreativeSpec, brand: dict) -> str:
+    palette = concept.palette or _brand_palette(brand if spec.use_brand else {})
+    parts = [concept.medium or _treatment_medium(concept.concept_type, spec), palette and f"palette {palette}", concept.lighting and f"lighting {concept.lighting}"]
+    return compact_context("; ".join(p for p in parts if p), 240)
 
 
 def build_visual_prompt(subject: str, spec: CreativeSpec, brand: dict, style: Optional[str]) -> str:
-    brand = brand if spec.use_brand else {}
-    default_style = _CAMPAIGN_HERO_STYLE if _is_campaign_hero(spec) else _DEFAULT_STYLE
-    parts = [
-        _no_text_in_pixels(spec),
-        "Brief and caption are primary: preserve their subject and constraints without inventing claims, products, offers or assets. "
-        "Brand guides tone and palette only.",
-        _composition(spec),
-        f"Subject: {compact_context(subject, 2200)}.",
-    ]
-    if spec.caption:
-        parts.append(f"Approved post caption (context only, not text to render): {compact_context(spec.caption, 2200)}")
-    parts.append(_business_direction(spec))
-    parts.append(_anti_template(spec))
-    parts.append(_channel_direction(spec))
-    parts.extend(_brand_lines(brand))
-    parts.append(f"Style: {compact_context(style, 700) if style else default_style}.")
-    if spec.format == "carousel":
-        parts.append("Maintain the supplied series palette, medium, subject treatment and lighting across slides; vary only this slide's subject. Keep essential visual content in the central safe region for square and portrait exports.")
-    palette = _palette_phrase(brand)
-    if palette:
-        parts.append(palette)
-    return " ".join(p for p in parts if p)
+    return compile_image_prompt(fallback_concept(subject, spec, brand), spec, brand, style)
 
 
 def _fallback_copy(topic: str, spec: CreativeSpec, brand: dict) -> OverlayCopy:
-    source = spec.headline or topic
+    source = spec.headline or _brief_core(topic) or topic
     first = re.split(r"(?<=[.!?])\s+|\n", source.strip(), maxsplit=1)[0]
     words = re.sub(r"[#@]\S+", "", first).split()
     headline = spec.headline or " ".join(words).rstrip(",;:-")
@@ -331,7 +366,48 @@ def _fallback_copy(topic: str, spec: CreativeSpec, brand: dict) -> OverlayCopy:
     return _sanitize_copy(OverlayCopy(headline=headline, subtext=subtext, cta=cta), spec, brand)
 
 
-def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]) -> tuple[str, OverlayCopy]:
+def _wants_copy(spec: CreativeSpec) -> bool:
+    return spec.text_overlay or spec.format == "quote"
+
+
+def _requests_copy(spec: CreativeSpec) -> bool:
+    return _wants_copy(spec) and (spec.auto_copy or spec.art_direction)
+
+
+def _concept_from_data(data: dict[str, Any], topic: str) -> VisualConcept:
+    def text(key: str, limit: int, alt: str = "") -> str:
+        value = data.get(key) or (data.get(alt) if alt else "")
+        if not isinstance(value, str):
+            value = ", ".join(str(v) for v in value) if isinstance(value, (list, tuple)) else ""
+        return compact_context(clean_generated_text(value, include_emojis=False), limit)
+
+    subject = text("subject", 600, "visual")
+    if not subject:
+        raise ValueError("Art direction returned no visual subject")
+    kind = str(data.get("conceptType") or data.get("concept_type") or "").strip().lower()
+    if kind not in CONCEPT_TYPES:
+        kind = classify_concept(f"{subject} {topic}")
+    raw_avoid = data.get("avoid")
+    if isinstance(raw_avoid, str):
+        raw_avoid = raw_avoid.split(",")
+    avoid = [
+        compact_context(clean_generated_text(str(item), include_emojis=False), 60)
+        for item in (raw_avoid if isinstance(raw_avoid, (list, tuple)) else [])
+    ]
+    return VisualConcept(
+        concept_type=kind,
+        subject=subject,
+        setting=text("setting", 200),
+        medium=text("medium", 240),
+        composition=text("composition", 200),
+        lighting=text("lighting", 160),
+        palette=text("palette", 160),
+        mood=text("mood", 120),
+        avoid=[item for item in avoid if item][:6],
+    )
+
+
+def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]) -> tuple[VisualConcept, OverlayCopy]:
     from app.social.ai.generator import _chat_completion, _get_llm, _message_text, _parse_json_content
 
     policy_brand = brand
@@ -340,42 +416,44 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
     width, height = target_size(spec.format, spec.platform)
     language = brand.get("primary_language") or "en"
     is_quote = spec.format == "quote"
-    wants_copy = spec.text_overlay or is_quote
+    wants_copy = _requests_copy(spec)
     headline_rule = (
         "headline: the quote itself, a memorable insight under 22 words, no quotation marks"
         if is_quote
         else "headline: 3-7 punchy words specific to the brief, benefit-led, Title or sentence case"
     )
-    slide_line = ""
-    if spec.slide_index and spec.slide_count:
-        slide_line = f"This is slide {spec.slide_index} of {spec.slide_count} in a carousel; keep a consistent series look."
-    hero = _is_campaign_hero(spec)
-    visual_rules = (
-        "visual: 45-90 words describing premium campaign key art—specific setting, talent or product, camera angle, "
-        "lighting, lens, color grade, and props; prefer photorealistic B2B marketing photography when the brief fits. "
-        "Monitors may show soft abstract software UI without readable text. "
-        "Never choose abstract gradient waves, fluid wallpaper, or decorative blob backgrounds. "
-        if hero
-        else "visual: 45-90 words describing one clear subject, setting, composition, lighting, lens or medium, mood and palette; "
-        "vary the treatment from generic SaaS marketing art—be specific to the user's words. "
-        "Choose a medium grounded in the brief: editorial illustration or diagrammatic artwork for educational concepts, "
-        "product still life for physical products, photography only when appropriate. "
+    schema = (
+        '{"conceptType":"...","subject":"...","setting":"...","medium":"...","composition":"...",'
+        '"lighting":"...","palette":"...","mood":"...","avoid":["..."]'
+        + (',"headline":"...","subtext":"...","cta":"..."}' if wants_copy else "}")
     )
+    treatment = (
+        "Campaign quality: prefer real-world photography for products, food, people, places and events, and editorial illustration for educational or data ideas."
+        if _is_campaign_hero(spec)
+        else "Minimal treatment: restrained composition, generous negative space and a simple medium."
+    )
+    medium_guide = "; ".join(f"{kind}: {medium}" for kind, medium in _MEDIUM.items())
     system_prompt = (
-        "You are the creative director of a top digital agency. Turn a social media brief into a precise "
-        "text-to-image prompt. Reply with JSON only: "
-        + ('{"visual":"...","headline":"...","subtext":"...","cta":"..."}. ' if wants_copy else '{"visual":"..."}. ')
-        + "The original brief and post caption are the primary visual source: preserve the brief's subject and explicit "
-        "visual constraints, and reflect the caption's message. Brand context guides tone, audience and palette only. "
-        "Do not invent product features, results, statistics, offers, endorsements or brand assets. "
-        + visual_rules
-        + "Preserve any supplied series style and palette. "
-        + f"{_no_text_in_pixels(spec)} "
-        + f"{_anti_template(spec)} "
-        + f"{_business_direction(spec)} "
-        + f"{_channel_direction(spec)} "
-        + f"Composition requirement: {_composition(spec)} "
+        "You are the art director of a top creative agency. Turn one social media brief into ONE concrete, specific image concept "
+        f"for a text-to-image model. Reply with JSON only: {schema}. "
+        "The original brief and approved caption are the primary visual source: the image must clearly belong to this business, "
+        "audience and message, never a generic template. Brand context guides audience and palette only. "
+        f"conceptType: one of {', '.join(CONCEPT_TYPES)}. "
+        "subject: 15-45 words naming the single focal subject and its action with concrete, industry-specific nouns that a "
+        "photographer or illustrator could depict; no abstract marketing language. "
+        "setting, composition, lighting, palette and mood: short concrete phrases. "
+        f"medium: the medium that best serves this concept. Defaults by conceptType: {medium_guide}. {treatment} "
+        "An explicit visual style from the user overrides these defaults. "
+        "avoid: up to 6 short phrases the image must not show, taken from the brief's constraints and likely failure modes. "
+        "Do not invent product interfaces, statistics, charts, customer identities, testimonials, awards, offers or logos. "
+        "People must be generic models, never a real named person. "
+        "Avoid stock clichés such as handshakes, floating laptops or phones, gradient blobs, robots, rockets and lightbulbs unless the brief asks for them. "
+        "Avoid malformed anatomy, duplicated objects and clipped focal subjects. "
+        f"{_NO_TEXT}; any headline and logo are added after generation. "
+        f"Framing: {_frame(spec)}. Channel mood: {_CHANNEL_MOOD.get(spec.platform or '', 'premium, specific and purposeful')}. "
     )
+    if spec.series_style:
+        system_prompt += "Keep the supplied series look exactly and vary only the subject. "
     if wants_copy:
         system_prompt += (
             f"{headline_rule}. subtext: optional supporting line under 14 words or empty. "
@@ -384,13 +462,19 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
             + ("Emojis are allowed sparingly." if include_emojis else "No emojis in generated copy.")
         )
     else:
-        system_prompt += "Text overlays are disabled. Return only visual; do not generate headline, subtext or CTA copy."
+        system_prompt += "Do not generate headline, subtext or CTA copy."
     user_lines = [
         f"Original brief: {compact_context(topic, 2200)}",
         f"Format: {spec.format} ({width}x{height}) for {spec.platform or 'social media'}",
     ]
     if spec.caption:
-        user_lines.append(f"Post caption: {compact_context(spec.caption, 2200)}")
+        user_lines.append(f"Post caption: {compact_context(spec.caption, 1600)}")
+    if spec.slide_prompt:
+        user_lines.append(f"This slide's subject: {compact_context(spec.slide_prompt, 400)}")
+    if spec.series_style:
+        user_lines.append(f"Series look to keep: {spec.series_style}")
+    if spec.slide_index and spec.headline and not wants_copy:
+        user_lines.append(f"Slide headline (context only): {spec.headline}")
     if wants_copy and spec.headline:
         user_lines.append(f"Preferred headline: {spec.headline}")
     if wants_copy and spec.subtext:
@@ -403,8 +487,8 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
     palette = _palette_phrase(brand)
     if palette:
         user_lines.append(palette)
-    if slide_line:
-        user_lines.append(slide_line)
+    if spec.slide_index and spec.slide_count:
+        user_lines.append(f"This is slide {spec.slide_index} of {spec.slide_count} in a carousel.")
 
     client, model = _get_llm()
     response = _chat_completion(
@@ -414,18 +498,18 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "\n".join(user_lines)},
         ],
-        max_completion_tokens=1500,
+        max_completion_tokens=1200,
     )
     data: dict[str, Any] = _parse_json_content(_message_text(response.choices[0].message))
-    visual = clean_generated_text(str(data.get("visual") or ""), include_emojis=False)
+    concept = _concept_from_data(data, topic)
     if not wants_copy:
-        return visual, OverlayCopy()
+        return concept, OverlayCopy()
     copy = OverlayCopy(
         headline=(spec.headline or str(data.get("headline") or "")).strip("\"'“”"),
         subtext=spec.subtext or str(data.get("subtext") or ""),
         cta=spec.cta or str(data.get("cta") or ""),
     )
-    return visual, _sanitize_copy(copy, spec, policy_brand)
+    return concept, _sanitize_copy(copy, spec, policy_brand)
 
 
 def render_creative(
@@ -469,35 +553,38 @@ def render_creative_variants(
     brand = brand if spec.use_brand else {}
     width, height = target_size(fmt, spec.platform)
 
-    visual = ""
+    concept: Optional[VisualConcept] = None
+    warnings: list[str] = []
     copy = OverlayCopy(headline=spec.headline, subtext=spec.subtext, cta=spec.cta)
-    wants_copy = spec.text_overlay or fmt == "quote"
+    wants_copy = _wants_copy(spec)
     if spec.render_recipe:
         copy = OverlayCopy(**spec.render_recipe["copy"])
-    elif (spec.auto_copy or spec.art_direction) and base_image is None:
+    elif base_image is None:
         report_image_stage("concept")
         try:
-            visual, directed = art_direct(topic, spec, policy_brand, style)
-            if wants_copy:
+            raw_concept, directed = art_direct(topic, spec, policy_brand, style)
+            concept = _coerce_concept(raw_concept)
+            if _requests_copy(spec):
                 copy = directed
         except Exception as exc:
             logger.warning("Creative art direction failed, using fallback type=%s", type(exc).__name__)
+            warnings.append(FALLBACK_WARNING)
+            concept = fallback_concept(topic, spec, policy_brand)
     if wants_copy and not copy.headline:
         copy = _fallback_copy(topic, spec, brand)
     copy = _sanitize_copy(copy, spec, policy_brand)
 
-    prompt = _assemble_image_prompt(subject=f"Original brief: {topic}", spec=spec, brand=brand, style=style, visual=visual)
+    prompt = ""
+    negative_prompt = None
     if spec.render_recipe:
         prompt = spec.render_recipe["prompt"]
+        negative_prompt = spec.render_recipe.get("negativePrompt") or None
+    elif concept is not None:
+        prompt = compile_image_prompt(concept, spec, brand, style)
+        negative_prompt = build_negative_prompt(concept, style, topic)
+    else:
+        prompt = build_visual_prompt(topic, spec, brand, style)
     recipe_callback = getattr(on_base_ready, "on_recipe_ready", None)
-
-    negative_prompt = None
-    if _is_campaign_hero(spec) and base_image is None and not spec.render_recipe:
-        negative_prompt = (
-            "abstract waves, gradient wallpaper, fluid art, aurora, decorative blobs, generic blue background, "
-            "3d glass shapes, low poly orb, empty background, illustration only, cartoon, clip art, no people, "
-            "blurry, watermark, text, letters, words, typography, logo, distorted hands, extra fingers"
-        )
 
     if base_image is None:
         report_image_stage("generate")
@@ -514,7 +601,12 @@ def render_creative_variants(
             raise RuntimeError("Image provider returned no bytes")
         base_image = bytes(raw)
         if recipe_callback is not None:
-            recipe_callback({"copy": {key: getattr(copy, key) for key in ("headline", "subtext", "cta")}, "prompt": prompt})
+            recipe = {"copy": {key: getattr(copy, key) for key in ("headline", "subtext", "cta")}, "prompt": prompt}
+            if negative_prompt:
+                recipe["negativePrompt"] = negative_prompt
+            if concept is not None:
+                recipe["series"] = series_signature(concept, spec, brand)
+            recipe_callback(recipe)
     validate_image_bytes(base_image, stage="base")
     if on_base_ready is not None:
         on_base_ready(base_image)
@@ -548,5 +640,6 @@ def render_creative_variants(
         results[platform] = CreativeResult(
             image=image, width=width, height=height,
             copy=copy if wants_copy else OverlayCopy(), prompt=prompt, logo_applied=logo_ok or use_lockup,
+            negative_prompt=negative_prompt or "", concept=concept, warnings=list(warnings),
         )
     return results

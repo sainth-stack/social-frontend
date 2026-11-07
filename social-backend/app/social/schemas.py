@@ -385,6 +385,7 @@ class GenerateImageResponse(BaseModel):
     subtext: Optional[str] = None
     cta: Optional[str] = None
     logoApplied: bool = False
+    warnings: List[str] = Field(default_factory=list)
 
 
 class GenerateCreativeSetRequest(GenerateImageRequest):

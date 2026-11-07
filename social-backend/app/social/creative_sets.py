@@ -289,8 +289,11 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
                     render_recipe=row["recipes"].get(slide_id),
                     art_direction=image_art_direction(),
                     visual_treatment=getattr(payload, "visualTreatment", None) or "campaign_hero",
+                    slide_prompt=slide.get("imagePrompt") or "",
+                    series_style=(row["recipes"].get(row["slides"][0]["id"]) or {}).get("series", "") if index > 1 else "",
                 )
-                topic = "\n\n".join(dict.fromkeys(value for value in (payload.topic, payload.brief, slide.get("imagePrompt")) if value))
+                brief = payload.brief or ""
+                topic = brief if payload.topic.strip() and payload.topic.strip() in brief else "\n\n".join(dict.fromkeys(value for value in (payload.topic, brief) if value))
                 stage = "compose" if base else "provider"
                 if not base:
                     row["attempts"][slide_id] = {"state": "started", "code": "CREATIVE_PROVIDER_UNCERTAIN"}

@@ -1006,7 +1006,7 @@ function GenerateTab({
     const current = () => mounted.current && !controller.signal.aborted && operation.current === token && currentFingerprint.current === approvedFingerprint && session === getStoredAccessToken();
     const captionContext = approvedCaptionContext(approvedPlatforms);
     const request: GenerateCreativeSetPayload = retry && creativeRequest && creativeFingerprint.current === fingerprint ? creativeRequest : {
-      requestId: crypto.randomUUID(), topic: prompt.trim(), brief: `${prompt.trim()}\n\nTone: ${tone}. Content type: ${type}. Use all approved channel copy in caption and all ordered slides supplied with this request.${artDirection.trim() ? `\n\nVisual art direction (medium, subject, style, avoid):\n${artDirection.trim()}` : ""}`,
+      requestId: crypto.randomUUID(), topic: prompt.trim(), brief: `${prompt.trim()}\n\nTone: ${tone}. Content type: ${type}.${artDirection.trim() ? `\n\nVisual art direction: ${artDirection.trim()}` : ""}`,
       style: artDirection.trim() || undefined,
       caption: captionContext, platforms, mode: "create", format: list?.length ? "carousel" : resolvedVisualFormat,
       slides: list?.length ? list.map(({ id, headline, body, imagePrompt }) => ({ id, headline, body, imagePrompt })) : undefined,

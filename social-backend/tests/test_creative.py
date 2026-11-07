@@ -11,7 +11,18 @@ from PIL import Image, ImageDraw
 
 from app.core.config import settings
 from app.social.ai.compositor import OverlayCopy, compose_creative
-from app.social.ai.creative import CreativeSpec, art_direct, build_visual_prompt, generation_size, render_creative, target_size
+from app.social.ai.creative import (
+    CreativeSpec,
+    VisualConcept,
+    art_direct,
+    build_negative_prompt,
+    build_visual_prompt,
+    compile_image_prompt,
+    fallback_concept,
+    generation_size,
+    render_creative,
+    target_size,
+)
 
 API = settings.api_v1_prefix
 
@@ -86,8 +97,8 @@ def test_art_direct_grounded_in_full_brief_caption_brand_and_size(art_direction_
     assert "1080x1350" in user and "instagram" in user
     assert "4:5 portrait" in system
     assert "primary visual source" in system and "Do not invent" in system
-    assert "UI or screenshots" in system
-    assert "seedlings" in visual and copy.headline == "Generated headline"
+    assert "product interfaces" in system and "conceptType" in system
+    assert "seedlings" in visual.subject and copy.headline == "Generated headline"
 
 
 def test_art_direct_manual_copy_wins(art_direction_response):
@@ -102,8 +113,8 @@ def test_art_direct_no_overlay_copy_when_disabled(art_direction_response):
     spec = CreativeSpec(headline="Hidden manual headline", subtext="Hidden subtext", cta="Hidden CTA")
     _, copy = art_direct("Community gardening", spec, {}, None)
     system, user = [message["content"] for message in art_direction_response.call_args.kwargs["messages"]]
-    assert '{"visual":"..."}' in system
-    assert "Text overlays are disabled" in system
+    assert '"avoid":["..."]}' in system and '"headline"' not in system
+    assert "Do not generate headline" in system
     assert "lower third" not in system and "upper two-thirds" not in system
     assert spec.headline not in user and spec.subtext not in user and spec.cta not in user
     assert copy == OverlayCopy()
@@ -132,40 +143,66 @@ def test_visual_prompt_reserves_overlay_space_only_when_enabled():
 
 
 @pytest.mark.parametrize("platform,expected", [
-    ("linkedin", "credible editorial business communication"),
-    ("instagram", "visually immediate storytelling"),
-    ("facebook", "specific community or product storytelling"),
-    (None, "middle 70%"),
+    ("linkedin", "credible, professional and editorial"),
+    ("instagram", "visually striking"),
+    ("facebook", "warm, approachable and human"),
+    (None, "premium, specific and purposeful"),
 ])
-def test_business_visual_direction_is_grounded_and_channel_aware(platform, expected):
+def test_visual_prompt_is_subject_first_short_and_channel_aware(platform, expected):
     prompt = build_visual_prompt("Founder explains customer onboarding", CreativeSpec(platform=platform, visual_treatment="minimal"), {}, None)
+    assert prompt.startswith("Founder explains customer onboarding")
     assert expected in prompt
-    assert "do not impersonate the founder" in prompt
-    assert "never invent charts" in prompt
-    assert "one concrete visual idea" in prompt
-    assert "Never reuse the same generic social template" in prompt
+    assert "No text, letters, numbers, logos or watermarks" in prompt
+    assert "restrained minimal styling" in prompt
+    assert len(prompt) < 1200
 
 
-def test_campaign_hero_prompt_targets_premium_marketing():
-    from app.social.ai.creative import _assemble_image_prompt
+def test_unrelated_briefs_produce_distinct_subject_first_prompts():
+    briefs = {
+        "food": "Grand opening of our sourdough bakery on Elm Street this Saturday with free tastings",
+        "educational": "How to file GST returns on time: a 3 step checklist for freelancers",
+        "product": "Introducing our new insulated steel water bottle collection",
+        "place": "Lakeside villa now open for weekend stays",
+    }
+    prompts = {}
+    for expected, brief in briefs.items():
+        concept = fallback_concept(brief, CreativeSpec(platform="linkedin"), {})
+        assert concept.concept_type == expected
+        prompts[expected] = compile_image_prompt(concept, CreativeSpec(platform="linkedin"), {}, None)
+        assert prompts[expected].startswith(brief)
+        assert "office" not in prompts[expected].lower()
+    assert len({p.split("Medium: ")[1].split(".")[0] for p in prompts.values()}) == len(prompts)
+    for kind, prompt in prompts.items():
+        assert all(brief not in prompt for other, brief in briefs.items() if other != kind)
 
-    prompt = build_visual_prompt("Founder growth platform for B2B SaaS", CreativeSpec(platform="linkedin"), {}, None)
-    assert "premium campaign key art" in prompt.lower() or "top-tier b2b" in prompt.lower()
-    assert "abstract software UI" in prompt
-    assert "composited after generation" in prompt
-    assembled = _assemble_image_prompt(
-        subject="Original brief: EarnedVoice founder credibility",
-        spec=CreativeSpec(platform="linkedin"),
-        brand={"brand_name": "EarnedVoice"},
-        style=None,
-        visual="",
+
+def test_studio_and_planner_instruction_noise_is_not_the_image_subject():
+    studio = "Grand opening of our sourdough bakery\n\nTone: Friendly. Content type: announcement.\n\nVisual art direction: warm film photo"
+    concept = fallback_concept(studio, CreativeSpec(), {})
+    assert concept.subject == "Grand opening of our sourdough bakery"
+    planner = (
+        "Premium linkedin marketing visual for Acme. Campaign context: GST invoicing app for small retailers. "
+        "Creative angle: a practical how-to. Approved caption (source of truth, do not render as text): Send GST invoices in seconds. "
+        "Retailers save hours each week.. Choose a specific visual concept that supports this caption. "
+        "Do not invent product interfaces, customer proof, metrics, offers, or endorsements. "
+        "Single strong focal point, no watermarks, no readable text in image."
     )
-    assert "PRIMARY SCENE" in assembled
-    assert "abstract gradient waves" in assembled
-    assert "Photorealistic premium B2B campaign photograph" in assembled
+    concept = fallback_concept(planner, CreativeSpec(), {"industry": "Fintech"})
+    assert concept.subject == "GST invoicing app for small retailers. Retailers save hours each week"
+    assert "Fintech" in concept.setting and concept.concept_type == "people"
 
 
-def test_campaign_hero_render_passes_negative_prompt(monkeypatch):
+def test_negative_prompt_follows_medium_style_and_brief():
+    concept = VisualConcept(concept_type="people", subject="Runner stretching at dawn", avoid=["knee brace"])
+    photo = build_negative_prompt(concept)
+    assert "cartoon" in photo and "knee brace" in photo and "text, letters" in photo
+    illustrated = build_negative_prompt(concept, "flat vector illustration")
+    assert "cartoon" not in illustrated and "photorealistic photo" in illustrated
+    assert "laptop" not in build_negative_prompt(concept, None, "Show a laptop on a desk")
+    assert "laptop" in photo
+
+
+def test_render_falls_back_to_brief_concept_with_warning(monkeypatch):
     from app.social.ai import creative
 
     captured: dict = {}
@@ -177,35 +214,58 @@ def test_campaign_hero_render_passes_negative_prompt(monkeypatch):
     monkeypatch.setattr(creative, "generate_post_image", fake_generate)
     monkeypatch.setattr(creative, "compose_creative", Mock(return_value=b"jpg"))
     monkeypatch.setattr(creative, "art_direct", Mock(side_effect=RuntimeError("off")))
-    creative.render_creative_variants(
-        topic="Founder marketing platform",
+    result = creative.render_creative_variants(
+        topic="Grand opening of our sourdough bakery.\n\nTone: Friendly.",
         style=None,
         spec=CreativeSpec(platform="linkedin", visual_treatment="campaign_hero"),
         platforms=["linkedin"],
-        brand={"brand_name": "EarnedVoice", "tagline": "Your voice simplified"},
+        brand={"brand_name": "Crumb", "tagline": "Bread worth waking for"},
         logo_bytes=None,
-    )
-    assert captured.get("negative_prompt") and "abstract waves" in captured["negative_prompt"]
-    assert "PRIMARY SCENE" in captured.get("prompt_override", "")
+    )["linkedin"]
+    prompt = captured["prompt_override"]
+    assert prompt.startswith("Grand opening of our sourdough bakery")
+    assert "food photography" in prompt and "office" not in prompt.lower() and "Tone" not in prompt
+    assert "text, letters" in captured["negative_prompt"] and "cartoon" in captured["negative_prompt"]
+    assert result.warnings == [creative.FALLBACK_WARNING] and result.concept.source == "fallback"
 
 
 def test_art_direction_includes_business_quality_constraints(art_direction_response):
     art_direct("Explain a customer retention lesson", CreativeSpec(platform="linkedin", visual_treatment="minimal"), {}, None)
     system = art_direction_response.call_args.kwargs["messages"][0]["content"]
-    assert "credible editorial business communication" in system
-    assert "never invent charts" in system
-    assert "malformed anatomy" in system
+    assert "credible, professional and editorial" in system
+    assert "Do not invent product interfaces, statistics, charts" in system
+    assert "malformed anatomy" in system and "Minimal treatment" in system
+
+
+def test_art_direct_parses_concept_and_rejects_non_json(monkeypatch):
+    from app.social.ai import generator
+
+    payload = {
+        "conceptType": "food", "subject": "**Baker** pulling sourdough loaves from a stone oven 🍞",
+        "medium": "editorial food photography", "lighting": "warm dawn window light",
+        "avoid": ["burnt crust", "empty shelves", "", "flour cloud", "plastic bags", "mess", "dark", "extra"],
+    }
+    reply = {"content": json.dumps(payload)}
+    monkeypatch.setattr(generator, "_get_llm", lambda: (object(), "m"))
+    monkeypatch.setattr(generator, "_chat_completion", lambda *a, **k: SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=reply["content"]))]))
+    concept, copy = art_direct("Sourdough bakery opening", CreativeSpec(), {}, None)
+    assert concept.concept_type == "food" and concept.subject == "Baker pulling sourdough loaves from a stone oven"
+    assert concept.avoid[:2] == ["burnt crust", "empty shelves"] and len(concept.avoid) == 6
+    assert copy == OverlayCopy()
+    reply["content"] = "Here is a lovely bakery photo idea."
+    with pytest.raises(ValueError):
+        art_direct("Sourdough bakery opening", CreativeSpec(), {}, None)
 
 
 @pytest.mark.parametrize("directed", [False, True])
-def test_render_preserves_full_brief_caption_and_safety_rules(monkeypatch, directed):
+def test_render_prompt_is_compact_and_grounded(monkeypatch, directed):
     from app.social.ai import creative
 
     topic = "A gardener among seedlings. " * 25 + "Only show green seedlings."
     caption = "We grow as a community. " * 30 + "Plant herbs with neighbors this Saturday."
-    visual = "Morning light on young plants. " * 30 + "Keep the watering can visible."
+    concept = VisualConcept(concept_type="people", subject="Gardener kneeling to water young seedlings with a copper can", lighting="soft morning light", avoid=["mature trees"])
     if directed:
-        monkeypatch.setattr(creative, "art_direct", lambda *args: (visual, OverlayCopy()))
+        monkeypatch.setattr(creative, "art_direct", lambda *args: (concept, OverlayCopy()))
     else:
         monkeypatch.setattr(creative, "art_direct", Mock(side_effect=RuntimeError("offline")))
     generate = Mock(return_value={"imageB64": _png()})
@@ -214,13 +274,27 @@ def test_render_preserves_full_brief_caption_and_safety_rules(monkeypatch, direc
     monkeypatch.setattr(creative, "compose_creative", compose)
     result = render_creative(topic=topic, style=None, spec=CreativeSpec(caption=caption), brand={})
     prompt = generate.call_args.kwargs["prompt_override"]
-    assert topic in prompt and caption in prompt
-    assert "composited after generation" in prompt
-    assert "without inventing claims" in prompt
-    assert result.prompt == prompt and len(prompt) > 1000
+    expected = concept.subject if directed else "A gardener among seedlings. Only show green seedlings"
+    assert prompt.startswith(expected)
+    assert "No text, letters, numbers, logos or watermarks" in prompt
+    assert result.prompt == prompt and len(prompt) < 1500
     assert compose.call_args.kwargs["copy"] is None and result.copy == OverlayCopy()
-    if directed:
-        assert visual in prompt
+    assert ("mature trees" in generate.call_args.kwargs["negative_prompt"]) is directed
+    assert result.warnings == ([] if directed else [creative.FALLBACK_WARNING])
+
+
+def test_art_direction_runs_without_auto_copy_and_keeps_manual_copy(monkeypatch):
+    from app.social.ai import creative
+
+    art = Mock(return_value=(VisualConcept(subject="Baker pulling sourdough loaves from a stone oven"), OverlayCopy(headline="LLM headline")))
+    generate = Mock(return_value={"imageB64": _png()})
+    monkeypatch.setattr(creative, "art_direct", art)
+    monkeypatch.setattr(creative, "generate_post_image", generate)
+    monkeypatch.setattr(creative, "compose_creative", Mock(return_value=b"composed"))
+    result = render_creative(topic="Bakery", style=None, spec=CreativeSpec(auto_copy=False, text_overlay=True, headline="Fresh at 7am"), brand={})
+    art.assert_called_once()
+    assert result.copy.headline == "Fresh at 7am"
+    assert generate.call_args.kwargs["prompt_override"].startswith("Baker pulling sourdough loaves")
 
 
 def test_use_brand_false_strips_context_but_preserves_independent_logo(monkeypatch, art_direction_response):

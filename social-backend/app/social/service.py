@@ -1672,6 +1672,7 @@ class SocialMediaService:
                 subtext=result.copy.subtext or None,
                 cta=result.copy.cta or None,
                 logoApplied=result.logo_applied,
+                warnings=list(getattr(result, "warnings", []) or []),
             )
 
         data = generate_post_image_from_url(

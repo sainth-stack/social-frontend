@@ -20,10 +20,11 @@ fi
 mkdir -p "$ROOT/.run"
 
 for dir in "$REPO_ROOT/social-frontend" "$REPO_ROOT/social-landing"; do
-  if [[ ! -d "$dir/.next" ]]; then
-    name="$(basename "$dir")"
-    echo "Missing Next.js build: $dir/.next" >&2
+  name="$(basename "$dir")"
+  if [[ ! -f "$dir/.next/BUILD_ID" ]]; then
+    echo "Missing Next.js production build: $name" >&2
     echo "  cd $dir && npm ci && npm run build" >&2
+    echo "  (A .next folder from 'next dev' is not enough for PM2 / next start.)" >&2
     exit 1
   fi
 done

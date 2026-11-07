@@ -166,18 +166,11 @@ function normalizeStudioHashtags(tags: string[]): string[] {
 }
 
 function autoVisualFormat(contentType: string): CreativeFormat {
-  switch (contentType) {
-    case "Promotional":
-      return "product";
-    case "Educational":
-      return "quote";
-    case "Announcement":
-      return "banner";
-    case "Carousel":
-      return "carousel";
-    default:
-      return "post";
-  }
+  // Visual Skills (backend) now handle the creative strategy automatically.
+  // Only format changes that affect layout/aspect-ratio are kept here.
+  if (contentType === "Carousel") return "carousel";
+  if (contentType === "Announcement") return "banner";
+  return "post";
 }
 
 const CONTENT_TYPE_TO_FORMAT: Record<string, string> = {
@@ -1818,32 +1811,6 @@ function GenerateTab({
             </div>}
             {alsoGenerateImage && !prefillMedia ? (
               <>
-                {type !== "Carousel" && (
-                  <div className="grid grid-cols-5 gap-1" role="radiogroup" aria-label="Image size">
-                    {VISUAL_FORMATS.map((f) => {
-                      const Icon = f.icon;
-                      const active = visualFormat === f.value;
-                      return (
-                        <button
-                          key={f.value}
-                          type="button"
-                          role="radio"
-                          aria-checked={active}
-                          onClick={() => { markVisualsStale(); setVisualFormat(f.value); }}
-                          className={cn(
-                            "flex flex-col items-center gap-1 rounded-md border px-1 py-2 text-[10px] font-medium transition",
-                            active
-                              ? "border-primary bg-primary/5 text-primary"
-                              : "border-border text-muted-foreground hover:bg-muted/60",
-                          )}
-                        >
-                          <Icon className="h-3.5 w-3.5" />
-                          {f.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
                 <div className="flex items-center gap-3 rounded-lg bg-muted/40 p-2">
                   <button
                     type="button"

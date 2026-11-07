@@ -293,7 +293,16 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
                     series_style=(row["recipes"].get(row["slides"][0]["id"]) or {}).get("series", "") if index > 1 else "",
                 )
                 brief = payload.brief or ""
-                topic = brief if payload.topic.strip() and payload.topic.strip() in brief else "\n\n".join(dict.fromkeys(value for value in (payload.topic, brief) if value))
+                caption_text = (payload.caption or "").strip()
+                topic_text = payload.topic.strip()
+                if caption_text and brief and brief.strip() != topic_text:
+                    # Planner pattern: topic=post_caption, brief=plan_context, caption=post_caption.
+                    # art_direct() will show spec.caption first as the "primary visual source", so
+                    # pass only the brief as the campaign context to avoid duplicating the caption.
+                    topic = brief
+                else:
+                    # AI Studio / single-source pattern: merge topic and brief as before.
+                    topic = brief if topic_text and topic_text in brief else "\n\n".join(dict.fromkeys(value for value in (payload.topic, brief) if value))
                 stage = "compose" if base else "provider"
                 if not base:
                     row["attempts"][slide_id] = {"state": "started", "code": "CREATIVE_PROVIDER_UNCERTAIN"}

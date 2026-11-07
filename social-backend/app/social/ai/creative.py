@@ -15,6 +15,7 @@ from app.social.ai.image_generator import generate_post_image
 from app.social.ai.image_quality import ImageReliabilityError, validate_image_bytes
 from app.social.ai.image_progress import report_image_stage
 from app.social.ai.visual_prompt import compact_context
+from app.social.ai.visual_skills import VisualSkill, select_visual_skill, strip_platform_labels
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +57,12 @@ _CONCEPT_KEYWORDS = (
     ("food", r"bakery|bread|sourdough|caf[eé]|coffee|restaurant|recipe|menu|dish|chef|kitchen|food|meal|dessert|cake|pizza|catering|brunch"),
     ("event", r"\bevent|webinar|conference|summit|workshop|meetup|grand opening|festival|expo\b|exhibition|launch party"),
     ("place", r"real estate|property|apartment|villa|hotel|resort|travel|destination|interior|showroom|venue|storefront|clinic|\bgym\b"),
-    ("people", r"\bapps?\b|software|saas|platform|dashboard|\bcrm\b|automation"),
     ("product", r"product|collection|device|gadget|bottle|packaging|skincare|cosmetic|shoe|apparel|fashion|jewel|furniture|launch"),
     ("data", r"\d+\s?%|percent|statistic|survey|benchmark|growth rate|\broi\b|revenue|report"),
     ("educational", r"how to|\btips?\b|guide|\bsteps?\b|checklist|mistakes|lessons?\b|explained|framework|myth|ways to|best practices"),
     ("quote", r"\bquote\b|motivation|inspiration|mindset"),
-    ("people", r"team|founder|customer|client|hiring|community|employee|coach|patient|student|runner|athlete|family|retailer|people"),
+    # People last: match only when content is genuinely about people, not just mentions a tool/platform
+    ("people", r"\bteam\b|founder|customer|client|hiring|community|employee|coach|patient|student|runner|athlete|family|retailer|\bpeople\b"),
 )
 
 _CHANNEL_MOOD = {
@@ -74,10 +75,17 @@ _CHANNEL_MOOD = {
     "x": "bold and instantly readable at small size",
 }
 
-_NO_TEXT = "No text, letters, numbers, logos or watermarks anywhere in the image"
+_NO_TEXT = (
+    "No text, letters, numbers, logos or watermarks anywhere in the image. "
+    "No word art, no letter shapes embedded in objects, no typography integrated into shapes, "
+    "no word clouds, no text silhouettes, no labels, no captions overlaid on the image"
+)
 
 _BASE_NEGATIVE = (
-    "text, letters, words, typography, caption, watermark, logo, signature, blurry, low quality, jpeg artifacts, "
+    "text, letters, words, typography, caption, watermark, logo, signature, "
+    "word art, word cloud, letter shapes embedded in objects, typography integrated into shapes, "
+    "text silhouette, labels in image, numbers, "
+    "blurry, low quality, jpeg artifacts, "
     "distorted, deformed, malformed hands, extra fingers, duplicated objects, cropped subject"
 )
 _PHOTO_NEGATIVE = "cartoon, clip art, 3d render, plastic skin, oversaturated"
@@ -279,19 +287,32 @@ def _treatment_medium(concept_type: str, spec: CreativeSpec) -> str:
 
 def fallback_concept(topic: str, spec: CreativeSpec, brand: dict) -> VisualConcept:
     brand = brand if spec.use_brand else {}
-    pieces = [spec.slide_prompt, spec.headline if spec.slide_index else "", _brief_core(topic)]
-    if not any(pieces) and spec.caption:
-        pieces.append(_brief_core(spec.caption, 300))
+    # Strip platform labels and use the cleaned caption as the primary source.
+    clean_cap = strip_platform_labels(spec.caption) if spec.caption else ""
+    primary = clean_cap or topic
+    pieces = [spec.slide_prompt, spec.headline if spec.slide_index else "", _brief_core(primary, 420)]
+    # If primary gave nothing useful and it was the caption, also try the brief
+    if not any(p for p in pieces if p and p.strip()) and primary != topic:
+        pieces.append(_brief_core(topic, 300))
     subject = compact_context("; ".join(dict.fromkeys(p.strip() for p in pieces if p and p.strip())), 420)
     if not subject:
-        subject = compact_context(clean_generated_text(topic or "", include_emojis=False), 300)
+        subject = compact_context(clean_generated_text(primary or topic or "", include_emojis=False), 300)
     industry = _clean(brand.get("industry"), 80)
-    kind = classify_concept(f"{subject} {industry}")
+    # Classify from the full available text so data/educational/etc. keywords surface correctly
+    kind = classify_concept(f"{subject} {industry} {_clean(primary, 400)}")
+    # If a Visual Skill matches, let it override the keyword classification
+    skill = select_visual_skill(primary, topic)
+    if skill:
+        kind = skill.concept_type
+        logger.debug("Fallback concept overridden by skill %s → %s", skill.name, kind)
+    medium = skill.medium_override if skill else _treatment_medium(kind, spec)
+    avoid = list(skill.avoid_extra) if skill else []
     return VisualConcept(
         concept_type=kind,
         subject=subject,
         setting=f"authentic real-world {industry} context" if industry else "",
-        medium=_treatment_medium(kind, spec),
+        medium=medium,
+        avoid=avoid,
         source="fallback",
     )
 
@@ -407,7 +428,20 @@ def _concept_from_data(data: dict[str, Any], topic: str) -> VisualConcept:
     )
 
 
-def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]) -> tuple[VisualConcept, OverlayCopy]:
+def art_direct(
+    topic: str,
+    spec: CreativeSpec,
+    brand: dict,
+    style: Optional[str],
+    *,
+    hint_platform: Optional[str] = None,
+) -> tuple[VisualConcept, OverlayCopy]:
+    """Generate a VisualConcept via LLM art direction.
+
+    ``hint_platform`` is used when ``spec.platform`` is None (multi-platform
+    generation) to still pick the correct channel mood and framing context.
+    It must NOT affect image generation dimensions — only the concept/prompt.
+    """
     from app.social.ai.generator import _chat_completion, _get_llm, _message_text, _parse_json_content
 
     policy_brand = brand
@@ -433,11 +467,24 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
         else "Minimal treatment: restrained composition, generous negative space and a simple medium."
     )
     medium_guide = "; ".join(f"{kind}: {medium}" for kind, medium in _MEDIUM.items())
+    # Use hint_platform for mood/framing label when the spec has no single platform (multi-platform)
+    effective_platform = spec.platform or hint_platform or ""
+
+    # Strip channel-routing prefixes ("linkedin:\n", "facebook:\n") injected by the frontend.
+    # These are metadata, not content — seeing them biases the LLM toward platform-specific imagery.
+    clean_caption = strip_platform_labels(spec.caption) if spec.caption else ""
+
+    # Select the Visual Skill for this post type.  The skill locks concept_type and medium,
+    # preventing the LLM from defaulting to a generic stock-photo person.
+    skill: Optional[VisualSkill] = select_visual_skill(clean_caption, topic)
+
     system_prompt = (
         "You are the art director of a top creative agency. Turn one social media brief into ONE concrete, specific image concept "
         f"for a text-to-image model. Reply with JSON only: {schema}. "
-        "The original brief and approved caption are the primary visual source: the image must clearly belong to this business, "
-        "audience and message, never a generic template. Brand context guides audience and palette only. "
+        "The approved post caption is the single most important input — it defines exactly what the image must illustrate. "
+        "The campaign brief provides business and campaign context. "
+        "The image must clearly belong to this specific post's message, never a generic stock-photo template. "
+        "Brand context guides audience and palette only. "
         f"conceptType: one of {', '.join(CONCEPT_TYPES)}. "
         "subject: 15-45 words naming the single focal subject and its action with concrete, industry-specific nouns that a "
         "photographer or illustrator could depict; no abstract marketing language. "
@@ -450,8 +497,37 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
         "Avoid stock clichés such as handshakes, floating laptops or phones, gradient blobs, robots, rockets and lightbulbs unless the brief asks for them. "
         "Avoid malformed anatomy, duplicated objects and clipped focal subjects. "
         f"{_NO_TEXT}; any headline and logo are added after generation. "
-        f"Framing: {_frame(spec)}. Channel mood: {_CHANNEL_MOOD.get(spec.platform or '', 'premium, specific and purposeful')}. "
+        f"Framing: {_frame(spec)}. Channel mood: {_CHANNEL_MOOD.get(effective_platform, 'premium, specific and purposeful')}. "
     )
+
+    # ── Critical universal rule ───────────────────────────────────────────────
+    # Second-person address ("your voice", "your expertise") does NOT mean show
+    # a person.  For service / platform value props always depict the VALUE
+    # METAPHOR, not the target user.
+    system_prompt += (
+        "CRITICAL: Second-person address ('your voice', 'your expertise', 'you can') in the caption "
+        "does NOT mean place a person in the image. "
+        "When depicting a service, platform, or abstract idea always show the VALUE METAPHOR "
+        "(what it achieves, not who uses it). "
+        "Only choose 'people' conceptType when the caption explicitly narrates a specific "
+        "individual's personal story with concrete named details. "
+    )
+
+    # ── Visual Skill injection ────────────────────────────────────────────────
+    # When a skill is matched it overrides the LLM's free concept selection.
+    if skill:
+        system_prompt += (
+            f"VISUAL STRATEGY FOR THIS POST — '{skill.name}': "
+            f"You MUST set conceptType to '{skill.concept_type}'. "
+            f"You MUST set medium to: '{skill.medium_override}'. "
+            f"Subject guidance: {skill.subject_guide} "
+        )
+        if skill.avoid_extra:
+            system_prompt += f"Also avoid specifically: {', '.join(skill.avoid_extra)}. "
+        if skill.style_hint:
+            system_prompt += f"Overall style: {skill.style_hint}. "
+        logger.info("Visual skill selected: %s (concept_type=%s)", skill.name, skill.concept_type)
+
     if spec.series_style:
         system_prompt += "Keep the supplied series look exactly and vary only the subject. "
     if wants_copy:
@@ -463,12 +539,18 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
         )
     else:
         system_prompt += "Do not generate headline, subtext or CTA copy."
-    user_lines = [
-        f"Original brief: {compact_context(topic, 2200)}",
-        f"Format: {spec.format} ({width}x{height}) for {spec.platform or 'social media'}",
-    ]
-    if spec.caption:
-        user_lines.append(f"Post caption: {compact_context(spec.caption, 1600)}")
+
+    # Build user message: cleaned caption FIRST as the primary visual source, brief as context.
+    # When no caption is present (e.g. AI Studio initial generation), the brief is the sole source.
+    user_lines = []
+    if clean_caption:
+        user_lines.append(f"Approved post caption (primary visual source): {compact_context(clean_caption, 1600)}")
+        user_lines.append(f"Campaign brief (context): {compact_context(topic, 1200)}")
+    else:
+        user_lines.append(f"Original brief: {compact_context(topic, 2200)}")
+    user_lines.append(
+        f"Format: {spec.format} ({width}x{height}) for {effective_platform or 'social media'}"
+    )
     if spec.slide_prompt:
         user_lines.append(f"This slide's subject: {compact_context(spec.slide_prompt, 400)}")
     if spec.series_style:
@@ -502,6 +584,18 @@ def art_direct(topic: str, spec: CreativeSpec, brand: dict, style: Optional[str]
     )
     data: dict[str, Any] = _parse_json_content(_message_text(response.choices[0].message))
     concept = _concept_from_data(data, topic)
+    # Merge skill avoid terms into concept so they reach build_negative_prompt().
+    # Also enforce the skill concept_type if the LLM disobeyed (hard guard).
+    if skill and skill.avoid_extra:
+        concept.avoid = list(dict.fromkeys([*concept.avoid, *skill.avoid_extra]))[:8]
+    if skill and concept.concept_type != skill.concept_type:
+        logger.warning(
+            "LLM returned conceptType=%r but skill %s requires %r — overriding",
+            concept.concept_type, skill.name, skill.concept_type,
+        )
+        concept.concept_type = skill.concept_type
+        if not concept.medium:
+            concept.medium = skill.medium_override
     if not wants_copy:
         return concept, OverlayCopy()
     copy = OverlayCopy(
@@ -549,7 +643,11 @@ def render_creative_variants(
         raise ValueError("base_image must contain nonempty image bytes")
     fmt = spec.format if spec.format in FORMATS else "post"
     policy_brand = brand
+    # For single-platform: use the exact platform for both concept and generation.
+    # For multi-platform: keep platform=None so generation uses the square default size,
+    # but pass hint_platform=platforms[0] to art_direct() so it picks the right channel mood.
     spec = replace(spec, format=fmt, platform=(platforms[0] or None) if len(platforms) == 1 else None)
+    hint_platform = platforms[0] or None
     brand = brand if spec.use_brand else {}
     width, height = target_size(fmt, spec.platform)
 
@@ -561,13 +659,23 @@ def render_creative_variants(
         copy = OverlayCopy(**spec.render_recipe["copy"])
     elif base_image is None:
         report_image_stage("concept")
-        try:
-            raw_concept, directed = art_direct(topic, spec, policy_brand, style)
-            concept = _coerce_concept(raw_concept)
-            if _requests_copy(spec):
-                copy = directed
-        except Exception as exc:
-            logger.warning("Creative art direction failed, using fallback type=%s", type(exc).__name__)
+        _last_art_exc: Optional[Exception] = None
+        for _attempt in range(2):
+            try:
+                raw_concept, directed = art_direct(topic, spec, policy_brand, style, hint_platform=hint_platform)
+                concept = _coerce_concept(raw_concept)
+                if _requests_copy(spec):
+                    copy = directed
+                _last_art_exc = None
+                break
+            except Exception as exc:
+                _last_art_exc = exc
+                logger.warning(
+                    "Creative art direction attempt %d/2 failed type=%s: %s",
+                    _attempt + 1, type(exc).__name__, exc,
+                )
+        if _last_art_exc is not None:
+            logger.warning("Creative art direction failed after 2 attempts, using fallback")
             warnings.append(FALLBACK_WARNING)
             concept = fallback_concept(topic, spec, policy_brand)
     if wants_copy and not copy.headline:

@@ -523,12 +523,19 @@ class ContentPlanRuns:
         if operation.get("async"):
             fence.update(claim=operation["claim"], generation=operation["generation"])
         if not operation.get("creative_request"):
-            brief = self.load(workspace, run_id)["prompt"]
+            plan_brief = self.load(workspace, run_id)["prompt"]
             angle = DAY_FOCUS_ANGLES[int(item.get("order") or 0) % len(DAY_FOCUS_ANGLES)]
-            brief = f"{compact_context(brief, 1700)}\n\nToday's angle: {angle}"
+            plan_context = f"{compact_context(plan_brief, 1700)}\n\nToday's angle: {angle}"
+            post_caption = (row.get("caption") or "").strip()
             direction = (operation.get("image_direction") or "").strip()
+            # Use the approved post caption as the primary image topic — it contains the specific
+            # angle, message, and key phrases the image must illustrate. The plan brief is passed
+            # as `brief` for campaign/brand context. When no caption exists, fall back to the brief.
+            image_topic = compact_context(post_caption, 1800) if post_caption else compact_context(plan_context, 1800)
             request = GenerateCreativeSetRequest(
-                topic=compact_context(brief, 1800), brief=compact_context(brief, 1800), caption=compact_context(row["caption"], 2200),
+                topic=image_topic,
+                brief=compact_context(plan_context, 1800),
+                caption=compact_context(post_caption, 2200),
                 style=direction or None,
                 platforms=shared_platforms, platform=shared_platforms[0], format="post", autoCopy=False, textOverlay=False,
                 useBrand=True, includeLogo=True, visualTreatment="campaign_hero",

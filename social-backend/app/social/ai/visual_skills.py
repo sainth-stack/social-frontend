@@ -55,36 +55,34 @@ VOICE_AMPLIFIER = VisualSkill(
     name="VoiceAmplifier",
     concept_type="abstract",
     medium_override=(
-        "clean editorial illustration built around a single strong metaphor — "
-        "pure geometric sound waves, concentric arcs, or expanding circles — "
-        "on a minimal white or light background; flat geometric shapes only; "
-        "2-3 solid brand colours; generous negative space; "
-        "absolutely no megaphone or loudspeaker shape"
+        "premium editorial still-life photography: one meaningful physical object on a minimal "
+        "clean surface; controlled soft-box studio lighting; crisp material detail; "
+        "shallow depth of field; no text, no screens, no devices, no people"
     ),
     subject_guide=(
-        "Derive the single key VALUE METAPHOR from the caption's central promise using PURE GEOMETRY. "
-        "Use abstract shapes only — no objects that embed text or trigger word-art: "
-        "(e.g. 'voice not reaching people' → concentric sound-wave arcs expanding outward; "
-        "'content attracts businesses' → streams of dots or lines converging toward small square icons; "
-        "'earned credibility' → a single radiating light ring expanding from a central point). "
-        "The subject must represent WHAT THE PRODUCT OR IDEA DOES, never who uses it. "
-        "Do NOT use a megaphone, loudspeaker, or any object that contains or suggests text. "
-        "Do NOT depict a person at a desk, a presenter, a founder portrait, "
-        "or any generic professional figure."
+        "Choose ONE concrete physical object that embodies the post's central value promise — "
+        "photograph it as a studio still life. The object stands in as a metaphor; never show a person. "
+        "Examples by caption theme: "
+        "'voice not reaching people' → a vintage broadcast microphone in a warm spotlight on a dark surface; "
+        "'content attracts businesses' → an open book with pages fanning outward in soft natural light; "
+        "'earned credibility / authority' → a polished leather-bound notebook and a fine pen on a clean minimal desk; "
+        "'professional presence / brand' → a single elegant business card resting on a textured linen surface; "
+        "'organic reach without ads' → a single growing plant sprig in a minimalist ceramic pot, clean white background. "
+        "The subject is always one physical object or tight pair — no abstract shapes, no dots, no lines, no network patterns."
     ),
     avoid_extra=(
         "megaphone",
         "loudspeaker",
+        "network diagram",
+        "node graph",
+        "scatter plot",
+        "connection lines",
         "word art",
-        "word cloud",
-        "letter shapes in illustration",
-        "text embedded in shapes",
-        "typography in objects",
         "person in office",
         "man in blazer",
         "stock photo professional",
     ),
-    style_hint="flat editorial illustration, pure geometric shapes, brand colour palette, white or light grey background, zero text elements",
+    style_hint="editorial still-life photography, single focal object, studio or window lighting, minimal background",
     trigger_pattern=(
         r"content marketing|thought leadership|earned (voice|media|attention)|"
         r"build(s|ing)? credibility|your (voice|expertise|authority)|"
@@ -137,30 +135,34 @@ DATA_INSIGHT = VisualSkill(
     name="DataInsight",
     concept_type="data",
     medium_override=(
-        "minimal conceptual editorial illustration: ONE bold geometric shape or visual metaphor "
-        "communicates the scale or direction of the key finding; "
-        "no charts, no numbers, no text elements; "
-        "brand colour on a clean light background; "
-        "flat vector style with strong clean lines"
+        "minimal editorial still-life photography: a single physical object or tight arrangement "
+        "that embodies scale, growth, or directional change; "
+        "studio lighting; clean minimal background; no charts, no screens, no text, no numbers"
     ),
     subject_guide=(
-        "Translate the key statistic or finding into a single visual metaphor — "
-        "a rising form for growth, a gap or split for contrast, converging shapes for improvement. "
-        "The number itself must NOT appear in the image; only its visual story. "
-        "e.g. '83% of marketers report ROI uplift' → an upward-rising bar of light with "
-        "a single highlighted segment representing the majority."
+        "Translate the key statistic or finding into ONE concrete physical object metaphor — never a chart. "
+        "Examples by stat theme: "
+        "'majority metric (e.g. 83%, 87%)' → a tall single lit candle against a dark minimal background, "
+        "representing the dominant proportion by its height and light; "
+        "'growth / improvement stat' → a single young green plant or seedling in clean soil, "
+        "photographed from the side to show upward direction; "
+        "'comparison or contrast stat' → two objects of contrasting sizes or conditions side by side — "
+        "a small blunt pencil beside a sharp tall one on a white surface; "
+        "'speed or efficiency gain' → a single stopwatch or hourglass on a clean surface, studio lit. "
+        "The number itself must NOT appear in the image — only its visual story."
     ),
     avoid_extra=(
         "bar chart",
         "pie chart",
+        "line graph",
         "spreadsheet",
         "numbers in image",
         "dashboard screenshot",
         "text labels",
         "axis labels",
-        "word art",
-        "typography in shapes",
-        "letter shapes",
+        "network diagram",
+        "scatter plot",
+        "data visualization graphic",
     ),
     trigger_pattern=(
         r"\d+\s*%|\d+x\s*(more|faster|better|growth|return)|\bROI\b|"
@@ -209,28 +211,34 @@ HOW_TO_GUIDE = VisualSkill(
     name="HowToGuide",
     concept_type="educational",
     medium_override=(
-        "clean editorial illustration: one clear before→after or problem→solution metaphor "
-        "built with flat geometric shapes; a single focal object represents the transformation; "
-        "generous negative space; 2 accent colours on a white or very light background"
+        "editorial concept photography: a single physical object that embodies the transformation "
+        "or key outcome of the guide; clean minimal background; professional product photography lighting; "
+        "no people, no text, no devices, no diagrams"
     ),
     subject_guide=(
-        "Illustrate the core TRANSFORMATION the reader experiences by following this guide — "
-        "not the steps themselves, only the outcome. "
-        "e.g. 'how to write better LinkedIn posts' → a tangled line smoothing into a single clear arrow; "
-        "'5 ways to grow your audience' → a small seed shape expanding into a branching form; "
-        "'common hiring mistakes' → an X shape transforming into a check mark. "
-        "Keep it abstract and symbolic — no numbered steps, no text labels."
+        "Show the OUTCOME or TRANSFORMATION of the guide as ONE concrete physical object — never a diagram. "
+        "Examples by guide theme: "
+        "'how to write better posts / improve content' → a single sharpened pencil resting on a blank open notebook, "
+        "studio lit on a clean white surface; "
+        "'how to grow your audience / reach' → a single small seedling in a minimal ceramic pot, "
+        "soft natural window light from the side; "
+        "'mistakes to avoid / before-and-after' → a crumpled sheet of paper beside a perfectly smooth flat one "
+        "on a white desk surface; "
+        "'framework / process / strategy' → a single compass or ruler on a clean textured surface; "
+        "'hiring / team building' → a single chess piece (e.g. queen) on a clean minimal board surface. "
+        "Photograph the object as a studio still life — no numbered steps, no arrows, no list layouts."
     ),
     avoid_extra=(
         "numbered steps",
         "list layout",
         "text labels in image",
         "flowchart",
+        "flowchart diagram",
         "cluttered diagram",
+        "network diagram",
         "step-by-step visual",
+        "arrows with labels",
         "word art",
-        "letter shapes",
-        "text embedded in illustration",
     ),
     trigger_pattern=(
         r"\bhow to\b|\bsteps? to\b|\bguide (to|for|on)\b|\bframework (for|to)\b|"

@@ -89,7 +89,11 @@ _BASE_NEGATIVE = (
     "distorted, deformed, malformed hands, extra fingers, duplicated objects, cropped subject"
 )
 _PHOTO_NEGATIVE = "cartoon, clip art, 3d render, plastic skin, oversaturated"
-_ILLUSTRATION_NEGATIVE = "photorealistic photo, cluttered background, busy collage"
+_ILLUSTRATION_NEGATIVE = (
+    "cluttered background, busy collage, "
+    "network diagram, node graph, constellation map, scatter plot, data visualization, "
+    "line graph, flowchart, technical diagram, connection lines, abstract geometry pattern"
+)
 _CLICHES = (
     ("corporate handshake", "handshake"), ("floating laptop mockup", "laptop"), ("floating phone mockup", "phone"),
     ("gradient blobs", "gradient"), ("decorative orbs", "orb"), ("generic stock photo", "stock"), ("robot", "robot"), ("rocket", "rocket"),

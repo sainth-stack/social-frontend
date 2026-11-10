@@ -34,10 +34,16 @@ def _matches_supported_image_model(model: str) -> bool:
     return any(model == candidate or model.endswith(f".{candidate}") for candidate in SUPPORTED_IMAGE_MODEL_IDS)
 
 
+def _is_retired_model(model: str) -> bool:
+    lower = model.lower()
+    return "nova-canvas" in lower or "titan-image-generator" in lower
+
+
 def image_generation_configured() -> bool:
     model = (current_models().image or settings.bedrock_image_model_id or DEFAULT_IMAGE_MODEL_ID).strip()
     return bool(
-        _matches_supported_image_model(model)
+        not _is_retired_model(model)
+        and _matches_supported_image_model(model)
         and settings.resolved_bedrock_access_key_id
         and settings.resolved_bedrock_secret_access_key
     )
@@ -45,7 +51,7 @@ def image_generation_configured() -> bool:
 
 def _resolved_image_model_id() -> str:
     model = (current_models().image or settings.bedrock_image_model_id or DEFAULT_IMAGE_MODEL_ID).strip()
-    if "nova-canvas" in model.lower() or "titan-image-generator" in model.lower():
+    if _is_retired_model(model):
         raise RuntimeError(f"Bedrock image model {model} is retired. Use {DEFAULT_IMAGE_MODEL_ID} or Stable Image Ultra/Core v1:1.")
     if not _matches_supported_image_model(model):
         raise RuntimeError(f"Unsupported Bedrock image model: {model}. Select a supported model from /ai-models.")
@@ -191,6 +197,13 @@ def generate_text_to_image(
     return _decode_output(b64_images[0])
 
 
+_CORE_VARIATION_ERROR = ImageProviderError(
+    "IMAGE_MODEL_NO_VARIATION",
+    "Stable Image Core supports text-to-image only. "
+    "Switch to Stable Image Ultra or Stable Diffusion 3.5 Large (under AI Models) to refine an existing image.",
+)
+
+
 def generate_image_variation(
     *,
     prompt: str,
@@ -200,7 +213,7 @@ def generate_image_variation(
 ) -> bytes:
     model_id = _resolved_image_model_id()
     if model_id == "stability.stable-image-core-v1:1":
-        raise RuntimeError("Stable Image Core supports text-to-image only. Use Stable Diffusion 3.5 Large or Stable Image Ultra for image variations.")
+        raise _CORE_VARIATION_ERROR
     source_b64 = base64.b64encode(source_image_bytes).decode("ascii")
     body = _stability_image_to_image_body(prompt=prompt, source_b64=source_b64, model_id=model_id)
     b64_images = _invoke_raw(body, model_id=model_id)

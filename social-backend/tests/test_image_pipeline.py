@@ -50,6 +50,14 @@ def _textured(color) -> bytes:
     ("20% off teeth whitening at our dental clinic", "", "care_wellness"),
     ("5 GST mistakes small businesses make", "", "how_to_guide"),
     ("Thoughts on our week", "Bakery", "food_drink"),
+    # Fix 1: thought_leadership now triggers on founder-brand wording
+    ("Most founders spend more time chasing visibility than building it strategically", "", "thought_leadership"),
+    ("Building authority as a founder takes consistent content, not luck", "", "thought_leadership"),
+    # Fix 1: hashtag form (#ThoughtLeadership, #ContentStrategy) now matched
+    ("Our latest thinking on content marketing strategy #ThoughtLeadership #B2BSaaS", "", "thought_leadership"),
+    # Fix 1: industry fallback for B2B SaaS / consulting / coaching
+    ("Our take on the market this week", "B2B SaaS", "thought_leadership"),
+    ("Lessons from our consulting work", "Consulting", "thought_leadership"),
 ])
 def test_visual_skill_routing(text, industry, name):
     assert select_visual_skill(text, industry=industry).name == name
@@ -268,6 +276,165 @@ def test_image_services_region_and_error_mapping(monkeypatch):
     with pytest.raises(bedrock_image.ImageProviderError) as failure:
         bedrock_image.remove_background(b"x")
     assert failure.value.code == "IMAGE_SERVICE_UNAVAILABLE"
+
+
+# ── Fix 3: Core model variation raises 400, not 503 ──────────────────────────
+
+def test_core_model_variation_raises_400_not_503(monkeypatch):
+    """Stable Image Core cannot do image-to-image: should be a 400 bad request."""
+    from fastapi import HTTPException
+    from app.social.ai import image_generator
+
+    monkeypatch.setattr(image_generator, "image_generation_configured", lambda: True)
+    monkeypatch.setattr(bedrock_image, "_resolved_image_model_id", lambda: "stability.stable-image-core-v1:1")
+    with pytest.raises(HTTPException) as exc_info:
+        image_generator.generate_post_image(
+            topic="Refine this image",
+            mode="edit",
+            source_image_bytes=_png(),
+        )
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "IMAGE_MODEL_NO_VARIATION"
+    # Actionable message guides the user to switch model
+    assert "Stable Image Ultra" in exc_info.value.detail["message"] or "Stable Diffusion" in exc_info.value.detail["message"]
+
+
+# ── Fix 4: Retired model (nova-canvas / titan) → not configured → 503 ────────
+
+@pytest.mark.parametrize("retired_model", [
+    "amazon.nova-canvas-v1:0",
+    "amazon.titan-image-generator-v1",
+])
+def test_retired_model_returns_not_configured(monkeypatch, retired_model):
+    """nova-canvas and titan are retired: image_generation_configured() must return False."""
+    from app.providers.llm.model_selection import ModelSelection, selected_models
+
+    with selected_models(ModelSelection(image=retired_model)):
+        assert bedrock_image.image_generation_configured() is False
+
+
+def test_retired_model_raises_503_when_called(monkeypatch):
+    """Calling generate with a retired model returns 503 IMAGE_NOT_CONFIGURED (not a RuntimeError)."""
+    from fastapi import HTTPException
+    from app.social.ai import image_generator
+    from app.providers.llm.model_selection import ModelSelection, selected_models
+
+    # image_generation_configured() correctly returns False for retired models,
+    # so generate_post_image must surface that as a 503 IMAGE_NOT_CONFIGURED.
+    with selected_models(ModelSelection(image="amazon.nova-canvas-v1:0")):
+        with pytest.raises(HTTPException) as exc_info:
+            image_generator.generate_post_image(topic="Some post about innovation")
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["code"] == "IMAGE_NOT_CONFIGURED"
+
+
+# ── Scenario 1: Food/Bakery Instagram post ───────────────────────────────────
+
+def test_scenario_bakery_instagram_uses_food_skill_and_no_brand_palette(monkeypatch):
+    """Food posts on Instagram: food_drink skill selected, photo mode → no brand palette in prompt."""
+    from app.social.ai.creative import CreativeSpec, compile_image_prompt, build_negative_prompt, fallback_concept
+
+    topic = "Grand opening of our sourdough bakery on Elm Street this Saturday with free tastings"
+    caption = "Fresh bread every morning. Come celebrate our grand opening this Saturday!"
+    brand = {
+        "brand_name": "Crumb & Co", "industry": "Artisan Bakery",
+        "primary_color": "#a0522d", "accent_color": "#f5deb3",
+        "visual_style": "warm editorial food photography with natural side light",
+    }
+    skill = select_visual_skill(caption, topic, brand["industry"])
+    assert skill is not None and skill.name == "food_drink"
+    assert skill.concept_type == "food"
+
+    spec = CreativeSpec(format="post", platform="instagram", caption=caption, visual_treatment="campaign_hero")
+    concept = fallback_concept(topic, spec, brand)
+    assert concept.concept_type == "food"
+
+    prompt = compile_image_prompt(concept, spec, brand, brand["visual_style"])
+    negative = build_negative_prompt(concept, brand["visual_style"], topic)
+
+    # Photo mode: brand palette must NOT be injected (photographic = natural colours)
+    assert "Palette:" not in prompt
+    # Subject starts with the brief content
+    assert prompt.startswith("Fresh bread")
+    # Photo negative includes cartoon/clip-art rejection
+    assert "cartoon" in negative
+    # Photo negative does NOT include photorealistic (that is for illustrations)
+    assert "photorealistic photo" not in negative
+    # Prompt is compact
+    assert len(prompt) < 1200
+
+
+# ── Scenario 2: B2B SaaS LinkedIn thought-leadership post ───────────────────
+
+def test_scenario_b2b_saas_linkedin_uses_thought_leadership_skill(monkeypatch):
+    """Founder-brand LinkedIn post: thought_leadership skill; abstract concept → editorial still-life."""
+    from app.social.ai.creative import CreativeSpec, compile_image_prompt, fallback_concept
+
+    topic = "Most founders spend more time chasing visibility than building it strategically. EarnedVoice changes that."
+    caption = (
+        "linkedin:\n"
+        "Most founders spend more time chasing visibility than building it strategically. "
+        "The platform helps you create and publish content that attracts the right business conversations."
+    )
+    brand = {
+        "brand_name": "EarnedVoice", "industry": "B2B SaaS",
+        "primary_color": "#1e40af", "accent_color": "#7c3aed",
+        "tones": ["Professional", "Strategic"],
+    }
+
+    skill = select_visual_skill(caption, topic, brand["industry"])
+    assert skill is not None and skill.name == "thought_leadership", f"Expected thought_leadership, got {skill}"
+    assert skill.concept_type == "abstract"
+
+    spec = CreativeSpec(format="post", platform="linkedin", caption=caption, visual_treatment="minimal")
+    concept = fallback_concept(topic, spec, brand)
+    # With thought_leadership skill, concept type should be abstract (editorial still-life)
+    assert concept.concept_type == "abstract"
+
+    prompt = compile_image_prompt(concept, spec, brand, None)
+    # 'linkedin:' label must be stripped from subject
+    assert "linkedin:" not in concept.subject.lower()
+    # Minimal treatment hint present
+    assert "minimal" in prompt.lower() or "restrained" in prompt.lower()
+    # LinkedIn channel mood
+    assert "credible, professional" in prompt
+    # Prompt stays compact
+    assert len(prompt) < 1200
+
+
+# ── Scenario 3: Product concept override bypasses LLM art direction ──────────
+
+def test_scenario_product_concept_override_negations_move_to_negative(monkeypatch):
+    """Concept override: negation phrases move from subject to negative_prompt; source is 'user'."""
+    from app.social.ai.creative import (
+        CreativeSpec, compile_image_prompt, build_negative_prompt,
+        _concept_from_data, positive_concept,
+    )
+
+    concept_override = {
+        "conceptType": "product",
+        "subject": "Frostline steel bottle condensation on exterior, surrounded by ice cubes on a slate tray, no people",
+        "medium": "premium commercial product photography, controlled studio light",
+        "setting": "clean white studio surface with ice and water droplets",
+        "avoid": ["generic bottle", "gradient background", "logo watermark"],
+    }
+    concept = positive_concept(_concept_from_data(concept_override, "steel water bottle"))
+    concept.source = "user"
+
+    spec = CreativeSpec(format="post", platform="instagram")
+    prompt = compile_image_prompt(concept, spec, {}, None)
+    negative = build_negative_prompt(concept, None, "steel water bottle")
+
+    # Negations stripped from subject
+    assert "no people" not in concept.subject
+    assert "people" in negative
+    # User avoid list forwarded to negative
+    assert "generic bottle" in negative
+    assert "gradient background" in negative
+    # Prompt starts with the product subject
+    assert prompt.startswith("Frostline steel bottle condensation")
+    # Concept palette was explicitly set so it appears in prompt
+    assert concept.source == "user"
 
 
 def _register(client, email):

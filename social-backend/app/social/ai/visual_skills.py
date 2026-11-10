@@ -198,9 +198,20 @@ THOUGHT_LEADERSHIP = VisualSkill(
         "different from previous posts."
     ),
     trigger_pattern=(
-        r"\bthought leadership\b|\bpersonal brand\w*\b|\blinkedin (?:content|posts?|presence)\b|"
-        r"\bcontent (?:marketing|strategy)\b|\bb2b\b|\bcredibility\b|\borganic reach\b|\binbound\b"
+        # Core explicit phrases
+        r"\bthought.?leadership\b|\bpersonal brand\w*\b|\blinkedin (?:content|posts?|presence)\b|"
+        # Handle both spaced and hashtag forms (#ContentStrategy, #ContentMarketing)
+        r"\bcontent.?(?:marketing|strategy)\b|"
+        # Building-authority / visibility framing common in founder-brand posts
+        r"\bbuilding (?:authority|credibility|visibility|presence|your brand)\b|"
+        r"\bchasing visibility\b|\bearned (?:media|attention|authority)\b|"
+        # Founder content / creator economy framing
+        r"\bfounder\w*\s+(?:brand|content|authority|visibility|presence)\b|"
+        # B2B / LinkedIn organic-growth framing (match hashtag #B2BSaaS too via word-boundary after #)
+        r"\bb2b.?(?:saas)?\b|\bcredibility\b|\borganic reach\b|\binbound\b"
     ),
+    # Match B2B SaaS, consulting, coaching, agency and creator-economy industries
+    industry_pattern=r"\bb2b\b|\bsaas\b|\bconsulting\b|\bcoach(?:ing)?\b|\bagency\b|\bcreator\b|\bmartech\b|\bstartup\b",
     avoid_extra=_GENERIC_PROPS + ("microphone", "chess pieces"),
 )
 

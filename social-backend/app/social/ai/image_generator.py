@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 from app.core.config import settings
 from app.providers.llm.bedrock_image import (
     DEFAULT_IMAGE_MODEL_ID,
+    ImageProviderError,
     generate_image_variation,
     generate_text_to_image,
     image_generation_configured,
@@ -113,6 +114,24 @@ def generate_post_image(
         raise
     except ImageReliabilityError as exc:
         raise HTTPException(status_code=502, detail={"code": exc.code, "stage": exc.stage, "message": str(exc)}) from exc
+    except ImageProviderError as exc:
+        # IMAGE_MODEL_NO_VARIATION: caller chose a model that cannot do image variations — 400
+        if exc.code == "IMAGE_MODEL_NO_VARIATION":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": exc.code, "stage": "provider", "message": str(exc)},
+            ) from exc
+        # Filtered / empty responses: use a safe canned message so raw provider output never leaks
+        logger.warning("Bedrock image provider error model=%s code=%s", model_id, exc.code)
+        _SAFE_MESSAGES = {
+            "IMAGE_PROVIDER_FILTERED": "Image generation was blocked by the content filter. Revise the prompt and try again.",
+            "IMAGE_PROVIDER_EMPTY": "Image provider returned no images. Try a different prompt or upload an image instead.",
+        }
+        safe_message = _SAFE_MESSAGES.get(exc.code, "Image provider could not return usable artwork; upload an image or explicitly request new artwork.")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"code": exc.code, "stage": "provider", "message": safe_message},
+        ) from exc
     except RuntimeError as exc:
         logger.warning("Bedrock image generation failed model=%s code=%s", model_id, getattr(exc, "code", "IMAGE_PROVIDER_FAILED"))
         raise HTTPException(

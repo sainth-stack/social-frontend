@@ -89,7 +89,7 @@ def image_region(model_id: str) -> str:
     explicit = (settings.bedrock_image_region or "").strip()
     if explicit:
         return explicit
-    if model_id.startswith("stability."):
+    if model_id.startswith("stability.") or model_id.split(".", 1)[-1].startswith("stability."):
         return "us-west-2"
     return settings.resolved_bedrock_image_region
 

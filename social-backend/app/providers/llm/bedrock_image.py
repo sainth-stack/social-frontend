@@ -101,8 +101,8 @@ def _friendly_invoke_error(exc: Exception, *, model: str, region: str) -> Runtim
     return RuntimeError(f"Bedrock image generation failed ({region}, {model}): {exc}")
 
 
-def _invoke_raw(body: dict[str, Any], *, model_id: str) -> list[str]:
-    region = image_region(model_id)
+def _invoke_raw(body: dict[str, Any], *, model_id: str, region: Optional[str] = None) -> list[str]:
+    region = region or image_region(model_id)
     runtime = get_bedrock_runtime_client(region_name=region)
     try:
         response = runtime.invoke_model(
@@ -212,3 +212,39 @@ def _decode_output(value: str) -> bytes:
         return base64.b64decode(value, validate=True)
     except (ValueError, TypeError) as exc:
         raise ImageProviderError("IMAGE_PROVIDER_INVALID_ENCODING", "Image provider returned invalid encoded bytes") from exc
+
+
+REMOVE_BACKGROUND_MODEL_ID = "us.stability.stable-image-remove-background-v1:0"
+INPAINT_MODEL_ID = "us.stability.stable-image-inpaint-v1:0"
+
+
+def _invoke_image_service(body: dict[str, Any], *, model_id: str) -> bytes:
+    region = (settings.bedrock_image_services_region or "us-west-2").strip()
+    try:
+        images = _invoke_raw(body, model_id=model_id, region=region)
+    except RuntimeError as exc:
+        if isinstance(exc, ImageProviderError):
+            raise
+        raise ImageProviderError(
+            "IMAGE_SERVICE_UNAVAILABLE",
+            f"Stability Image Services are not available ({model_id} in {region}). "
+            "Enable Stability Image Services under Bedrock model access.",
+        ) from exc
+    return _decode_output(images[0])
+
+
+def remove_background(image_bytes: bytes) -> bytes:
+    body = {"image": base64.b64encode(image_bytes).decode("ascii"), "output_format": "png"}
+    return _invoke_image_service(body, model_id=REMOVE_BACKGROUND_MODEL_ID)
+
+
+def inpaint(image_bytes: bytes, *, prompt: str, negative_prompt: Optional[str] = None, grow_mask: int = 3) -> bytes:
+    body: dict[str, Any] = {
+        "image": base64.b64encode(image_bytes).decode("ascii"),
+        "prompt": prompt[:10000],
+        "grow_mask": max(0, min(20, grow_mask)),
+        "output_format": "png",
+    }
+    if negative_prompt:
+        body["negative_prompt"] = negative_prompt[:10000]
+    return _invoke_image_service(body, model_id=INPAINT_MODEL_ID)

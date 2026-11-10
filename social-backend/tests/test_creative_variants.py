@@ -147,10 +147,11 @@ def test_manual_multiline_copy_retained_without_character_truncation(models):
 
 
 def test_logo_stays_on_artwork_when_canvas_letterboxes():
-    artwork = Image.new("RGB", (900, 700), (64, 64, 64))
+    artwork = Image.new("RGB", (1200, 600), (64, 64, 64))
+    ImageDraw.Draw(artwork).rectangle((520, 220, 680, 380), fill=(20, 140, 60))
     buf = BytesIO()
     artwork.save(buf, format="PNG")
-    logo = _png((100, 100), (255, 0, 0, 255), "RGBA")
+    logo = _png((100, 100), (255, 0, 0, 255))
     data = compose_creative(
         buf.getvalue(),
         width=1080,
@@ -162,11 +163,19 @@ def test_logo_stays_on_artwork_when_canvas_letterboxes():
         primary_color="#ffffff",
     )
     img = Image.open(BytesIO(data)).convert("RGB")
-    scale = min(1080 / 900, 1080 / 700)
-    disp_h = int(700 * scale)
-    base_y = (1080 - disp_h) // 2
+    base_y = (1080 - 540) // 2
     sample = img.getpixel((1060, max(8, base_y // 2)))
-    assert sample[0] > 250 and sample[1] > 250 and sample[2] > 250
+    assert sample[0] < 80 and abs(sample[0] - sample[1]) < 6
+    assert any(img.getpixel((x, y))[0] > 200 and img.getpixel((x, y))[1] < 80 for x in range(900, 1080, 6) for y in range(base_y, base_y + 200, 6))
+
+
+def test_near_ratio_artwork_is_cover_cropped_without_bars():
+    artwork = Image.new("RGB", (900, 700), (64, 64, 64))
+    ImageDraw.Draw(artwork).rectangle((400, 300, 500, 400), fill=(20, 140, 60))
+    buf = BytesIO()
+    artwork.save(buf, format="PNG")
+    img = Image.open(BytesIO(compose_creative(buf.getvalue(), width=1080, height=1080, primary_color="#ffffff"))).convert("RGB")
+    assert all(abs(img.getpixel(point)[0] - 64) < 6 for point in ((4, 4), (1075, 4), (540, 1075)))
 
 
 def test_exif_orientation_and_safe_padding_preserve_full_artwork():
@@ -186,7 +195,8 @@ def test_exif_orientation_and_safe_padding_preserve_full_artwork():
     decoded = Image.open(BytesIO(result))
     assert decoded.getpixel((10, 100))[0] > 220
     assert decoded.getpixel((190, 100))[2] > 220
-    assert all(abs(a - b) < 5 for a, b in zip(decoded.getpixel((100, 10)), (17, 34, 51)))
+    top = decoded.getpixel((100, 10))
+    assert top[0] + top[2] > 150 and top[1] < 60
 
 
 @pytest.mark.parametrize("size", [(0, 100), (100, -1), (9000, 100), (8192, 8192)])

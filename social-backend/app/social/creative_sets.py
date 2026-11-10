@@ -127,6 +127,8 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
         raise HTTPException(status_code=400, detail="Carousel creative sets require 2–8 slides")
     if len(slides) > 1 and payload.format not in (None, "carousel"):
         raise HTTPException(status_code=400, detail="Multiple creative slides require carousel format")
+    if payload.productAssetId:
+        service._product_asset_key(workspace["id"], payload.productAssetId)
     encoded = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
     fingerprint = hashlib.sha256(encoded.encode()).hexdigest()
     key = hashlib.sha256(f"{workspace['id']}:{payload.requestId}".encode()).hexdigest()
@@ -228,6 +230,8 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
         logo = None
         if payload.includeLogo:
             logo = service._load_logo_bytes(workspace["id"], brand.get("logo_url"), key=row.get("logo_key"))
+        single = len(row["slides"]) == 1
+        product = service._load_product_image(workspace["id"], payload.productAssetId) if payload.productAssetId and single and missing_bases else None
         for index, slide in enumerate(row["slides"], 1):
             slide_id = slide["id"]
             missing = [platform for platform in platforms if (slide_id, platform) not in completed]
@@ -291,6 +295,7 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
                     visual_treatment=getattr(payload, "visualTreatment", None) or "campaign_hero",
                     slide_prompt=slide.get("imagePrompt") or "",
                     series_style=(row["recipes"].get(row["slides"][0]["id"]) or {}).get("series", "") if index > 1 else "",
+                    concept_override=payload.concept.model_dump() if payload.concept and single else None,
                 )
                 brief = payload.brief or ""
                 caption_text = (payload.caption or "").strip()
@@ -316,6 +321,7 @@ def generate_creative_set(service, workspace: dict, user: dict, payload: Generat
                     variants = service.render_brand_creative_variants(
                         workspace, topic, row["style"], spec, missing,
                         brand=brand, logo_bytes=logo, base_image=base_bytes, on_base_ready=save_base,
+                        product_image=product if not base_bytes else None,
                     )
                 if slide_id not in row["bases"]:
                     raise RuntimeError("Creative renderer did not persist reusable base artwork")

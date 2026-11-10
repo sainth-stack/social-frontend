@@ -13,6 +13,13 @@ from app.core.database import _ensure_indexes, get_db
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def _single_image_candidate(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "image_candidates", 1)
+
+
 class FakeRedis:
     def __init__(self) -> None:
         self.store: dict[str, tuple[str, float | None]] = {}

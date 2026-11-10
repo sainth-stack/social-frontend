@@ -9,7 +9,7 @@ import { BrandTab } from "./AIStudioPage";
 const mocks = vi.hoisted(() => ({ saved: vi.fn(), logos: vi.fn(), reload: vi.fn(), success: vi.fn() }));
 vi.mock("@/api/endpoints/social-media.api", () => ({ default: {
   getBrandVoice: vi.fn(), saveBrandVoice: vi.fn(), testBrandVoice: vi.fn(),
-  getAIModels: vi.fn(), listBrandLogos: vi.fn(), uploadLogo: vi.fn(), setDefaultBrandLogo: vi.fn(), deleteBrandLogo: vi.fn(),
+  getAIModels: vi.fn(), listBrandLogos: vi.fn(), uploadLogo: vi.fn(), setDefaultBrandLogo: vi.fn(), deleteBrandLogo: vi.fn(), extractVisualStyle: vi.fn(),
 } }));
 vi.mock("sonner", () => ({ toast: { success: mocks.success, error: vi.fn() } }));
 vi.mock("next/navigation", () => ({ useRouter: vi.fn(), useSearchParams: vi.fn() }));
@@ -69,6 +69,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("BrandTab", () => {
+  it("fills the image style from an example image and saves it", async () => {
+    vi.mocked(socialMediaApi.extractVisualStyle).mockResolvedValue("Soft daylight photography with earthy tones");
+    mount();
+    await ready();
+    const file = new File(["x"], "look.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Describe style from an example image"), { target: { files: [file] } });
+    await waitFor(() => expect((screen.getByLabelText("Image style") as HTMLTextAreaElement).value).toBe("Soft daylight photography with earthy tones"));
+    expect(socialMediaApi.extractVisualStyle).toHaveBeenCalledWith("org-a", file);
+    submit();
+    await waitFor(() => expect(socialMediaApi.saveBrandVoice).toHaveBeenCalledWith("org-a", expect.objectContaining({ visualStyle: "Soft daylight photography with earthy tones" })));
+  });
   it("keeps a single form-bound save/reset action bar reachable on mobile", async () => {
     mount();
     await ready();
@@ -135,7 +146,7 @@ describe("BrandTab", () => {
       tones: ["Friendly"], wordsToUse: ["design", "support"], wordsToAvoid: ["cheap", "spam"],
       ctaPhrases: ["Book a call", "Contact us"], sentenceLength: "medium", emojiUsage: "sometimes", primaryLanguage: "en",
       systemPromptOverride: "Website: https://new.test\nKeep it clear", logoUrl: undefined,
-      primaryColor: "#654321", accentColor: "#abcdef",
+      primaryColor: "#654321", accentColor: "#abcdef", visualStyle: "",
     });
     expect(disabled("Save brand profile")).toBe(true);
     change("Business name", "Discard this");

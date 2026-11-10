@@ -53,7 +53,11 @@ class _ChatCompletions:
 
         for msg in messages:
             role = msg.get("role", "user")
-            content = str(msg.get("content") or "")
+            raw_content = msg.get("content")
+            if isinstance(raw_content, list) and role in ("user", "assistant"):
+                converse_messages.append({"role": role, "content": raw_content})
+                continue
+            content = str(raw_content or "")
             if role == "system":
                 system_blocks.append({"text": content})
             elif role in ("user", "assistant"):

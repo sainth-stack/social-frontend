@@ -96,6 +96,9 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="BEDROCK_IMAGE_REGION",
     )
+    image_candidates: int = Field(default=2, ge=1, le=4, validation_alias="IMAGE_CANDIDATES")
+    bedrock_vision_model_id: str = Field(default="", validation_alias="BEDROCK_VISION_MODEL_ID")
+    bedrock_image_services_region: str = Field(default="us-west-2", validation_alias="BEDROCK_IMAGE_SERVICES_REGION")
     video_generation_enabled: bool = Field(default=False, validation_alias="VIDEO_GENERATION_ENABLED")
     pexels_api_key: str = Field(default="", validation_alias="PEXELS_API_KEY", repr=False)
     ai_provider_pricing_json: str = Field(default="{}", validation_alias="AI_PROVIDER_PRICING_JSON")

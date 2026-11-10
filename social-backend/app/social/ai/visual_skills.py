@@ -1,18 +1,3 @@
-"""Visual Skills — content-category image generation strategies.
-
-Each VisualSkill is a named creative strategy matched to a category of social
-media post.  When a skill fires it locks the LLM into a specific concept type
-and medium so the LLM cannot default to a generic "stock-photo person in an
-office".  The LLM still fills in specifics (subject, setting, palette,
-composition) — the skill just prevents the wrong category from being chosen.
-
-Skill selection is intentional two-tier:
-  1. Fast keyword regex (synchronous, zero latency) — covers ≥90 % of posts.
-  2. For posts that match nothing: return None → art_direct() picks freely.
-
-Skill order matters — first match wins.  Stronger/narrower signals are placed
-before broader catch-alls.
-"""
 from __future__ import annotations
 
 import re
@@ -22,339 +7,243 @@ from typing import Optional, Tuple
 
 @dataclass(frozen=True)
 class VisualSkill:
-    """A content-category creative strategy for image art-direction."""
-
-    # Human-readable identifier shown in logs and warnings
     name: str
-    # Locked concept type — LLM MUST use this; overrides its free choice
     concept_type: str
-    # Full medium description that replaces the _MEDIUM[concept_type] default
-    medium_override: str
-    # Injected into the system prompt as LLM subject-generation guidance
+    medium: str
     subject_guide: str
-    # Regex pattern used for keyword fast-path matching (case-insensitive)
     trigger_pattern: str = ""
-    # Extra avoid terms appended to the negative prompt
+    industry_pattern: str = ""
     avoid_extra: Tuple[str, ...] = field(default_factory=tuple)
-    # Optional style suffix appended to the Bedrock prompt
-    style_hint: str = ""
 
     def matches(self, text: str) -> bool:
-        """Return True if the trigger pattern fires on ``text``."""
-        if not self.trigger_pattern:
-            return False
-        return bool(re.search(self.trigger_pattern, text, re.I))
+        return bool(self.trigger_pattern and text) and bool(re.search(self.trigger_pattern, text, re.I))
+
+    def matches_industry(self, industry: str) -> bool:
+        return bool(self.industry_pattern and industry) and bool(re.search(self.industry_pattern, industry, re.I))
 
 
-# ── Skill definitions ─────────────────────────────────────────────────────────
-#
-# Naming convention: skills are capitalised nouns describing the post category.
-# Each skill is imported by name in tests so keep them at module level.
+_GENERIC_PROPS = ("generic stock props", "random stationery", "unrelated seedling")
 
-VOICE_AMPLIFIER = VisualSkill(
-    name="VoiceAmplifier",
-    concept_type="abstract",
-    medium_override=(
-        "premium editorial still-life photography: one meaningful physical object on a minimal "
-        "clean surface; controlled soft-box studio lighting; crisp material detail; "
-        "shallow depth of field; no text, no screens, no devices, no people"
-    ),
-    subject_guide=(
-        "Choose ONE concrete physical object that embodies the post's central value promise — "
-        "photograph it as a studio still life. The object stands in as a metaphor; never show a person. "
-        "Examples by caption theme: "
-        "'voice not reaching people' → a vintage broadcast microphone in a warm spotlight on a dark surface; "
-        "'content attracts businesses' → an open book with pages fanning outward in soft natural light; "
-        "'earned credibility / authority' → a polished leather-bound notebook and a fine pen on a clean minimal desk; "
-        "'professional presence / brand' → a single elegant business card resting on a textured linen surface; "
-        "'organic reach without ads' → a single growing plant sprig in a minimalist ceramic pot, clean white background. "
-        "The subject is always one physical object or tight pair — no abstract shapes, no dots, no lines, no network patterns."
-    ),
-    avoid_extra=(
-        "megaphone",
-        "loudspeaker",
-        "network diagram",
-        "node graph",
-        "scatter plot",
-        "connection lines",
-        "word art",
-        "person in office",
-        "man in blazer",
-        "stock photo professional",
-    ),
-    style_hint="editorial still-life photography, single focal object, studio or window lighting, minimal background",
+HIRING_TEAM = VisualSkill(
+    name="hiring_team",
+    concept_type="people",
+    medium="candid documentary photography, natural window light, authentic workplace, shallow depth of field",
+    subject_guide="Show real people from this business doing the work that the post is about, in their actual workplace.",
     trigger_pattern=(
-        r"content marketing|thought leadership|earned (voice|media|attention)|"
-        r"build(s|ing)? credibility|your (voice|expertise|authority)|"
-        r"expertise into content|attract(s|ing)? business(es)?|"
-        r"voice.*reach|reach.*audience|professional.*presence|"
-        r"without.*paid ads|cold outreach|b2b\s*saa?s|saas.*marketing|"
-        r"inbound.*content|content.*inbound|organic reach|brand.*awareness|"
-        r"establish.*authority|position.*brand|content.*strategy"
+        r"\bwe(?:'re| are) hiring\b|\bnow hiring\b|\bjoin (?:our|the) team\b|\bopen (?:role|position)s?\b|"
+        r"\bjob opening\b|\bwelcome .{1,40} to the team\b|\bteam (?:offsite|spotlight|outing)\b|\bmeet the team\b"
+    ),
+    avoid_extra=("staged stock handshake", "forced smiles"),
+)
+
+CUSTOMER_STORY = VisualSkill(
+    name="customer_story",
+    concept_type="people",
+    medium="warm documentary portrait photography, natural light, real environment, genuine expression",
+    subject_guide="Show the customer experiencing the result the post describes, in the real setting where it happens.",
+    trigger_pattern=(
+        r"\b(?:client|customer) (?:story|spotlight|success|win)\b|\bcase study\b|\btestimonial\b|\breview from\b"
+    ),
+)
+
+EVENT_INVITE = VisualSkill(
+    name="event_invite",
+    concept_type="event",
+    medium="atmospheric event photography, warm venue lighting, engaged attendees, depth and energy",
+    subject_guide=(
+        "Show the atmosphere of this specific event: the venue, the speaker or host in action, or engaged attendees. "
+        "For online sessions show a presenter in a warm studio setup."
+    ),
+    trigger_pattern=(
+        r"\bwebinar\b|\bconference\b|\bsummit\b|\bworkshop\b|\bmeetup\b|\bgrand opening\b|\bfestival\b|\bexpo\b|"
+        r"\bexhibition\b|\blaunch party\b|\bjoin us (?:on|at|this|for)\b|\bregister now\b|\brsvp\b|\blive session\b"
+    ),
+    industry_pattern=r"\bevents?\b|\bwedding|\bconference",
+)
+
+FOOD_DRINK = VisualSkill(
+    name="food_drink",
+    concept_type="food",
+    medium="editorial food photography, natural side light, appetising texture, styled table, shallow depth of field",
+    subject_guide="Make the actual dish or drink the hero, freshly prepared and appetising, in the venue's own setting.",
+    trigger_pattern=(
+        r"\bbakery\b|\bbread\b|\bsourdough\b|\bcroissants?\b|\bpastr(?:y|ies)\b|\bcakes?\b|\bcaf[eé]\b|\bcoffee\b|"
+        r"\brestaurant\b|\brecipe\b|\bmenu\b|\bdish(?:es)?\b|\bchef\b|\bmeals?\b|\bdesserts?\b|\bpizza\b|\bcatering\b|"
+        r"\bbrunch\b|\bcocktails?\b|\bbiryani\b|\bburgers?\b|\bsmoothies?\b|\bfreshly baked\b"
+    ),
+    industry_pattern=r"food|restaurant|caf[eé]|bakery|catering|beverage|kitchen|cloud kitchen|coffee",
+    avoid_extra=("plastic looking food", "messy table"),
+)
+
+PROPERTY_SPACE = VisualSkill(
+    name="property_space",
+    concept_type="place",
+    medium="architectural and interior photography, golden hour or bright natural light, wide lens, true-to-life colour",
+    subject_guide="Show the actual property, room or space the post is about as an inviting place to be.",
+    trigger_pattern=(
+        r"\bvillas?\b|\bapartments?\b|\b\d\s?bhk\b|\bproperty\b|\breal estate\b|\binterior design\b|\bhome tour\b|"
+        r"\blisting\b|\bplots?\b|\bresort\b|\bhotel\b|\bstaycation\b|\bpenthouse\b|\bshowroom\b|\bnew home\b"
+    ),
+    industry_pattern=r"real estate|property|interior|architect|hotel|hospitality|resort|travel|construction",
+    avoid_extra=("distorted architecture", "warped lines"),
+)
+
+CARE_WELLNESS = VisualSkill(
+    name="care_wellness",
+    concept_type="people",
+    medium="clean bright lifestyle photography in a modern care setting, soft natural light, calm reassuring mood",
+    subject_guide=(
+        "Show the experience or outcome for the client: a confident smile, a calm treatment room, "
+        "a caring professional moment."
+    ),
+    trigger_pattern=(
+        r"\bclinic\b|\bdental\b|\bdentist\b|\bteeth\b|\bsmile makeover\b|\bdoctor\b|\bskin ?care\b|\bderma\w*\b|"
+        r"\bsalon\b|\bspa\b|\bphysio\w*\b|\btherapy\b|\bwellness\b|\bhair ?cut\b|\bfacial\b|\bpatients?\b"
+    ),
+    industry_pattern=r"health|clinic|dental|medical|wellness|beauty|salon|spa|physio|pharma|hospital",
+    avoid_extra=("needles", "blood", "clinical gore", "surgical close up"),
+)
+
+FITNESS_ACTIVE = VisualSkill(
+    name="fitness_active",
+    concept_type="people",
+    medium="dynamic sports photography, natural or dramatic gym light, motion and energy, authentic effort",
+    subject_guide="Show real people training or moving in the setting the post describes, mid-action and energetic.",
+    trigger_pattern=(
+        r"\bgym\b|\bworkouts?\b|\bboot ?camp\b|\bfitness\b|\byoga\b|\bmarathon\b|\bcrossfit\b|\bpilates\b|"
+        r"\bstrength training\b|\bpersonal train\w*\b|\bathletes?\b|\brunning club\b|\bhiit\b"
+    ),
+    industry_pattern=r"fitness|gym|sport|yoga|athlet|martial",
+)
+
+PRODUCT_LAUNCH = VisualSkill(
+    name="product_launch",
+    concept_type="product",
+    medium="premium commercial product photography, styled surface, controlled soft light, crisp material detail",
+    subject_guide=(
+        "Make the actual product the hero. For software or services, show the tangible real-world outcome "
+        "it creates for a customer instead of a device or screen."
+    ),
+    trigger_pattern=(
+        r"\bnew feature\b|\bjust (?:shipped|launched|dropped)\b|\bintroducing\b|\bproduct (?:launch|update|release)\b|"
+        r"\bnew (?:collection|range|arrivals?|flavou?r|product|menu item)\b|\bback in stock\b|\brestock\w*\b|"
+        r"\bnow (?:live|available) (?:on|in|at|for)\b"
+    ),
+    industry_pattern=r"retail|e-?commerce|fashion|jewel|furniture|cosmetic|apparel|consumer goods|d2c",
+    avoid_extra=("floating laptop mockup", "ui screenshot", "generic device frame"),
+)
+
+OFFER_PROMO = VisualSkill(
+    name="offer_promo",
+    concept_type="product",
+    medium="vibrant commercial still life, celebratory styling, clean bright light, rich colour",
+    subject_guide=(
+        "Show what the customer actually gets from the offer, the product or service experience, "
+        "in an inviting celebratory scene."
+    ),
+    trigger_pattern=(
+        r"\b\d+\s?% off\b|\bflat \d+|\bsale\b|\bdiscount\w*\b|\bspecial offer\b|\bdeals?\b|\bcoupon\b|"
+        r"\bfree shipping\b|\blimited time\b|\bbuy one\b|\bblack friday\b|\bdiwali offer\b|\bfestive offer\b"
     ),
 )
 
 FOUNDER_STORY = VisualSkill(
-    name="FounderStory",
+    name="founder_story",
     concept_type="people",
-    medium_override=(
-        "authentic candid documentary photography: a genuine real-world moment that "
-        "embodies the turning point or insight in the caption; "
-        "warm natural light, environmental context that reflects the story's setting; "
-        "genuine expression — NOT a posed corporate portrait, NOT an office headshot"
-    ),
-    subject_guide=(
-        "The subject is a generic stand-in for the post author. "
-        "The scene must reflect the SPECIFIC moment, challenge, or emotion described in the caption "
-        "(e.g. 'I almost quit after six months' → a person looking pensively at a screen late at night; "
-        "'we closed our first enterprise deal' → a quiet celebratory exhale at a desk; "
-        "'the lesson I wish I learned earlier' → a person writing in a notebook at a window). "
-        "No generic smiling-at-camera poses; no conference rooms; "
-        "the scene must be earned by the caption's story."
-    ),
-    avoid_extra=(
-        "corporate headshot",
-        "posed portrait",
-        "looking at camera smiling",
-        "generic office backdrop",
-        "stock photo professional",
-        "conference room",
-    ),
+    medium="cinematic documentary photography, natural light, authentic environment, quiet emotional moment",
+    subject_guide="Show a real moment from the journey described: the place, the work or the turning point.",
     trigger_pattern=(
-        r"\bI (built|started|quit|learned|failed|almost|realised|realized|"
-        r"decided|launched|discovered|nearly|struggled)\b|"
-        r"\bmy (startup|journey|story|co-?founder|first client|first sale)\b|"
-        r"\bwe (started|built|launched|closed|failed|grew|almost|lost)\b|"
-        r"\d+ year[s]? ago\b|two years ago|six months ago|"
-        r"when I was|what I (learned|wish I knew|discovered)|"
-        r"the hardest (part|lesson|year)|looking back"
-    ),
-)
-
-DATA_INSIGHT = VisualSkill(
-    name="DataInsight",
-    concept_type="data",
-    medium_override=(
-        "minimal editorial still-life photography: a single physical object or tight arrangement "
-        "that embodies scale, growth, or directional change; "
-        "studio lighting; clean minimal background; no charts, no screens, no text, no numbers"
-    ),
-    subject_guide=(
-        "Translate the key statistic or finding into ONE concrete physical object metaphor — never a chart. "
-        "Examples by stat theme: "
-        "'majority metric (e.g. 83%, 87%)' → a tall single lit candle against a dark minimal background, "
-        "representing the dominant proportion by its height and light; "
-        "'growth / improvement stat' → a single young green plant or seedling in clean soil, "
-        "photographed from the side to show upward direction; "
-        "'comparison or contrast stat' → two objects of contrasting sizes or conditions side by side — "
-        "a small blunt pencil beside a sharp tall one on a white surface; "
-        "'speed or efficiency gain' → a single stopwatch or hourglass on a clean surface, studio lit. "
-        "The number itself must NOT appear in the image — only its visual story."
-    ),
-    avoid_extra=(
-        "bar chart",
-        "pie chart",
-        "line graph",
-        "spreadsheet",
-        "numbers in image",
-        "dashboard screenshot",
-        "text labels",
-        "axis labels",
-        "network diagram",
-        "scatter plot",
-        "data visualization graphic",
-    ),
-    trigger_pattern=(
-        r"\d+\s*%|\d+x\s*(more|faster|better|growth|return)|\bROI\b|"
-        r"\bstatistic[s]?\b|\bsurvey (found|shows?|report)\b|\bbenchmark\b|"
-        r"\bgrowth rate\b|\brevenue\b.{0,40}\bgrew\b|\bpercent\b|"
-        r"\breport (found|shows?|reveals?)\b|\bdata (shows?|suggests?|reveals?)\b|"
-        r"according to (our|the|a) (study|report|survey|data)"
-    ),
-)
-
-PRODUCT_HERO = VisualSkill(
-    name="ProductHero",
-    concept_type="product",
-    medium_override=(
-        "premium commercial still-life photography: the product or its core capability "
-        "shown as a clean physical artefact on a minimal styled surface; "
-        "controlled soft-box lighting; crisp material detail; "
-        "restrained background — NOT a floating mockup, NOT a UI screenshot"
-    ),
-    subject_guide=(
-        "Represent the product's core value as a tangible object or physical metaphor. "
-        "If it is a software product, translate its key capability into a physical scene "
-        "(e.g. 'one-click reports' → a single elegant button on a clean surface; "
-        "'automated scheduling' → a beautifully arranged calendar with one highlighted block). "
-        "Avoid: floating device frames, generic laptop/phone mockups, UI screenshots."
-    ),
-    avoid_extra=(
-        "floating laptop mockup",
-        "floating phone mockup",
-        "UI screenshot",
-        "generic device frame",
-        "stock photo device",
-        "dashboard screenshot",
-    ),
-    trigger_pattern=(
-        r"\bnew feature\b|\bjust shipped\b|\bnow (live|available)\b|"
-        r"\bintegration (with|for)\b|\buse case\b|"
-        r"\bproduct (update|launch|release|announcement)\b|"
-        r"\bwe[']?ve? (built|shipped|released|launched|added)\b|"
-        r"\bintroducing\b|\bannouncing\b.{0,60}\b(feature|update|tool)\b|"
-        r"\brelease (note[s]?|update)\b|\bv\d+\.\d+\b"
+        r"\bI (?:built|started|quit|learned|learnt|failed|almost|realised|realized|decided|launched|nearly|struggled)\b|"
+        r"\bmy (?:startup|journey|story|co-?founder|first (?:client|customer|sale|hire))\b|\blooking back\b|"
+        r"\bthe hardest (?:part|lesson|year)\b|\b\d+ years? ago\b"
     ),
 )
 
 HOW_TO_GUIDE = VisualSkill(
-    name="HowToGuide",
+    name="how_to_guide",
     concept_type="educational",
-    medium_override=(
-        "editorial concept photography: a single physical object that embodies the transformation "
-        "or key outcome of the guide; clean minimal background; professional product photography lighting; "
-        "no people, no text, no devices, no diagrams"
-    ),
+    medium="clean editorial photography of a real-world scene, soft directional light, clear single focal point",
     subject_guide=(
-        "Show the OUTCOME or TRANSFORMATION of the guide as ONE concrete physical object — never a diagram. "
-        "Examples by guide theme: "
-        "'how to write better posts / improve content' → a single sharpened pencil resting on a blank open notebook, "
-        "studio lit on a clean white surface; "
-        "'how to grow your audience / reach' → a single small seedling in a minimal ceramic pot, "
-        "soft natural window light from the side; "
-        "'mistakes to avoid / before-and-after' → a crumpled sheet of paper beside a perfectly smooth flat one "
-        "on a white desk surface; "
-        "'framework / process / strategy' → a single compass or ruler on a clean textured surface; "
-        "'hiring / team building' → a single chess piece (e.g. queen) on a clean minimal board surface. "
-        "Photograph the object as a studio still life — no numbered steps, no arrows, no list layouts."
-    ),
-    avoid_extra=(
-        "numbered steps",
-        "list layout",
-        "text labels in image",
-        "flowchart",
-        "flowchart diagram",
-        "cluttered diagram",
-        "network diagram",
-        "step-by-step visual",
-        "arrows with labels",
-        "word art",
+        "Depict the real-world situation the advice improves, or the finished result of following it, "
+        "using objects and places specific to this topic and industry."
     ),
     trigger_pattern=(
-        r"\bhow to\b|\bsteps? to\b|\bguide (to|for|on)\b|\bframework (for|to)\b|"
-        r"\btips? (for|to|on|about)\b|\bcheckli[s]t\b|"
-        r"\bcommon mistakes?\b|\blessons? (from|I learned|learned)\b|"
-        r"\bways? to\b|\bbest practices?\b|\bexplained\b|"
-        r"\bbreakdown of\b|\bhere[']?s? how\b|\bsecrets? (to|of|behind)\b"
+        r"\bhow to\b|\bstep[- ]by[- ]step\b|\b\d+\s+(?:\w+\s+){0,3}(?:tips|ways|steps|mistakes|lessons|rules|habits|ideas)\b|"
+        r"\bchecklist\b|\bguide (?:to|for)\b|\bbest practices\b|\bcommon mistakes\b|\bmistakes to avoid\b"
     ),
+    avoid_extra=_GENERIC_PROPS,
 )
 
-COMMUNITY_PULSE = VisualSkill(
-    name="CommunityPulse",
-    concept_type="people",
-    medium_override=(
-        "authentic candid documentary photography: two or more people in genuine interaction — "
-        "a real conversation, collaboration, or shared moment of energy; "
-        "warm natural light; informal or semi-professional environment that feels real; "
-        "NOT a posed group photo, NOT a corporate team headshot"
-    ),
+DATA_INSIGHT = VisualSkill(
+    name="data_insight",
+    concept_type="data",
+    medium="minimal conceptual editorial photography, one symbolic real-world scene, clean uncluttered background",
     subject_guide=(
-        "Show a specific genuine human interaction that reflects the community, team, "
-        "or relationship energy described in the caption. "
-        "e.g. 'we are hiring' → two people in a focused engaged working conversation; "
-        "'client success story' → a collaborative moment between two professionals looking at shared work; "
-        "'growing our team' → a welcoming informal onboarding scene. "
-        "The interaction must feel real and unposed; no forced smiles or conference-table setups."
-    ),
-    avoid_extra=(
-        "posed group headshot",
-        "corporate team photo",
-        "forced smiles",
-        "conference room table",
-        "stock photo meeting",
-        "business handshake",
+        "Translate the finding into one concrete scene from this industry that makes the insight tangible, "
+        "instead of a chart or numbers."
     ),
     trigger_pattern=(
-        r"\b(we[']?re|we are) hiring\b|\bjoin (our|the) team\b|"
-        r"\b(team|squad|crew) (update|announcement|spotlight|moment)\b|"
-        r"\bclient (story|success|win|result)\b|"
-        r"\bcustomer (story|spotlight|win|success)\b|"
-        r"\bcommunity (update|event|milestone|shout-?out)\b|"
-        r"\bgrowing (our|the) team\b|\bnew (team member|hire|addition)\b"
+        r"\b\d+(?:\.\d+)?\s?%(?!\s*off)|\bsurvey\b|\bstatistics?\b|\bbenchmark\b|\breport (?:found|shows)\b|"
+        r"\bdata (?:shows|suggests)\b|\baccording to (?:a|the|our) (?:study|report|survey)\b"
     ),
+    avoid_extra=("charts", "graphs", "dashboards", "numbers"),
+)
+
+THOUGHT_LEADERSHIP = VisualSkill(
+    name="thought_leadership",
+    concept_type="abstract",
+    medium="editorial still-life or environmental photography, one meaningful focal object, refined light",
+    subject_guide=(
+        "Choose a concrete object or scene specific to this post's actual argument and the brand's industry, "
+        "different from previous posts."
+    ),
+    trigger_pattern=(
+        r"\bthought leadership\b|\bpersonal brand\w*\b|\blinkedin (?:content|posts?|presence)\b|"
+        r"\bcontent (?:marketing|strategy)\b|\bb2b\b|\bcredibility\b|\borganic reach\b|\binbound\b"
+    ),
+    avoid_extra=_GENERIC_PROPS + ("microphone", "chess pieces"),
 )
 
 INSPIRATION_QUOTE = VisualSkill(
-    name="InspirationQuote",
+    name="inspiration_quote",
     concept_type="quote",
-    medium_override=(
-        "atmospheric fine-art background: soft bokeh, subtle light leak, or calm "
-        "textured wash; colour palette that evokes the emotional tone of the quote; "
-        "absolutely no competing subjects — the image exists purely to elevate text"
-    ),
-    subject_guide=(
-        "The entire image is a background layer for text overlay. "
-        "Use light, colour wash, and soft texture as the visual language. "
-        "No objects, no people, no literal interpretation of the quote's words. "
-        "Colour temperature should match the emotional tone: "
-        "warm amber for resilience/gratitude, cool blue for strategy/clarity, "
-        "soft white for calm/wisdom."
-    ),
-    avoid_extra=(
-        "busy background",
-        "literal subject",
-        "person",
-        "objects",
-        "distraction from text area",
-        "sharp foreground subject",
-    ),
-    trigger_pattern=(
-        r"\b(the )?(truth|key|secret|real lesson|hard truth|reality) (is|about)\b|"
-        r"\b(always|never|remember|don[']?t forget)\b.{0,80}\b(that|this|you|yourself)\b|"
-        r"\bquote\b|\bmindset\b|\binspir[ae]|"
-        r"\bwhat (success|failure|growth|resilience) (looks like|taught me|really means)\b|"
-        r"simple (truth|reminder)|words (to live|I live) by"
-    ),
+    medium="atmospheric fine-art photograph, soft light and texture, calm low-detail centre, depth and mood",
+    subject_guide="Create a calm atmospheric scene that matches the feeling of the quote, with open space at the centre.",
+    trigger_pattern=r"\bquote of the day\b|\bmonday motivation\b|\bas .{2,40} once said\b",
 )
-
-
-# ── Master skill list ─────────────────────────────────────────────────────────
-#
-# ORDER MATTERS — first match wins.
-# Narrow / explicit signals come first; broad catch-alls come last.
-#
-# HOW_TO_GUIDE before DATA_INSIGHT: "how to get 10x results" is a guide,
-# not a data story — the explicit how-to signal wins over a stray number.
 
 VISUAL_SKILLS: tuple[VisualSkill, ...] = (
-    PRODUCT_HERO,         # explicit product launch/feature signals — very narrow
-    FOUNDER_STORY,        # first-person narrative ("I built", "we launched")
-    COMMUNITY_PULSE,      # team / hiring / client signals
-    HOW_TO_GUIDE,         # how-to / framework / checklist — before DataInsight
-    DATA_INSIGHT,         # numeric/statistical signals — loses to explicit how-to
-    INSPIRATION_QUOTE,    # quote / mindset / inspiration
-    VOICE_AMPLIFIER,      # broadest catch-all for SaaS / marketing value props — last
+    HIRING_TEAM,
+    CUSTOMER_STORY,
+    FOOD_DRINK,
+    EVENT_INVITE,
+    PROPERTY_SPACE,
+    CARE_WELLNESS,
+    FITNESS_ACTIVE,
+    PRODUCT_LAUNCH,
+    OFFER_PROMO,
+    FOUNDER_STORY,
+    HOW_TO_GUIDE,
+    DATA_INSIGHT,
+    THOUGHT_LEADERSHIP,
+    INSPIRATION_QUOTE,
 )
 
 
-def select_visual_skill(caption: str, topic: str = "") -> Optional[VisualSkill]:
-    """Return the best-matched VisualSkill for this post, or None.
-
-    Matching is keyword-only (synchronous, zero latency).
-    Returns None when no skill fires — art_direct() then picks the concept freely.
-
-    Args:
-        caption: Cleaned post caption (platform labels already stripped).
-        topic:   User's original brief / campaign context.
-    """
-    combined = f"{caption} {topic}"
+def select_visual_skill(
+    caption: str, topic: str = "", industry: str = "", post_format: str = ""
+) -> Optional[VisualSkill]:
+    if (post_format or "").lower() == "quote":
+        return INSPIRATION_QUOTE
+    for text in (caption, topic):
+        for skill in VISUAL_SKILLS:
+            if skill.matches(text or ""):
+                return skill
     for skill in VISUAL_SKILLS:
-        if skill.matches(combined):
+        if skill.matches_industry(industry or ""):
             return skill
     return None
 
-
-# ── Utility ───────────────────────────────────────────────────────────────────
 
 _PLATFORM_LABEL_RE = re.compile(
     r"^(linkedin|facebook|instagram|twitter|x|threads|pinterest)\s*:\s*\n+",
@@ -363,20 +252,4 @@ _PLATFORM_LABEL_RE = re.compile(
 
 
 def strip_platform_labels(caption: str) -> str:
-    """Remove channel-routing prefixes injected by the frontend.
-
-    The AI Studio and planner inject labels like ``'linkedin:\\n'`` so the
-    backend knows which caption belongs to which platform.  Before the caption
-    reaches the image LLM these labels must be stripped — they are routing
-    metadata, not content.
-
-    Examples::
-
-        'linkedin:\\nMost businesses struggle...' → 'Most businesses struggle...'
-        'facebook:\\nBuilding a business...'      → 'Building a business...'
-
-    When a caption contains sections for multiple platforms each section label
-    is removed but the content of all sections is preserved (the image LLM
-    should see all approved captions as one rich content source).
-    """
     return _PLATFORM_LABEL_RE.sub("", caption or "").strip()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -131,15 +132,15 @@ def test_art_direct_no_overlay_copy_when_disabled(art_direction_response):
 def test_visual_prompt_composition_matches_target_without_overlay(platform, fmt, frame):
     spec = CreativeSpec(platform=platform, format=fmt)
     prompt = build_visual_prompt("Garden volunteers", spec, {}, None)
-    width, height = target_size(fmt, platform)
-    assert f"{width}x{height}" in prompt and frame in prompt
+    assert frame.split()[1] in prompt
     assert "lower third" not in prompt and "upper two-thirds" not in prompt
-    assert "no reserved headline area" in prompt
+    assert "full-bleed composition with the focal subject inside the central safe area" in prompt
+    assert not re.search(r"\d{3,4}x\d{3,4}", prompt)
 
 
 def test_visual_prompt_reserves_overlay_space_only_when_enabled():
     prompt = build_visual_prompt("Garden volunteers", CreativeSpec(text_overlay=True), {}, None)
-    assert "calm uncluttered lower third" in prompt
+    assert "calm open space in the lower third" in prompt
 
 
 @pytest.mark.parametrize("platform,expected", [
@@ -152,7 +153,8 @@ def test_visual_prompt_is_subject_first_short_and_channel_aware(platform, expect
     prompt = build_visual_prompt("Founder explains customer onboarding", CreativeSpec(platform=platform, visual_treatment="minimal"), {}, None)
     assert prompt.startswith("Founder explains customer onboarding")
     assert expected in prompt
-    assert "No text, letters, numbers, logos or watermarks" in prompt
+    assert "Plain unbranded surfaces" in prompt
+    assert not re.search(r"\b(?:no|not|without|never)\b", prompt.split(". Generic models")[0], re.I)
     assert "restrained minimal styling" in prompt
     assert len(prompt) < 1200
 
@@ -265,7 +267,7 @@ def test_render_prompt_is_compact_and_grounded(monkeypatch, directed):
     caption = "We grow as a community. " * 30 + "Plant herbs with neighbors this Saturday."
     concept = VisualConcept(concept_type="people", subject="Gardener kneeling to water young seedlings with a copper can", lighting="soft morning light", avoid=["mature trees"])
     if directed:
-        monkeypatch.setattr(creative, "art_direct", lambda *args: (concept, OverlayCopy()))
+        monkeypatch.setattr(creative, "art_direct", lambda *args, **kwargs: (concept, OverlayCopy()))
     else:
         monkeypatch.setattr(creative, "art_direct", Mock(side_effect=RuntimeError("offline")))
     generate = Mock(return_value={"imageB64": _png()})
@@ -274,9 +276,10 @@ def test_render_prompt_is_compact_and_grounded(monkeypatch, directed):
     monkeypatch.setattr(creative, "compose_creative", compose)
     result = render_creative(topic=topic, style=None, spec=CreativeSpec(caption=caption), brand={})
     prompt = generate.call_args.kwargs["prompt_override"]
-    expected = concept.subject if directed else "A gardener among seedlings. Only show green seedlings"
+    expected = concept.subject if directed else "We grow as a community. Plant herbs with neighbors this Saturday"
     assert prompt.startswith(expected)
-    assert "No text, letters, numbers, logos or watermarks" in prompt
+    assert prompt.endswith("Plain unbranded surfaces, high detail, professional finish.")
+    assert "text, letters" in generate.call_args.kwargs["negative_prompt"]
     assert result.prompt == prompt and len(prompt) < 1500
     assert compose.call_args.kwargs["copy"] is None and result.copy == OverlayCopy()
     assert ("mature trees" in generate.call_args.kwargs["negative_prompt"]) is directed

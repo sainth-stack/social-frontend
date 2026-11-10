@@ -95,12 +95,16 @@ def test_corrupt_bytes_are_safe_decode_failures(raw):
     assert failure.value.code == "IMAGE_DECODE_FAILED"
 
 
-def test_default_aspect_padding_is_white_but_explicit_dark_brand_is_preserved():
+def test_default_aspect_padding_uses_artwork_fill_and_transparent_art_uses_brand_fill():
     raw = encoded(textured().resize((128, 64)))
     neutral = decode_image(compose_creative(raw, width=128, height=128))
     branded = decode_image(compose_creative(raw, width=128, height=128, primary_color="#112233"))
-    assert min(neutral.getpixel((64, 4))[:3]) > 245
-    assert all(abs(actual - expected) < 5 for actual, expected in zip(branded.getpixel((64, 4))[:3], (17, 34, 51)))
+    assert neutral.getpixel((64, 4)) == branded.getpixel((64, 4))
+    assert max(neutral.getpixel((64, 4))[:3]) < 245
+    shape = Image.new("RGBA", (128, 64), (0, 0, 0, 0))
+    ImageDraw.Draw(shape).ellipse((40, 10, 90, 54), fill=(200, 40, 40, 255))
+    flat = decode_image(compose_creative(encoded(shape), width=128, height=128, primary_color="#112233"))
+    assert all(abs(actual - expected) < 5 for actual, expected in zip(flat.getpixel((64, 4))[:3], (17, 34, 51)))
 
 
 def test_prompt_budget_keeps_subject_first_with_style_brand_and_tail_constraints(monkeypatch):
@@ -112,15 +116,16 @@ def test_prompt_budget_keeps_subject_first_with_style_brand_and_tail_constraints
     spec = CreativeSpec(caption=caption, format="carousel")
     prompt = creative.build_visual_prompt(subject, spec, brand, style)
     assert len(prompt) < 2000
-    assert prompt.startswith("Physical bicycle repair workshop")
-    for constraint in ("Only show real bicycle tools", "no robots", "Bicycle repair", "Linocut illustration", "red and cream palette", "vibrant red"):
+    assert prompt.startswith("Approved message: repair instead of replace")
+    for constraint in ("Bicycle repair", "Linocut illustration", "red and cream palette", "vibrant red"):
         assert constraint in prompt
+    assert "fabricated performance charts" not in prompt
     assert "Workshop Workshop" not in prompt and "Warm Warm" not in prompt
     body = bedrock_image._stability_text_to_image_body(prompt=prompt, width=1080, height=1350)
     assert body["prompt"] == prompt
     generate = Mock(return_value={"imageB64": encoded(textured())})
     monkeypatch.setattr(creative, "generate_post_image", generate)
-    monkeypatch.setattr(creative, "art_direct", lambda *args: ("Detailed subordinate visual. " * 1000 + "Keep bicycle tools visible.", OverlayCopy()))
+    monkeypatch.setattr(creative, "art_direct", lambda *args, **kwargs: ("Detailed subordinate visual. " * 1000 + "Keep bicycle tools visible.", OverlayCopy()))
     creative.render_creative(topic=subject, style=style, spec=spec, brand=brand)
     sent = generate.call_args.kwargs["prompt_override"]
     assert len(sent) < 2000

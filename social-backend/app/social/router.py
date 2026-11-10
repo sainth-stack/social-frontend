@@ -64,6 +64,8 @@ from app.social.schemas import (
     GeneratePostResponse,
     GenerateVideoRequest,
     GenerateVideoResponse,
+    ImageConceptsRequest,
+    ImageConceptsResponse,
     MediaAssetListParams,
     MediaAssetListResponse,
     MediaAssetOut,
@@ -83,6 +85,7 @@ from app.social.schemas import (
     UpdateSocialPostRequest,
     UploadLogoResponse,
     UploadVideoResponse,
+    VisualStyleResponse,
 )
 from app.social.service import SocialMediaService
 from app.social.planner_router import router as planner_router
@@ -813,6 +816,8 @@ def generate_image(
             slide_index=payload.slideIndex,
             slide_count=payload.slideCount,
             visual_treatment=payload.visualTreatment,
+            concept_override=payload.concept.model_dump() if payload.concept else None,
+            product_asset_id=payload.productAssetId or None,
         )
     with selected_models(models), metering_scope(db, workspace["id"], user["id"], "image"):
         return SocialMediaService(db).generate_image(
@@ -825,6 +830,31 @@ def generate_image(
             source_image_url=payload.sourceImageUrl,
             creative=creative,
         )
+
+
+@router.post("/image-concepts", response_model=ImageConceptsResponse)
+def suggest_image_concepts(
+    payload: ImageConceptsRequest,
+    workspace: dict = Depends(require_workspace_access),
+    db: Database = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    models: ModelSelection = Depends(validate_model_selection),
+) -> ImageConceptsResponse:
+    with selected_models(models), metering_scope(db, workspace["id"], user["id"], "image-concepts"):
+        return SocialMediaService(db).suggest_image_concepts(workspace, user, payload)
+
+
+@router.post("/brand-voice/visual-style", response_model=VisualStyleResponse)
+async def describe_visual_style(
+    workspace: dict = Depends(require_workspace_access),
+    db: Database = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    file: UploadFile = File(...),
+) -> VisualStyleResponse:
+    require_permission(db, workspace, user, SocialPermission.EDITOR)
+    data = await read_upload(file, MAX_IMAGE_BYTES)
+    with metering_scope(db, workspace["id"], user["id"], "visual-style"):
+        return await run_in_threadpool(SocialMediaService(db).describe_visual_style, workspace, user, data)
 
 
 @router.post("/upload-logo", response_model=UploadLogoResponse)

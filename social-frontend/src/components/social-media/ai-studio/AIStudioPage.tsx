@@ -124,6 +124,7 @@ import type {
   GeneratedTweet,
   CreativeSetItem,
   GenerateCreativeSetPayload,
+  ImageConcept,
   StoredSlide,
   LogoPosition,
   MediaAsset,
@@ -553,6 +554,11 @@ function GenerateTab({
   const includeComment = includeCommentOverride ?? workspaceFirstComment;
   const [alsoGenerateImage, setAlsoGenerateImage] = useState(true);
   const [artDirection, setArtDirection] = useState("");
+  const [concepts, setConcepts] = useState<ImageConcept[]>([]);
+  const [selectedConcept, setSelectedConcept] = useState<ImageConcept | null>(null);
+  const [conceptsLoading, setConceptsLoading] = useState(false);
+  const [productAsset, setProductAsset] = useState<MediaAsset | null>(null);
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [copyApproval, setCopyApproval] = useState<{ version: 1; fingerprint: string } | null>(null);
   const imagePreferenceChanged = useRef(false);
   const [visualFormat, setVisualFormat] = useState<VisualFormat>("auto");
@@ -983,6 +989,24 @@ function GenerateTab({
     }
   };
 
+  const exploreConcepts = async () => {
+    if (!orgId || conceptsLoading || !prompt.trim()) return;
+    setConceptsLoading(true);
+    try {
+      const items = await socialMediaApi.generateImageConcepts(orgId, {
+        topic: prompt.trim(), caption: approvedCaptionContext(approvedPlatforms) || undefined, style: artDirection.trim() || undefined,
+        format: resolvedVisualFormat, platform: previewPlatform, useBrand: true, productPhoto: Boolean(productAsset),
+      });
+      if (!mounted.current) return;
+      setConcepts(items);
+      setSelectedConcept(null);
+    } catch {
+      if (mounted.current) toast.error("Could not suggest image ideas. Try again.");
+    } finally {
+      if (mounted.current) setConceptsLoading(false);
+    }
+  };
+
   const runCreativeSet = async (retry = false, statusOnly = false) => {
     if (prefillMedia) return;
     if (!canApproveCopy) { toast.error("Write or generate captions on the Text step first."); return; }
@@ -1006,6 +1030,8 @@ function GenerateTab({
       textOverlay: headlineOnImage,
       autoCopy: !list?.length, includeEmojis: includeEmojis && !brandForbidsEmoji, includeLogo: includeLogo && Boolean(selectedLogo),
       logoId: selectedLogo?.id ?? null, logoPosition, useBrand: true, visualTreatment: "campaign_hero",
+      concept: !list?.length && selectedConcept ? selectedConcept : undefined,
+      productAssetId: !list?.length && productAsset ? productAsset.id : undefined,
     };
     const sameRequest = request.requestId === creativeRequest?.requestId;
     if (!sameRequest) {
@@ -1809,6 +1835,24 @@ function GenerateTab({
               <Label htmlFor="studio-art-direction">Image style (optional)</Label>
               <Textarea id="studio-art-direction" value={artDirection} maxLength={2000} rows={2} placeholder="e.g. founder at desk with microphone, modern office, soft daylight — or your own scene" onChange={(event) => setArtDirection(event.target.value)} />
             </div>}
+            {alsoGenerateImage && !prefillMedia && type !== "Carousel" && type !== "Thread" && <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="outline" disabled={!orgId || !canEdit || conceptsLoading || !prompt.trim()} onClick={() => void exploreConcepts()}>{conceptsLoading ? "Finding ideas..." : "Explore image ideas"}</Button>
+                <Button type="button" size="sm" variant="outline" disabled={!orgId || !canEdit} onClick={() => setProductPickerOpen(true)}>{productAsset ? "Change product photo" : "Use my product photo"}</Button>
+                {productAsset && <Button type="button" size="sm" variant="ghost" onClick={() => { markVisualsStale(); setProductAsset(null); }}>Remove product photo</Button>}
+              </div>
+              {productAsset && <p className="text-xs text-muted-foreground">Your product photo will be placed into a new scene.</p>}
+              {concepts.length > 0 && <div role="radiogroup" aria-label="Image ideas" className="grid gap-2 sm:grid-cols-3">
+                {concepts.map((concept) => {
+                  const selected = selectedConcept === concept;
+                  return <button key={concept.title + concept.subject} type="button" role="radio" aria-checked={selected} onClick={() => { markVisualsStale(); setSelectedConcept(selected ? null : concept); }} className={`rounded-lg border p-2 text-left text-xs transition ${selected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}>
+                    <span className="block font-medium">{concept.title}</span>
+                    <span className="mt-1 block text-muted-foreground">{concept.subject}</span>
+                    {concept.medium && <span className="mt-1 block text-[10px] text-muted-foreground">{concept.medium}</span>}
+                  </button>;
+                })}
+              </div>}
+            </div>}
             {alsoGenerateImage && !prefillMedia ? (
               <>
                 <div className="flex items-center gap-3 rounded-lg bg-muted/40 p-2">
@@ -2206,6 +2250,12 @@ function GenerateTab({
       onSetPrefillMedia(prefillFromAsset(asset, orgId));
       return true;
     }} />
+    <MediaPicker workspaceId={orgId} open={productPickerOpen && !busy && !saving} onOpenChange={setProductPickerOpen} contextKey={`${draftId ?? "new"}/product`} onSelect={asset => {
+      if (asset.mediaType !== "image") { toast.error("Choose an image of your product."); return false; }
+      markVisualsStale();
+      setProductAsset(asset);
+      return true;
+    }} />
     </div>
   );
 }
@@ -2356,6 +2406,7 @@ const emptyBrand: BrandVoicePayload = {
   logoUrl: null,
   primaryColor: "",
   accentColor: "",
+  visualStyle: "",
 };
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -2433,6 +2484,7 @@ export function BrandTab({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewDraft, setPreviewDraft] = useState("");
+  const [extractingStyle, setExtractingStyle] = useState(false);
   const scopeRef = useRef({ orgId, active: true });
   const operationRef = useRef<symbol | null>(null);
   const loadRef = useRef(0);
@@ -2498,6 +2550,7 @@ export function BrandTab({
         logoUrl: bv.logoUrl ?? null,
         primaryColor: bv.primaryColor ?? "",
         accentColor: bv.accentColor ?? "",
+        visualStyle: bv.visualStyle ?? "",
       };
       const next = {
         form: nextForm,
@@ -2855,6 +2908,25 @@ export function BrandTab({
               <p className="bg-card px-3 py-1.5 text-[10px] text-muted-foreground">
                 {primary || accent ? "Color swatch · not a generated image" : "No colors set. A palette is picked for each image."}
               </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="brand-visual-style" className="text-xs">Image style</Label>
+              <Textarea id="brand-visual-style" value={form.visualStyle ?? ""} maxLength={600} rows={3} placeholder="e.g. warm natural-light photography, earthy tones, calm uncluttered scenes" onChange={(event) => patch("visualStyle", event.target.value)} />
+              <Label htmlFor="brand-visual-style-upload" className="inline-flex cursor-pointer text-xs text-primary underline-offset-2 hover:underline">{extractingStyle ? "Reading image..." : "Describe style from an example image"}</Label>
+              <input id="brand-visual-style-upload" type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={extractingStyle || !orgId} onChange={async (event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file || !orgId) return;
+                setExtractingStyle(true);
+                try {
+                  const style = await socialMediaApi.extractVisualStyle(orgId, file);
+                  if (scopeRef.current.active) patch("visualStyle", style.slice(0, 600));
+                } catch (err) {
+                  toast.error(extractErrorMessage(err, "Could not read the image style"));
+                } finally {
+                  setExtractingStyle(false);
+                }
+              }} />
             </div>
             </div>
           </CardContent>

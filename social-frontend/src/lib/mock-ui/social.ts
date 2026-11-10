@@ -127,7 +127,7 @@ let brand: BrandVoice = {
   tones: ["Professional", "Helpful"], wordsToUse: ["clarity", "practical", "progress"],
   wordsToAvoid: ["guaranteed", "revolutionary"], ctaPhrases: ["What would you try first?"],
   sentenceLength: "medium", emojiUsage: "never", primaryLanguage: "English", systemPromptOverride: null,
-  logoUrl: sample, primaryColor: "#c2410c", accentColor: "#fb923c", updatedAt: `${today}T08:00:00.000Z`,
+  logoUrl: sample, primaryColor: "#c2410c", accentColor: "#fb923c", visualStyle: "", updatedAt: `${today}T08:00:00.000Z`,
 };
 
 let logos: BrandLogo[] = [
@@ -703,6 +703,11 @@ function handle(path: string, method: string, params: Record<string, string>, bo
     textGenerations++;
     const result: BrandVoiceTestResult = { platform: "linkedin", caption: `Demo example from ${text(body.brandName, brand.brandName)}: one clear idea, one practical step, and a conversation worth having. No AI provider was used.`, hashtags: ["Demo", "PracticalIdeas"], firstComment: "Demo question: what would you try first?" };
     return result;
+  }
+  if (route === "brand-voice/visual-style" && verb === "POST") return { visualStyle: "Warm natural-light photography with soft shadows, earthy tones, and calm uncluttered compositions." };
+  if (route === "image-concepts" && verb === "POST") {
+    const topic = text(body.topic, "your post");
+    return { concepts: ["Real moment", "Close detail", "Bold graphic"].map((title, index) => ({ conceptType: "lifestyle", title, subject: `Demo concept ${index + 1} for ${topic}`, setting: "Bright everyday space", medium: index === 2 ? "Flat illustration" : "Natural photography", composition: "Clear subject with open space", lighting: "Soft daylight", palette: "Warm brand tones", mood: "Welcoming", avoid: [] })) };
   }
   if (route === "brand-logos" && verb === "GET") return { items: logos };
   const logoMatch = /^brand-logos\/([^/]+)(\/default)?$/.exec(route);

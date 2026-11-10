@@ -51,6 +51,10 @@ from app.social.schemas import (
     CreateSocialAccountRequest,
     CreateSocialPostRequest,
     GenerateImageResponse,
+    ImageConcept,
+    ImageConceptsRequest,
+    ImageConceptsResponse,
+    VisualStyleResponse,
     GeneratePostRequest,
     GeneratePostResponse,
     GeneratedPlatformContent,
@@ -1241,6 +1245,8 @@ class SocialMediaService:
             updates["primary_color"] = payload.primaryColor or None
         if payload.accentColor is not None:
             updates["accent_color"] = payload.accentColor or None
+        if payload.visualStyle is not None:
+            updates["visual_style"] = " ".join(payload.visualStyle.split())
         for field, key in (("tones", "tones"), ("emojiUsage", "emoji_usage")):
             if field not in payload.model_fields_set and existing.get(key) is not None:
                 updates[key] = existing[key]
@@ -1854,6 +1860,7 @@ class SocialMediaService:
             "logo_url": row.get("logo_url"),
             "primary_color": row.get("primary_color"),
             "accent_color": row.get("accent_color"),
+            "visual_style": row.get("visual_style") or "",
         }
 
     def _load_logo_bytes(self, workspace_id: str, logo_url: Optional[str] = None, key: Optional[str] = None) -> Optional[bytes]:
@@ -1891,18 +1898,123 @@ class SocialMediaService:
                 if row.get("logo_url"):
                     logo_bytes = self._load_logo_bytes(ws_id, row.get("logo_url"))
         try:
-            return render_creative(topic=topic, style=style, spec=spec, brand=brand, logo_bytes=logo_bytes)
+            result = render_creative(
+                topic=topic, style=style, spec=spec, brand=brand, logo_bytes=logo_bytes,
+                **self._creative_context(ws_id, spec),
+            )
         except RuntimeError as exc:
+            if getattr(exc, "code", None) == "PRODUCT_NOT_FOUND":
+                raise HTTPException(status_code=422, detail={"code": exc.code, "stage": "product", "message": str(exc)}) from exc
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        self._remember_visual_subject(ws_id, spec, result)
+        return result
 
-    def render_brand_creative_variants(self, workspace: dict, topic: str, style: Optional[str], spec: "CreativeSpec", platforms: list[str], *, brand: Optional[dict] = None, logo_bytes: Optional[bytes] = None, base_image: Optional[bytes] = None, on_base_ready=None) -> dict:
+    def render_brand_creative_variants(self, workspace: dict, topic: str, style: Optional[str], spec: "CreativeSpec", platforms: list[str], *, brand: Optional[dict] = None, logo_bytes: Optional[bytes] = None, base_image: Optional[bytes] = None, on_base_ready=None, product_image: Optional[bytes] = None) -> dict:
         from app.social.ai.creative import render_creative_variants
 
-        return render_creative_variants(
+        ws_id = workspace["id"]
+        context = self._creative_context(ws_id, spec, product_image=product_image) if base_image is None else {}
+        results = render_creative_variants(
             topic=topic, style=style, spec=spec, platforms=platforms,
-            brand=brand if brand is not None else self._brand_voice_dict(workspace["id"]),
-            logo_bytes=logo_bytes, base_image=base_image, on_base_ready=on_base_ready,
+            brand=brand if brand is not None else self._brand_voice_dict(ws_id),
+            logo_bytes=logo_bytes, base_image=base_image, on_base_ready=on_base_ready, **context,
         )
+        if base_image is None and results:
+            self._remember_visual_subject(ws_id, spec, next(iter(results.values())))
+        return results
+
+    def _creative_context(self, workspace_id: str, spec: "CreativeSpec", *, product_image: Optional[bytes] = None) -> dict:
+        if product_image is None and spec.product_asset_id:
+            product_image = self._load_product_image(workspace_id, spec.product_asset_id)
+        return {
+            "recent_subjects": self._recent_visual_subjects(workspace_id) if spec.format != "carousel" else (),
+            "product_image": product_image,
+        }
+
+    def _recent_visual_subjects(self, workspace_id: str) -> list[str]:
+        row = self.db["social_visual_history"].find_one({"workspace_id": workspace_id}) or {}
+        return [str(item) for item in reversed(row.get("subjects") or []) if item]
+
+    def _remember_visual_subject(self, workspace_id: str, spec: "CreativeSpec", result) -> None:
+        concept = getattr(result, "concept", None)
+        if concept is None or spec.format == "carousel" or not concept.subject:
+            return
+        try:
+            self.db["social_visual_history"].update_one(
+                {"workspace_id": workspace_id},
+                {"$push": {"subjects": {"$each": [concept.subject[:200]], "$slice": -8}}, "$set": {"updated_at": utcnow()}},
+                upsert=True,
+            )
+        except Exception as exc:
+            logger.warning("Visual history update failed for workspace %s: %s", workspace_id, exc)
+
+    def _product_asset_key(self, workspace_id: str, asset_id: str) -> str:
+        asset = self.db["social_media_assets"].find_one(
+            {"id": str(asset_id), "workspace_id": workspace_id, "is_deleted": {"$ne": True}}
+        )
+        key = (asset or {}).get("blob_key") or ""
+        if not asset or asset.get("media_type") != "image" or not key.startswith(f"social/{workspace_id}/"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Product photo not found in this workspace")
+        return key
+
+    def _load_product_image(self, workspace_id: str, asset_id: str) -> bytes:
+        from app.providers.storage.factory import get_storage_provider
+
+        key = self._product_asset_key(workspace_id, asset_id)
+        try:
+            return get_storage_provider().download_bytes(key)
+        except Exception as exc:
+            logger.warning("Product photo download failed for workspace %s: %s", workspace_id, exc)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"code": "PRODUCT_DOWNLOAD_FAILED", "stage": "product", "message": "Product photo could not be loaded"},
+            ) from exc
+
+    def suggest_image_concepts(self, workspace: dict, user: dict, payload: "ImageConceptsRequest") -> "ImageConceptsResponse":
+        from app.social.ai.creative import CreativeSpec, explore_concepts
+        from app.social.models import SocialPermission
+        from app.social.permissions import require_permission
+
+        require_permission(self.db, workspace, user, SocialPermission.EDITOR)
+        ws_id = workspace["id"]
+        style = payload.style
+        if not style:
+            org_settings = self.db["social_settings"].find_one({"workspace_id": ws_id}) or {}
+            style = org_settings.get("image_generation_style")
+        spec = CreativeSpec(
+            format=payload.format or "post",
+            platform=payload.platform.value if payload.platform else None,
+            caption=payload.caption or "",
+            use_brand=payload.useBrand,
+            text_overlay=False,
+            product_scene=payload.productPhoto,
+        )
+        topic = "\n\n".join(dict.fromkeys(v.strip() for v in (payload.topic, payload.brief or "") if v and v.strip()))
+        concepts = explore_concepts(
+            topic, spec, self._brand_voice_dict(ws_id), style, recent_subjects=self._recent_visual_subjects(ws_id),
+        )
+        return ImageConceptsResponse(concepts=[ImageConcept(**item) for item in concepts])
+
+    def describe_visual_style(self, workspace: dict, user: dict, image_bytes: bytes) -> "VisualStyleResponse":
+        from app.social.ai.image_judge import describe_style
+        from app.social.models import SocialPermission
+        from app.social.permissions import require_permission
+
+        require_permission(self.db, workspace, user, SocialPermission.EDITOR)
+        try:
+            from io import BytesIO
+
+            from PIL import Image
+
+            Image.open(BytesIO(image_bytes)).verify()
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload a valid image") from exc
+        try:
+            text = describe_style(image_bytes)
+        except Exception as exc:
+            logger.warning("Visual style extraction failed: %s", exc)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Image style could not be read from this picture") from exc
+        return VisualStyleResponse(visualStyle=text)
 
     def generate_creative_set(self, workspace: dict, user: dict, payload):
         from app.social.creative_sets import generate_creative_set
@@ -1930,6 +2042,7 @@ class SocialMediaService:
             logoUrl=resolve_stored_image_url(row.get("logo_url")),
             primaryColor=row.get("primary_color"),
             accentColor=row.get("accent_color"),
+            visualStyle=row.get("visual_style") or "",
             updatedAt=_iso(row.get("updated_at")),
         )
 

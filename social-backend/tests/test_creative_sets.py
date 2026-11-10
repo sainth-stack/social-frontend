@@ -337,7 +337,7 @@ def test_slides_get_own_subject_shared_series_look_and_fallback_warning(creative
     monkeypatch.setattr(creative, "generate_post_image", image)
     seen = []
 
-    def direct(topic, spec, brand, style):
+    def direct(topic, spec, brand, style, **kwargs):
         seen.append((topic, spec))
         if spec.slide_index == 3:
             raise RuntimeError("offline")
@@ -348,7 +348,7 @@ def test_slides_get_own_subject_shared_series_look_and_fallback_warning(creative
     monkeypatch.setattr(creative, "art_direct", direct)
     result = _generate(creative_sets, payload.model_copy(update={"autoCopy": False, "platforms": payload.platforms[:1]}))
     assert result.status == "completed", result.errors
-    assert [spec.slide_prompt for _, spec in seen] == ["Visual 0", "Visual 1", "Visual 2"]
+    assert list(dict.fromkeys(spec.slide_prompt for _, spec in seen)) == ["Visual 0", "Visual 1", "Visual 2"]
     assert seen[0][1].series_style == ""
     assert all(spec.series_style == "flat vector illustration; palette teal and sand" for _, spec in seen[1:])
     assert all("Visual" not in topic and payload.topic in topic for topic, _ in seen)

@@ -259,6 +259,7 @@ class BrandVoiceOut(BaseModel):
     logoUrl: Optional[str] = None
     primaryColor: Optional[str] = None
     accentColor: Optional[str] = None
+    visualStyle: str = ""
     updatedAt: Optional[str] = None
 
 
@@ -278,6 +279,7 @@ class BrandVoiceUpdateRequest(BaseModel):
     logoUrl: Optional[str] = Field(default=None, max_length=2048)
     primaryColor: Optional[str] = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")
     accentColor: Optional[str] = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")
+    visualStyle: Optional[str] = Field(default=None, max_length=600)
 
 
 class UploadLogoResponse(BaseModel):
@@ -350,6 +352,19 @@ class GeneratePostResponse(BaseModel):
     firstComment: Optional[str] = None
 
 
+class ImageConcept(BaseModel):
+    conceptType: str = Field(default="abstract", max_length=40)
+    title: str = Field(default="", max_length=80)
+    subject: str = Field(min_length=3, max_length=600)
+    setting: str = Field(default="", max_length=240)
+    medium: str = Field(default="", max_length=240)
+    composition: str = Field(default="", max_length=240)
+    lighting: str = Field(default="", max_length=240)
+    palette: str = Field(default="", max_length=240)
+    mood: str = Field(default="", max_length=240)
+    avoid: List[str] = Field(default_factory=list, max_length=8)
+
+
 class GenerateImageRequest(BaseModel):
     topic: str = Field(min_length=3, max_length=500)
     style: Optional[str] = None
@@ -372,6 +387,27 @@ class GenerateImageRequest(BaseModel):
     slideIndex: Optional[int] = Field(default=None, ge=1, le=20)
     slideCount: Optional[int] = Field(default=None, ge=1, le=20)
     visualTreatment: str = Field(default="campaign_hero", pattern=r"^(campaign_hero|minimal)$")
+    concept: Optional[ImageConcept] = None
+    productAssetId: Optional[str] = Field(default=None, max_length=64)
+
+
+class ImageConceptsRequest(BaseModel):
+    topic: str = Field(min_length=3, max_length=8000)
+    caption: Optional[str] = Field(default=None, max_length=8000)
+    brief: Optional[str] = Field(default=None, max_length=8000)
+    style: Optional[str] = Field(default=None, max_length=1000)
+    format: Optional[str] = Field(default=None, pattern=r"^(post|banner|story|carousel|quote|product)$")
+    platform: Optional[SocialPlatform] = None
+    useBrand: bool = True
+    productPhoto: bool = False
+
+
+class ImageConceptsResponse(BaseModel):
+    concepts: List[ImageConcept] = Field(default_factory=list)
+
+
+class VisualStyleResponse(BaseModel):
+    visualStyle: str
 
 
 class GenerateImageResponse(BaseModel):

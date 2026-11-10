@@ -20,6 +20,8 @@ import type {
   GeneratedTweet,
   GenerateImagePayload,
   GenerateCreativeSetPayload,
+  ImageConcept,
+  ImageConceptsPayload,
   GenerateCreativeSetResult,
   BrandLogo,
   GenerateImageResult,
@@ -504,6 +506,26 @@ export const socialMediaApi = {
       { timeout: 600_000 },
     );
     return data;
+  },
+
+  async generateImageConcepts(orgId: string, payload: ImageConceptsPayload, modelSelection?: AIModelSelection): Promise<ImageConcept[]> {
+    const { data } = await apiClient.post<{ concepts: ImageConcept[] }>(
+      `${base(orgId)}/image-concepts`,
+      payload,
+      modelConfig(90_000, modelSelection),
+    );
+    return data.concepts;
+  },
+
+  async extractVisualStyle(orgId: string, file: File): Promise<string> {
+    const form = new FormData();
+    form.append("file", file);
+    const { data } = await apiClient.post<{ visualStyle: string }>(
+      `${base(orgId)}/brand-voice/visual-style`,
+      form,
+      { headers: { "Content-Type": "multipart/form-data" }, timeout: 90_000 },
+    );
+    return data.visualStyle;
   },
 
   async getCreativeSetStatus(orgId: string, requestId: string, signal?: AbortSignal): Promise<GenerateCreativeSetResult> {

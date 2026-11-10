@@ -236,6 +236,7 @@ export type BrandVoice = {
   logoUrl: string | null;
   primaryColor?: string | null;
   accentColor?: string | null;
+  visualStyle?: string | null;
   updatedAt: string | null;
 };
 
@@ -277,6 +278,32 @@ export type GenerateImagePayload = {
   slideIndex?: number;
   slideCount?: number;
   visualTreatment?: "campaign_hero" | "minimal";
+  concept?: ImageConcept | null;
+  productAssetId?: string | null;
+};
+
+export type ImageConcept = {
+  conceptType: string;
+  title: string;
+  subject: string;
+  setting?: string;
+  medium?: string;
+  composition?: string;
+  lighting?: string;
+  palette?: string;
+  mood?: string;
+  avoid?: string[];
+};
+
+export type ImageConceptsPayload = {
+  topic: string;
+  caption?: string;
+  brief?: string;
+  style?: string;
+  format?: CreativeFormat;
+  platform?: SocialPlatform;
+  useBrand?: boolean;
+  productPhoto?: boolean;
 };
 
 export type GenerateImageResult = {

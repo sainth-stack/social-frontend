@@ -7,9 +7,10 @@ from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 _FONT_DIR = Path(__file__).resolve().parents[2] / "assets" / "fonts"
+COVER_RATIO_LIMIT = 1.3
 
 _BOLD_FONTS = (
     "Inter-Bold.ttf",
@@ -293,11 +294,26 @@ def compose_creative(
 
     decoded = decode_image(image_bytes)
     validate_image_content(decoded, stage="base")
-    base = ImageOps.contain(decoded, (width, height), Image.LANCZOS)
+    source_ratio = decoded.width / decoded.height
+    target_ratio = width / height
+    fill = parse_hex(primary_color, (255, 255, 255)) + (255,)
+    transparent = decoded.mode == "RGBA" and decoded.getchannel("A").getextrema()[0] < 255
+    if max(source_ratio, target_ratio) / min(source_ratio, target_ratio) <= COVER_RATIO_LIMIT:
+        base = ImageOps.fit(decoded, (width, height), Image.LANCZOS, centering=(0.5, 0.45))
+        canvas = Image.new("RGBA", (width, height), fill)
+        canvas.alpha_composite(base.convert("RGBA"))
+    else:
+        base = ImageOps.contain(decoded, (width, height), Image.LANCZOS).convert("RGBA")
+        if transparent:
+            canvas = Image.new("RGBA", (width, height), fill)
+        else:
+            backdrop = ImageOps.fit(decoded.convert("RGB"), (width, height), Image.BILINEAR)
+            backdrop = backdrop.filter(ImageFilter.GaussianBlur(radius=max(8, min(width, height) // 25)))
+            backdrop = Image.blend(backdrop, Image.new("RGB", (width, height), (0, 0, 0)), 0.22)
+            canvas = backdrop.convert("RGBA")
+        canvas.alpha_composite(base, ((width - base.width) // 2, (height - base.height) // 2))
     base_x = (width - base.width) // 2
     base_y = (height - base.height) // 2
-    canvas = Image.new("RGBA", (width, height), parse_hex(primary_color, (255, 255, 255)) + (255,))
-    canvas.alpha_composite(base, (base_x, base_y))
     draw = ImageDraw.Draw(canvas)
 
     short = min(width, height)

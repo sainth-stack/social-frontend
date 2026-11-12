@@ -30,7 +30,7 @@ export const legalMeta = {
   termsEffectiveDate: "12 November 2026",
 } as const;
 
-/** Privacy on earnedvoice; terms on peers — canonical public URLs. */
+/** Privacy and terms on the marketing site (earnedvoice). */
 export const legalLinks = [
   { label: "Privacy Policy", href: PRIVACY_URL },
   { label: "Terms of Service", href: TERMS_URL },

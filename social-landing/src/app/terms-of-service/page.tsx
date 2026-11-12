@@ -1,6 +1,6 @@
 import { permanentRedirect } from "next/navigation";
-import { TERMS_URL } from "@/content/site";
+import { legalMeta } from "@/content/legal";
 
 export default function TermsOfServiceAliasPage() {
-  permanentRedirect(TERMS_URL);
+  permanentRedirect(legalMeta.termsPath);
 }

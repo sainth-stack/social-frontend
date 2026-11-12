@@ -1,7 +1,19 @@
-import { permanentRedirect } from "next/navigation";
-import { TERMS_URL } from "@/content/site";
+import type { Metadata } from "next";
+import { LegalDocumentView } from "@/components/legal/LegalDocument";
+import { legalMeta, termsDocument } from "@/content/legal";
+import { brand } from "@/content/site";
 
-/** Canonical terms live on the product app (peers.opsbrainai.com). */
-export default function TermsRedirectPage() {
-  permanentRedirect(TERMS_URL);
+export const metadata: Metadata = {
+  title: "Terms of Service",
+  description: `Terms governing use of ${brand.name}.`,
+  alternates: { canonical: legalMeta.termsPath },
+  openGraph: {
+    title: `Terms of Service · ${brand.name}`,
+    description: `Terms governing use of ${brand.name}.`,
+    url: legalMeta.termsPath,
+  },
+};
+
+export default function TermsPage() {
+  return <LegalDocumentView document={termsDocument} />;
 }

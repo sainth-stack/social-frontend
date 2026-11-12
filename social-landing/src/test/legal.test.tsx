@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { LegalDocumentView } from "@/components/legal/LegalDocument";
 import { privacyDocument, termsDocument } from "@/content/legal";
-import { PRIVACY_URL, TERMS_URL } from "@shared/content/public-urls";
+import { PRIVACY_URL, TERMS_URL } from "@/content/site";
 
 describe("legal documents", () => {
   it("renders privacy policy in numbered SaaS document format", () => {

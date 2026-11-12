@@ -1,4 +1,4 @@
-import { APP_URL, MARKETING_URL, PRIVACY_URL, TERMS_URL } from "@shared/content/public-urls";
+import { APP_URL, MARKETING_URL, PRIVACY_URL, TERMS_URL } from "@/lib/public-urls";
 
 export const platformBrand = {
   mark: "/brand/earnedvoice-mark.svg",

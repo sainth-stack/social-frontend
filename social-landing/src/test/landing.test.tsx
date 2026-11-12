@@ -3,8 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import HomePage from "@/app/page";
 import { WeeklyPlannerDemo } from "@/components/landing/WeeklyPlannerDemo";
 import { buildPlan } from "@/content/planner";
-import { companySocialLinks, CONTACT_SALES_URL, faqs, plans, platforms, seo, SIGNUP_URL, SITE_URL, TERMS_URL } from "@/content/site";
-import { PRIVACY_URL } from "@shared/content/public-urls";
+import { companySocialLinks, CONTACT_SALES_URL, faqs, plans, platforms, seo, SIGNUP_URL, SITE_URL, TERMS_URL, PRIVACY_URL } from "@/content/site";
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 
@@ -131,7 +130,7 @@ describe("Landing page structure and search content", () => {
     expect(entries.map((entry) => entry.url)).toEqual(
       expect.arrayContaining([SITE_URL, `${SITE_URL}/privacy`]),
     );
-    expect(entries.map((entry) => entry.url)).not.toContain(`${SITE_URL}/terms`);
+    expect(entries.map((entry) => entry.url)).toContain(`${SITE_URL}/terms`);
     expect(robots().sitemap).toBe(`${SITE_URL}/sitemap.xml`);
   });
 

@@ -24,4 +24,4 @@ export const APP_URL = publicUrl(
 );
 
 export const PRIVACY_URL = `${MARKETING_URL}/privacy`;
-export const TERMS_URL = `${APP_URL}/terms`;
+export const TERMS_URL = `${MARKETING_URL}/terms`;

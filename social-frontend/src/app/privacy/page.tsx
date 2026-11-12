@@ -1,7 +1,7 @@
-import { permanentRedirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { legalUrls } from "@/lib/brand";
 
-/** Canonical privacy policy is on the marketing site (earnedvoice.opsbrainai.com). */
+/** Privacy lives on the marketing site — same URL as login/register links (new tab). */
 export default function PrivacyRedirectPage() {
-  permanentRedirect(legalUrls.privacy);
+  redirect(legalUrls.privacy);
 }

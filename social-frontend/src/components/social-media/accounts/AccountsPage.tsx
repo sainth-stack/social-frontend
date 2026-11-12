@@ -6,7 +6,6 @@ import {
   Cloud,
   Link2,
   Link2Off,
-  Music2,
   Pin,
   RefreshCcw,
   Sparkles,
@@ -49,7 +48,6 @@ const UPCOMING_PLATFORMS = [
   { name: "X", Icon: null, description: "Keep your conversations connected." },
   { name: "Threads", Icon: AtSign, description: "Make room for more conversations." },
   { name: "YouTube", Icon: Video, description: "Bring your video channel into the mix." },
-  { name: "TikTok", Icon: Music2, description: "Give short-form stories a home." },
   { name: "Pinterest", Icon: Pin, description: "Keep your next inspiration in view." },
   { name: "Bluesky", Icon: Cloud, description: "Explore a new space for your community." },
 ] as const;

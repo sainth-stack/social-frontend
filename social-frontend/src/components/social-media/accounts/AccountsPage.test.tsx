@@ -171,11 +171,11 @@ describe("AccountsPage", () => {
     expect((screen.getByRole("button", { name: "Connect LinkedIn" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it.each(["X", "Threads", "YouTube", "TikTok", "Pinterest", "Bluesky"])("shows %s as Coming soon with no authorization or account API actions", async (name) => {
+  it.each(["X", "Threads", "YouTube", "Pinterest", "Bluesky"])("shows %s as Coming soon with no authorization or account API actions", async (name) => {
     renderAccounts();
     await screen.findByText("Acme Shop");
     const upcoming = screen.getByRole("region", { name: "More channels, coming soon" });
-    expect(within(upcoming).getAllByRole("heading", { level: 3 })).toHaveLength(6);
+    expect(within(upcoming).getAllByRole("heading", { level: 3 })).toHaveLength(5);
     expect(within(upcoming).getByRole("heading", { name })).toBeTruthy();
     const button = within(upcoming).getByRole("button", { name: `Connect ${name} — Coming soon` });
     expect((button as HTMLButtonElement).disabled).toBe(true);

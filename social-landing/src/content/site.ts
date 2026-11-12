@@ -30,7 +30,6 @@ export const platforms: Platform[] = [
   { id: "x", name: "X", status: "coming-soon", color: "var(--platform-monochrome)" },
   { id: "threads", name: "Threads", status: "coming-soon", color: "var(--platform-monochrome)" },
   { id: "youtube", name: "YouTube", status: "coming-soon", color: "var(--platform-youtube)" },
-  { id: "tiktok", name: "TikTok", status: "coming-soon", color: "var(--platform-monochrome)" },
   { id: "pinterest", name: "Pinterest", status: "coming-soon", color: "var(--platform-pinterest)" },
   { id: "bluesky", name: "Bluesky", status: "coming-soon", color: "var(--platform-bluesky)" },
 ];
@@ -83,7 +82,7 @@ export const faqs = [
   { q: "What should I check before publishing AI content?", a: "Check facts, claims, names, permissions and tone before you publish. Do not include confidential client or personal information in your brief. AI output can be inaccurate and is not an automated fact-checking or confidentiality service." },
   { q: "Can it help me decide what to post?", a: "Yes. Start with your business, audience and goal to generate content ideas and a seven-day starting plan. Review and edit the drafts before you schedule them." },
   { q: "Does it generate a full week of content?", a: "Yes. Set your business, audience and goal to create a seven-day content plan with topics, captions and suggested formats. Edit each draft and choose when it goes live. Generation allowances depend on your plan." },
-  { q: "Which platforms can I use?", a: "Instagram, Facebook and LinkedIn are available now. X, Threads, YouTube, TikTok, Pinterest and Bluesky are coming soon and cannot be connected yet. Supported post formats and analytics vary by platform and account permissions." },
+  { q: "Which platforms can I use?", a: "Instagram, Facebook and LinkedIn are available now. X, Threads, YouTube, Pinterest and Bluesky are coming soon and cannot be connected yet. Supported post formats and analytics vary by platform and account permissions." },
   { q: "Will the content sound like my brand?", a: "You can add brand context and writing preferences to guide generation. AI gives you a starting draft; you stay in control of the final wording." },
   { q: "Does the planner publish posts automatically?", a: "Generating a plan does not publish it. Review your content and deliberately choose scheduling or publishing on an available integration." },
   { q: "Is there a free plan?", a: "Yes. Start with the Free plan and its monthly content and AI allowances. A credit card is not required to create a free account." },

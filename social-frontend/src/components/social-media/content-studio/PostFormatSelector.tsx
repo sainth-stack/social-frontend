@@ -36,7 +36,7 @@ export const FORMAT_CONFIG: Record<PostFormat, FormatConfig> = {
   reel: {
     label: "Reel",
     Icon: SmartDisplayOutlinedIcon,
-    description: "Short vertical video — Instagram Reel or TikTok-style",
+    description: "Short vertical video — Instagram Reel or similar short-form",
     platforms: ["instagram", "facebook"],
   },
   thread: {

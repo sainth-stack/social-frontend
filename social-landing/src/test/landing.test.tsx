@@ -46,22 +46,22 @@ describe("Landing page structure and search content", () => {
   });
 
   it("shows all platform logos without availability badges in the social strip", () => {
-    expect(platforms).toHaveLength(9);
+    expect(platforms).toHaveLength(8);
     expect(platforms.filter(platform => platform.status === "available").map(platform => platform.name)).toEqual(["Instagram", "Facebook", "LinkedIn"]);
-    expect(platforms.filter(platform => platform.status === "coming-soon").map(platform => platform.name)).toEqual(["X", "Threads", "YouTube", "TikTok", "Pinterest", "Bluesky"]);
+    expect(platforms.filter(platform => platform.status === "coming-soon").map(platform => platform.name)).toEqual(["X", "Threads", "YouTube", "Pinterest", "Bluesky"]);
     render(<HomePage />);
     const integrationSection = document.getElementById("platforms")!;
     for (const platform of platforms) {
       const item = within(integrationSection).getByText(platform.name).closest("li")!;
       expect(item.querySelector("a, button")).toBeNull();
     }
-    expect(within(integrationSection).getAllByRole("listitem")).toHaveLength(9);
+    expect(within(integrationSection).getAllByRole("listitem")).toHaveLength(8);
     expect(within(integrationSection).queryByText("Available now")).toBeNull();
     expect(within(integrationSection).queryByText("Coming soon")).toBeNull();
     expect(within(integrationSection).queryByText("More integrations on the way.")).toBeNull();
     const answer = faqs.find(faq => faq.q === "Which platforms can I use?")!.a;
     expect(answer).toContain("Instagram, Facebook and LinkedIn are available now");
-    expect(answer).toContain("X, Threads, YouTube, TikTok, Pinterest and Bluesky are coming soon and cannot be connected yet");
+    expect(answer).toContain("X, Threads, YouTube, Pinterest and Bluesky are coming soon and cannot be connected yet");
     expect(document.body.textContent).not.toMatch(/nine social|nine channels|9 social|9 live/i);
   });
 

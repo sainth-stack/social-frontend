@@ -1,4 +1,4 @@
-import { APP_URL, MARKETING_URL, PRIVACY_URL, TERMS_URL } from "@shared/content/public-urls";
+import { APP_URL, MARKETING_URL, PRIVACY_URL, TERMS_URL } from "@/content/public-urls";
 
 export const SITE_URL = MARKETING_URL;
 export { APP_URL, PRIVACY_URL, TERMS_URL };

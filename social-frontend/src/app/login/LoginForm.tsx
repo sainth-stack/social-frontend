@@ -23,7 +23,7 @@ import {
 } from "@/features/auth/authSlice";
 import { login } from "@/features/auth/authThunks";
 import { resolvePostLoginPath } from "@/lib/auth/users";
-import { platformBrand } from "@/lib/brand";
+import { legalUrls } from "@/lib/brand";
 import { prefetchDashboardHome } from "@/lib/dashboard-cache";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
@@ -102,8 +102,7 @@ export default function LoginForm() {
     }
   };
 
-  const termsUrl = `${platformBrand.marketingUrl}/terms`;
-  const privacyUrl = `${platformBrand.marketingUrl}/privacy`;
+  const { privacy: privacyUrl, terms: termsUrl } = legalUrls;
 
   return (
     <AuthCardShell

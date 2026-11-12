@@ -16,10 +16,10 @@ Copy the example environment values into your deployment configuration before bu
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| NEXT_PUBLIC_SITE_URL | Canonical marketing origin, sitemap and structured data | https://opsbrainai.com |
-| NEXT_PUBLIC_APP_URL | Existing authenticated app origin; links use /register and /login | https://app.opsbrainai.com |
+| NEXT_PUBLIC_SITE_URL | Canonical marketing origin, sitemap and structured data | https://earnedvoice.opsbrainai.com |
+| NEXT_PUBLIC_APP_URL | Product app origin; sign-in, register and **Terms of Service** | https://peers.opsbrainai.com |
 
-These values are public and baked in at build time. The existing opsbrainai.com and app.opsbrainai.com defaults are intentional: no EarnedVoice production domain has been confirmed. Before a domain migration, set NEXT_PUBLIC_SITE_URL to the confirmed marketing origin and NEXT_PUBLIC_APP_URL to the confirmed dashboard origin in the marketing deployment, and align the dashboard’s marketing/app URL environment configuration with those confirmed origins. Rebuild affected applications after changing public values. Confirm DNS, redirects and integration callback configuration with the deployment owner; this rebrand does not provision DNS, invent mailbox addresses or change existing email destinations.
+These values are public and baked in at build time. **Privacy** is served at `{SITE_URL}/privacy`; **Terms** are canonical on `{APP_URL}/terms` (marketing `/terms` redirects there). Set `NEXT_PUBLIC_MARKETING_URL` on the product app build to the same marketing origin. Rebuild landing and app after changing public values.
 
 There is no payment checkout or live AI generation in this marketing application. Contact enquiries remain at #contact, are submitted through the existing same-origin Next.js proxy and are stored by the backend, not by this application. Contact and privacy-aware marketing analytics flows are unchanged by the rebrand.
 

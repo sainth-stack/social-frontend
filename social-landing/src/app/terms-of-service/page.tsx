@@ -1,7 +1,6 @@
-import { redirect } from "next/navigation";
-import { legalMeta } from "@/content/legal";
+import { permanentRedirect } from "next/navigation";
+import { TERMS_URL } from "@/content/site";
 
-/** Profound-style alias; canonical path is /terms (used by app auth links). */
 export default function TermsOfServiceAliasPage() {
-  redirect(legalMeta.termsPath);
+  permanentRedirect(TERMS_URL);
 }

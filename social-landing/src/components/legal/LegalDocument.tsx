@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { BrandLockup } from "@/components/landing/Brand";
 import { SiteFooter } from "@/components/landing/Closing";
-import { legalLinks, type LegalBlock, type LegalDocument as LegalDocumentType } from "@/content/legal";
+import { legalLinks, legalMeta, type LegalBlock, type LegalDocument as LegalDocumentType } from "@/content/legal";
 import { brand } from "@/content/site";
 
 function Block({ block }: { block: LegalBlock }) {
@@ -57,8 +57,12 @@ function Block({ block }: { block: LegalBlock }) {
   );
 }
 
+function isCurrentLegalLink(slug: LegalDocumentType["slug"], href: string) {
+  return slug === "privacy" ? href === legalMeta.privacyPath || href.endsWith(legalMeta.privacyPath) : href === legalMeta.termsPath || href.endsWith(legalMeta.termsPath);
+}
+
 export function LegalDocumentView({ document }: { document: LegalDocumentType }) {
-  const other = legalLinks.find((link) => link.href !== `/${document.slug}`);
+  const other = legalLinks.find((link) => !isCurrentLegalLink(document.slug, link.href));
 
   return (
     <>
@@ -72,8 +76,8 @@ export function LegalDocumentView({ document }: { document: LegalDocumentType })
               <Link
                 key={link.href}
                 href={link.href}
-                className={link.href === `/${document.slug}` ? "is-active" : undefined}
-                aria-current={link.href === `/${document.slug}` ? "page" : undefined}
+                className={isCurrentLegalLink(document.slug, link.href) ? "is-active" : undefined}
+                aria-current={isCurrentLegalLink(document.slug, link.href) ? "page" : undefined}
               >
                 {link.label}
               </Link>

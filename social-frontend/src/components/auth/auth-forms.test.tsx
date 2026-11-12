@@ -10,7 +10,7 @@ import LoginForm from "@/app/login/LoginForm";
 import RegisterForm from "@/app/register/RegisterForm";
 import authReducer, { loginFailure } from "@/features/auth/authSlice";
 import { login } from "@/features/auth/authThunks";
-import { platformBrand } from "@/lib/brand";
+import { legalUrls, platformBrand } from "@/lib/brand";
 import type { AuthSessionResponse, RegisterResponse, User } from "@/types/auth";
 
 const { default: RealAuthCardShell } = await vi.importActual<typeof import("./AuthCardShell")>("./AuthCardShell");
@@ -256,9 +256,12 @@ describe("register form", () => {
 
   it("retains terms, privacy and login links without adding consent requirements", () => {
     setup("register");
-    for (const [name, route] of [["Terms", "terms"], ["Privacy Policy", "privacy"]]) {
+    for (const [name, url] of [
+      ["Terms", legalUrls.terms],
+      ["Privacy Policy", legalUrls.privacy],
+    ] as const) {
       const link = screen.getByRole("link", { name });
-      expect(link.getAttribute("href")).toBe(`${platformBrand.marketingUrl}/${route}`);
+      expect(link.getAttribute("href")).toBe(url);
       expect(link.getAttribute("target")).toBe("_blank");
       expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     }
@@ -268,9 +271,12 @@ describe("register form", () => {
 
   it("surfaces terms and privacy links on login", () => {
     setup("login");
-    for (const [name, route] of [["Terms", "terms"], ["Privacy Policy", "privacy"]]) {
+    for (const [name, url] of [
+      ["Terms", legalUrls.terms],
+      ["Privacy Policy", legalUrls.privacy],
+    ] as const) {
       const link = screen.getByRole("link", { name });
-      expect(link.getAttribute("href")).toBe(`${platformBrand.marketingUrl}/${route}`);
+      expect(link.getAttribute("href")).toBe(url);
       expect(link.getAttribute("target")).toBe("_blank");
       expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     }

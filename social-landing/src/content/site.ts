@@ -1,14 +1,7 @@
-function publicUrl(value: string | undefined, fallback: string) {
-  try {
-    const url = new URL(value || fallback);
-    return ["https:", "http:"].includes(url.protocol) ? url.origin : fallback;
-  } catch {
-    return fallback;
-  }
-}
+import { APP_URL, MARKETING_URL, PRIVACY_URL, TERMS_URL } from "@shared/content/public-urls";
 
-export const SITE_URL = publicUrl(process.env.NEXT_PUBLIC_SITE_URL, "https://opsbrainai.com");
-export const APP_URL = publicUrl(process.env.NEXT_PUBLIC_APP_URL, "https://app.opsbrainai.com");
+export const SITE_URL = MARKETING_URL;
+export { APP_URL, PRIVACY_URL, TERMS_URL };
 export const SIGNUP_URL = `${APP_URL}/register`;
 export const LOGIN_URL = `${APP_URL}/login`;
 export const CONTACT_SALES_URL = "#contact";

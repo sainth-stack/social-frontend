@@ -21,7 +21,7 @@ import {
   selectUser,
 } from "@/features/auth/authSlice";
 import { register as registerUser } from "@/features/auth/authThunks";
-import { platformBrand } from "@/lib/brand";
+import { legalUrls } from "@/lib/brand";
 import { getHomeRoute } from "@/lib/auth/users";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
@@ -111,8 +111,7 @@ export default function RegisterForm() {
     }
   };
 
-  const termsUrl = `${platformBrand.marketingUrl}/terms`;
-  const privacyUrl = `${platformBrand.marketingUrl}/privacy`;
+  const { privacy: privacyUrl, terms: termsUrl } = legalUrls;
 
   return (
     <AuthCardShell

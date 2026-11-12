@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { LegalDocumentView } from "@/components/legal/LegalDocument";
 import { privacyDocument, termsDocument } from "@/content/legal";
+import { PRIVACY_URL, TERMS_URL } from "@shared/content/public-urls";
 
 describe("legal documents", () => {
   it("renders privacy policy in numbered SaaS document format", () => {
@@ -10,7 +11,7 @@ describe("legal documents", () => {
     expect(screen.getByText(/Last updated:/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Grievance Officer And Contacts/i })).toBeInTheDocument();
     const topNav = screen.getByRole("navigation", { name: "Legal documents" });
-    expect(within(topNav).getByRole("link", { name: "Terms of Service" })).toHaveAttribute("href", "/terms");
+    expect(within(topNav).getByRole("link", { name: "Terms of Service" })).toHaveAttribute("href", TERMS_URL);
   });
 
   it("renders terms of service with operator line and cross-link", () => {
@@ -19,6 +20,6 @@ describe("legal documents", () => {
     expect(screen.getByText(/Effective date:/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /The Platform And AI Features/i })).toBeInTheDocument();
     const topNav = screen.getByRole("navigation", { name: "Legal documents" });
-    expect(within(topNav).getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
+    expect(within(topNav).getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", PRIVACY_URL);
   });
 });

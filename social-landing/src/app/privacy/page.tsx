@@ -6,7 +6,7 @@ import { brand } from "@/content/site";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description: `How ${brand.name} collects, uses and protects personal data.`,
-  alternates: { canonical: legalMeta.privacyPath },
+  alternates: { canonical: "/privacy" },
   openGraph: {
     title: `Privacy Policy · ${brand.name}`,
     description: `How ${brand.name} collects, uses and protects personal data.`,

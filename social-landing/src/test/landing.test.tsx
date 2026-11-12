@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import HomePage from "@/app/page";
 import { WeeklyPlannerDemo } from "@/components/landing/WeeklyPlannerDemo";
 import { buildPlan } from "@/content/planner";
-import { companySocialLinks, CONTACT_SALES_URL, faqs, plans, platforms, seo, SIGNUP_URL, SITE_URL } from "@/content/site";
+import { companySocialLinks, CONTACT_SALES_URL, faqs, plans, platforms, seo, SIGNUP_URL, SITE_URL, TERMS_URL } from "@/content/site";
+import { PRIVACY_URL } from "@shared/content/public-urls";
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 
@@ -128,16 +129,17 @@ describe("Landing page structure and search content", () => {
     const entries = sitemap();
     expect(entries[0]?.url).toBe(SITE_URL);
     expect(entries.map((entry) => entry.url)).toEqual(
-      expect.arrayContaining([SITE_URL, `${SITE_URL}/privacy`, `${SITE_URL}/terms`]),
+      expect.arrayContaining([SITE_URL, `${SITE_URL}/privacy`]),
     );
+    expect(entries.map((entry) => entry.url)).not.toContain(`${SITE_URL}/terms`);
     expect(robots().sitemap).toBe(`${SITE_URL}/sitemap.xml`);
   });
 
   it("publishes privacy and terms destinations in the landing footer", () => {
     render(<HomePage />);
     const legal = screen.getByRole("navigation", { name: "Legal" });
-    expect(within(legal).getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
-    expect(within(legal).getByRole("link", { name: "Terms of Service" })).toHaveAttribute("href", "/terms");
+    expect(within(legal).getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", PRIVACY_URL);
+    expect(within(legal).getByRole("link", { name: "Terms of Service" })).toHaveAttribute("href", TERMS_URL);
   });
 
   it("keeps the hero focused on a compact brief-to-draft workspace", () => {

@@ -226,7 +226,11 @@ def test_render_falls_back_to_brief_concept_with_warning(monkeypatch):
     )["linkedin"]
     prompt = captured["prompt_override"]
     assert prompt.startswith("Grand opening of our sourdough bakery")
-    assert "food photography" in prompt and "office" not in prompt.lower() and "Tone" not in prompt
+    # Medium now says "food and venue photography" (opening-event enrichment), not bare "food photography"
+    assert "food" in prompt and "photography" in prompt
+    assert "office" not in prompt.lower() and "Tone" not in prompt
+    # Opening-event context must be present in the fallback prompt
+    assert "opening day" in prompt or "celebratory" in prompt or "abundant" in prompt.lower()
     assert "text, letters" in captured["negative_prompt"] and "cartoon" in captured["negative_prompt"]
     assert result.warnings == [creative.FALLBACK_WARNING] and result.concept.source == "fallback"
 

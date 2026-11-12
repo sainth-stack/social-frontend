@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional, Tuple
 
 
@@ -73,6 +73,26 @@ FOOD_DRINK = VisualSkill(
     ),
     industry_pattern=r"food|restaurant|caf[eé]|bakery|catering|beverage|kitchen|cloud kitchen|coffee",
     avoid_extra=("plastic looking food", "messy table"),
+)
+
+# Subject guide used when a food post is ALSO a grand opening / launch event.
+# The key difference: it must convey celebration, abundance and "special day" energy.
+_FOOD_OPENING_SUBJECT_GUIDE = (
+    "Show opening-day abundance: a generous, celebratory display of the signature items "
+    "in the actual venue space, warm inviting light that signals a special occasion, "
+    "with the food clearly the hero but the atmosphere radiating excitement and welcome."
+)
+_FOOD_OPENING_MEDIUM = (
+    "editorial food and venue photography, warm golden light, slightly wider angle to include "
+    "the counter or display area, celebratory abundance, inviting and energetic"
+)
+
+# Signals that a food post is actually a launch or opening event.
+_FOOD_EVENT_PATTERN = re.compile(
+    r"\bgrand opening\b|\bopening day\b|\bnow open\b|\bjust opened\b|"
+    r"\blaunch (?:day|party|event)\b|\bsoft launch\b|\bopen(?:ing)? (?:this|next|on)\b|"
+    r"\bfirst day\b|\bcome (?:celebrate|join us|visit)\b|\bwe'?re open\b",
+    re.I,
 )
 
 PROPERTY_SPACE = VisualSkill(
@@ -246,14 +266,35 @@ def select_visual_skill(
 ) -> Optional[VisualSkill]:
     if (post_format or "").lower() == "quote":
         return INSPIRATION_QUOTE
+    matched: Optional[VisualSkill] = None
     for text in (caption, topic):
         for skill in VISUAL_SKILLS:
             if skill.matches(text or ""):
-                return skill
-    for skill in VISUAL_SKILLS:
-        if skill.matches_industry(industry or ""):
-            return skill
-    return None
+                matched = skill
+                break
+        if matched:
+            break
+    if matched is None:
+        for skill in VISUAL_SKILLS:
+            if skill.matches_industry(industry or ""):
+                matched = skill
+                break
+    if matched is None:
+        return None
+
+    # When a food post is also a grand-opening / launch event, blend event context
+    # into the subject guide so the LLM produces a celebratory image, not a quiet
+    # editorial still life.
+    if matched.name == "food_drink":
+        combined = f"{caption or ''} {topic or ''}"
+        if _FOOD_EVENT_PATTERN.search(combined):
+            return replace(
+                matched,
+                subject_guide=_FOOD_OPENING_SUBJECT_GUIDE,
+                medium=_FOOD_OPENING_MEDIUM,
+            )
+
+    return matched
 
 
 _PLATFORM_LABEL_RE = re.compile(

@@ -1,4 +1,5 @@
 import { ArrowRight, Check, ChevronDown } from "lucide-react";
+import { legalLinks } from "@/content/legal";
 import { brand, companySocialLinks, CONTACT_SALES_URL, faqs, featureLinks, formatINR, LOGIN_URL, plans, platforms, SIGNUP_URL } from "@/content/site";
 import { BrandLockup, PlatformIcon } from "./Brand";
 
@@ -39,5 +40,67 @@ export function FinalCTA() {
 }
 
 export function SiteFooter() {
-  return <footer className="site-footer"><div className="container-page"><div className="footer-grid"><div><a href="#top" aria-label={`${brand.name} home`}><BrandLockup /></a><p className="mt-5 max-w-xs text-sm leading-relaxed text-muted-foreground">{brand.tagline}</p><p className="footer-publisher">From OpsBrain AI</p><nav className="footer-social-links" aria-label="OpsBrain AI social profiles">{companySocialLinks.map(link => <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" aria-label={link.label}><PlatformIcon name={link.name} color="var(--primary)" size={32} />OpsBrain AI on {link.name}<span aria-hidden="true">↗</span></a>)}</nav></div><div><h2 className="text-sm font-semibold">Product</h2><ul>{featureLinks.map(link => <li key={link.href}><a href={link.href}>{link.label}</a></li>)}</ul></div><div><h2 className="text-sm font-semibold">Explore</h2><ul><li><a href="#why">Why EarnedVoice</a></li><li><a href="#how-it-works">How it works</a></li><li><a href="#platforms">Social platforms</a></li><li><a href="#trust">Publishing responsibly</a></li><li><a href="#pricing">Pricing</a></li><li><a href="#faq">Questions & answers</a></li><li><a href={CONTACT_SALES_URL}>Contact</a></li></ul></div><div><h2 className="text-sm font-semibold">Your workspace</h2><ul><li><a href={LOGIN_URL}>Sign in</a></li><li><a href={SIGNUP_URL}>Create a free account</a></li></ul></div></div><div className="footer-bottom"><p>© {new Date().getFullYear()} {brand.name}. All rights reserved.</p><p>Your expertise. Your voice. Your next step.</p></div></div></footer>;
+  return (
+    <footer className="site-footer">
+      <div className="container-page">
+        <div className="footer-grid">
+          <div>
+            <a href="/" aria-label={`${brand.name} home`}>
+              <BrandLockup />
+            </a>
+            <p className="mt-5 max-w-xs text-sm leading-relaxed text-muted-foreground">{brand.tagline}</p>
+            <p className="footer-publisher">From OpsBrain AI</p>
+            <nav className="footer-social-links" aria-label="OpsBrain AI social profiles">
+              {companySocialLinks.map((link) => (
+                <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" aria-label={link.label}>
+                  <PlatformIcon name={link.name} color="var(--primary)" size={32} />
+                  OpsBrain AI on {link.name}
+                  <span aria-hidden="true">↗</span>
+                </a>
+              ))}
+            </nav>
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold">Product</h2>
+            <ul>
+              {featureLinks.map((link) => (
+                <li key={link.href}>
+                  <a href={`/${link.href}`}>{link.label}</a>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold">Explore</h2>
+            <ul>
+              <li><a href="/#why">Why EarnedVoice</a></li>
+              <li><a href="/#how-it-works">How it works</a></li>
+              <li><a href="/#platforms">Social platforms</a></li>
+              <li><a href="/#trust">Publishing responsibly</a></li>
+              <li><a href="/#pricing">Pricing</a></li>
+              <li><a href="/#faq">Questions & answers</a></li>
+              <li><a href={CONTACT_SALES_URL.startsWith("#") ? `/${CONTACT_SALES_URL}` : CONTACT_SALES_URL}>Contact</a></li>
+            </ul>
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold">Your workspace</h2>
+            <ul>
+              <li><a href={LOGIN_URL}>Sign in</a></li>
+              <li><a href={SIGNUP_URL}>Create a free account</a></li>
+            </ul>
+          </div>
+        </div>
+        <div className="footer-bottom">
+          <p>© {new Date().getFullYear()} {brand.name}. All rights reserved.</p>
+          <nav className="footer-legal-links" aria-label="Legal">
+            {legalLinks.map((link) => (
+              <a key={link.href} href={link.href}>
+                {link.label}
+              </a>
+            ))}
+          </nav>
+        </div>
+      </div>
+    </footer>
+  );
 }

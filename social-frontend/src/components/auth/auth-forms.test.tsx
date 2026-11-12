@@ -266,6 +266,16 @@ describe("register form", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
+  it("surfaces terms and privacy links on login", () => {
+    setup("login");
+    for (const [name, route] of [["Terms", "terms"], ["Privacy Policy", "privacy"]]) {
+      const link = screen.getByRole("link", { name });
+      expect(link.getAttribute("href")).toBe(`${platformBrand.marketingUrl}/${route}`);
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    }
+  });
+
   it("toggles distinct password fields without changing names, autocomplete, values or focus", async () => {
     setup("register");
     fillRegister();

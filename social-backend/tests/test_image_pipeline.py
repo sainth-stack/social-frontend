@@ -331,7 +331,12 @@ def test_retired_model_raises_503_when_called(monkeypatch):
 # ── Scenario 1: Food/Bakery Instagram post ───────────────────────────────────
 
 def test_scenario_bakery_instagram_uses_food_skill_and_no_brand_palette(monkeypatch):
-    """Food posts on Instagram: food_drink skill selected, photo mode → no brand palette in prompt."""
+    """Food grand-opening posts: food_drink skill enriched with opening-event context.
+    
+    The skill is selected, the subject guide uses the opening-event variant, the
+    fallback concept sets an opening-day setting, and the prompt conveys celebration
+    without injecting brand palette (photographic concept).
+    """
     from app.social.ai.creative import CreativeSpec, compile_image_prompt, build_negative_prompt, fallback_concept
 
     topic = "Grand opening of our sourdough bakery on Elm Street this Saturday with free tastings"
@@ -344,10 +349,15 @@ def test_scenario_bakery_instagram_uses_food_skill_and_no_brand_palette(monkeypa
     skill = select_visual_skill(caption, topic, brand["industry"])
     assert skill is not None and skill.name == "food_drink"
     assert skill.concept_type == "food"
+    # Opening-event enrichment: subject guide must reference opening/abundance
+    assert "opening" in skill.subject_guide.lower() or "abundance" in skill.subject_guide.lower()
 
     spec = CreativeSpec(format="post", platform="instagram", caption=caption, visual_treatment="campaign_hero")
     concept = fallback_concept(topic, spec, brand)
     assert concept.concept_type == "food"
+
+    # Fallback concept must have an event-aware setting
+    assert "opening day" in concept.setting or "celebratory" in concept.setting
 
     prompt = compile_image_prompt(concept, spec, brand, brand["visual_style"])
     negative = build_negative_prompt(concept, brand["visual_style"], topic)
@@ -356,12 +366,14 @@ def test_scenario_bakery_instagram_uses_food_skill_and_no_brand_palette(monkeypa
     assert "Palette:" not in prompt
     # Subject starts with the brief content
     assert prompt.startswith("Fresh bread")
+    # Opening-event energy in the prompt
+    assert "opening" in prompt.lower() or "celebrat" in prompt.lower() or "abundant" in prompt.lower()
     # Photo negative includes cartoon/clip-art rejection
     assert "cartoon" in negative
     # Photo negative does NOT include photorealistic (that is for illustrations)
     assert "photorealistic photo" not in negative
     # Prompt is compact
-    assert len(prompt) < 1200
+    assert len(prompt) < 1500
 
 
 # ── Scenario 2: B2B SaaS LinkedIn thought-leadership post ───────────────────

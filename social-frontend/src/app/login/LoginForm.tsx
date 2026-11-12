@@ -23,6 +23,7 @@ import {
 } from "@/features/auth/authSlice";
 import { login } from "@/features/auth/authThunks";
 import { resolvePostLoginPath } from "@/lib/auth/users";
+import { platformBrand } from "@/lib/brand";
 import { prefetchDashboardHome } from "@/lib/dashboard-cache";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
@@ -101,6 +102,9 @@ export default function LoginForm() {
     }
   };
 
+  const termsUrl = `${platformBrand.marketingUrl}/terms`;
+  const privacyUrl = `${platformBrand.marketingUrl}/privacy`;
+
   return (
     <AuthCardShell
       title="Welcome back"
@@ -111,6 +115,17 @@ export default function LoginForm() {
           <Link href="/register" className="rounded-sm font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             Create an account
           </Link>
+          <p className="mt-3 text-xs leading-relaxed">
+            By continuing, you agree to our{" "}
+            <Link href={termsUrl} target="_blank" rel="noopener noreferrer" className="rounded-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link href={privacyUrl} target="_blank" rel="noopener noreferrer" className="rounded-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Privacy Policy
+            </Link>
+            .
+          </p>
         </>
       }
     >

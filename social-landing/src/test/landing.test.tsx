@@ -69,7 +69,7 @@ describe("Landing page structure and search content", () => {
     expect(plans.map(plan => plan.name)).toEqual(["Free", "Pro", "Growth", "Scale"]);
     expect(plans.map(plan => plan.price)).toEqual([0, 499, 999, 4999]);
     expect(CONTACT_SALES_URL).toBe("#contact");
-    expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Contact" })).toHaveAttribute("href", "#contact");
+    expect(within(screen.getByRole("contentinfo")).getByRole("link", { name: "Contact" })).toHaveAttribute("href", "/#contact");
     expect(screen.getByRole("region", { name: "Let’s talk about your workflow." })).toBeInTheDocument();
     const scale = screen.getByRole("heading", { name: "Scale", level: 3 }).closest("article")!;
     expect(within(scale).getByRole("link", { name: "Contact sales" })).toHaveAttribute("href", CONTACT_SALES_URL);
@@ -125,8 +125,19 @@ describe("Landing page structure and search content", () => {
   });
 
   it("generates canonical sitemap and robots URLs", () => {
-    expect(sitemap()[0]?.url).toBe(SITE_URL);
+    const entries = sitemap();
+    expect(entries[0]?.url).toBe(SITE_URL);
+    expect(entries.map((entry) => entry.url)).toEqual(
+      expect.arrayContaining([SITE_URL, `${SITE_URL}/privacy`, `${SITE_URL}/terms`]),
+    );
     expect(robots().sitemap).toBe(`${SITE_URL}/sitemap.xml`);
+  });
+
+  it("publishes privacy and terms destinations in the landing footer", () => {
+    render(<HomePage />);
+    const legal = screen.getByRole("navigation", { name: "Legal" });
+    expect(within(legal).getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
+    expect(within(legal).getByRole("link", { name: "Terms of Service" })).toHaveAttribute("href", "/terms");
   });
 
   it("keeps the hero focused on a compact brief-to-draft workspace", () => {

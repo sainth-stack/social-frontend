@@ -355,6 +355,8 @@ def _treatment_medium(concept_type: str, spec: CreativeSpec) -> str:
 
 
 def fallback_concept(topic: str, spec: CreativeSpec, brand: dict) -> VisualConcept:
+    from app.social.ai.visual_skills import _FOOD_EVENT_PATTERN
+
     brand = brand if spec.use_brand else {}
     # Strip platform labels and use the cleaned caption as the primary source.
     clean_cap = strip_platform_labels(spec.caption) if spec.caption else ""
@@ -372,12 +374,33 @@ def fallback_concept(topic: str, spec: CreativeSpec, brand: dict) -> VisualConce
     medium = skill.medium if skill else _treatment_medium(kind, spec)
     if skill and not _is_campaign_hero(spec):
         medium += ", restrained minimal styling, generous negative space"
-    logger.info("Fallback concept skill=%s kind=%s", skill.name if skill else None, kind)
+
+    # Build a richer setting when the brief signals an opening/launch event.
+    # For food posts this ensures the fallback concept conveys the celebratory day,
+    # not just a quiet editorial still-life.
+    combined_text = f"{clean_cap} {topic}"
+    is_opening_event = bool(_FOOD_EVENT_PATTERN.search(combined_text))
+    if is_opening_event and skill and skill.name == "food_drink":
+        setting = (
+            f"inside the actual {industry or 'venue'} space on opening day, "
+            "warm inviting light, abundant display of freshly made items, "
+            "celebrating a special occasion"
+        )
+        mood = "celebratory, welcoming and energetic"
+    elif industry:
+        setting = f"authentic real-world {industry} context"
+        mood = ""
+    else:
+        setting = ""
+        mood = ""
+
+    logger.info("Fallback concept skill=%s kind=%s opening_event=%s", skill.name if skill else None, kind, is_opening_event)
     return positive_concept(VisualConcept(
         concept_type=kind,
         subject=subject,
-        setting=f"authentic real-world {industry} context" if industry else "",
+        setting=setting,
         medium=medium,
+        mood=mood,
         avoid=list(skill.avoid_extra) if skill else [],
         source="fallback",
     ))

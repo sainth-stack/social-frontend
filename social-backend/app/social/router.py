@@ -798,9 +798,9 @@ def generate_image(
     from app.social.ai.creative import CreativeSpec
 
     creative = None
-    if payload.format:
+    if payload.mode == "create":
         creative = CreativeSpec(
-            format=payload.format,
+            format=payload.format or "post",
             platform=payload.platform.value if payload.platform else None,
             headline=payload.headline or "",
             subtext=payload.subtext or "",

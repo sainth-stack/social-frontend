@@ -1653,7 +1653,17 @@ class SocialMediaService:
             if org_settings and org_settings.get("image_generation_style"):
                 style = org_settings["image_generation_style"]
 
-        if creative is not None and mode == "create":
+        if mode == "create":
+            from app.social.ai.creative import CreativeSpec
+
+            if creative is None:
+                creative = CreativeSpec(
+                    format="post",
+                    text_overlay=False,
+                    auto_copy=False,
+                    include_logo=False,
+                    use_brand=True,
+                )
             result = self.render_brand_creative(workspace, topic, style, creative)
             upload = upload_social_image_bytes(workspace["id"], result.image, content_type="image/jpeg")
             asset = self._record_media_asset(

@@ -100,6 +100,10 @@ def generate_post_image(
                 quality=quality,
             )
         else:
+            if not prompt_override:
+                logger.warning(
+                    "generate_post_image create without prompt_override; use render_creative with a compiled prompt"
+                )
             prompt = prompt_override or _build_create_prompt(topic, style)
             image_bytes = generate_text_to_image(
                 prompt=prompt,

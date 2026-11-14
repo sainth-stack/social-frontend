@@ -528,12 +528,14 @@ class ContentPlanRuns:
             plan_context = f"{compact_context(plan_brief, 1700)}\n\nToday's angle: {angle}"
             post_caption = (row.get("caption") or "").strip()
             direction = (operation.get("image_direction") or "").strip()
-            # Use the approved post caption as the primary image topic — it contains the specific
-            # angle, message, and key phrases the image must illustrate. The plan brief is passed
-            # as `brief` for campaign/brand context. When no caption exists, fall back to the brief.
-            image_topic = compact_context(post_caption, 1800) if post_caption else compact_context(plan_context, 1800)
+            # Brief-first: topic drives art direction; caption is context on the creative request.
+            image_brief = compact_context(plan_context, 1800)
+            if direction:
+                image_brief = f"{direction.strip()}\n\n{image_brief}"
+            if not image_brief.strip():
+                image_brief = compact_context(post_caption, 1800)
             request = GenerateCreativeSetRequest(
-                topic=image_topic,
+                topic=image_brief,
                 brief=compact_context(plan_context, 1800),
                 caption=compact_context(post_caption, 2200),
                 style=direction or None,

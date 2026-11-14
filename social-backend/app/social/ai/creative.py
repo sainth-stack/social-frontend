@@ -532,6 +532,7 @@ def art_direct(
     *,
     hint_platform: Optional[str] = None,
     recent_subjects: Sequence[str] = (),
+    accuracy_brief_first: bool = True,
 ) -> tuple[VisualConcept, OverlayCopy]:
     """Generate a VisualConcept via LLM art direction.
 
@@ -573,10 +574,16 @@ def art_direct(
 
     skill: Optional[VisualSkill] = select_visual_skill(clean_caption, topic, _clean(brand.get("industry"), 120), spec.format)
 
+    brief_primary = (
+        "The original campaign brief is the primary visual source for mandatory subject and action. "
+        "The approved caption adds context but must not override explicit brief instructions. "
+        if accuracy_brief_first
+        else "The approved post caption is the primary visual source: it defines exactly what the image must show. "
+    )
     system_prompt = (
         "You are the art director of a top creative agency. Turn one social media brief into ONE concrete, specific image concept "
         f"for a text-to-image model. Reply with JSON only: {schema}. "
-        "The approved post caption is the primary visual source: it defines exactly what the image must show. "
+        f"{brief_primary}"
         "The campaign brief and brand provide business context, audience and industry. "
         "The image must clearly belong to this specific post and this specific business, never a generic stock template. "
         f"conceptType: one of {', '.join(CONCEPT_TYPES)}. "
@@ -626,12 +633,15 @@ def art_direct(
     else:
         system_prompt += "Do not generate headline, subtext or CTA copy."
 
-    # Build user message: cleaned caption FIRST as the primary visual source, brief as context.
-    # When no caption is present (e.g. AI Studio initial generation), the brief is the sole source.
+    # Build user message — order depends on pipeline (legacy: caption first).
     user_lines = []
     if clean_caption:
-        user_lines.append(f"Approved post caption (primary visual source): {compact_context(clean_caption, 1600)}")
-        user_lines.append(f"Campaign brief (context): {compact_context(topic, 1200)}")
+        if accuracy_brief_first:
+            user_lines.append(f"Campaign brief (primary): {compact_context(topic, 1600)}")
+            user_lines.append(f"Approved caption (context): {compact_context(clean_caption, 1200)}")
+        else:
+            user_lines.append(f"Approved post caption (primary visual source): {compact_context(clean_caption, 1600)}")
+            user_lines.append(f"Campaign brief (context): {compact_context(topic, 1200)}")
     else:
         user_lines.append(f"Original brief: {compact_context(topic, 2200)}")
     user_lines.append(
@@ -727,7 +737,8 @@ def explore_concepts(
         + f" conceptType: one of {', '.join(CONCEPT_TYPES)}. "
         "subject: 15-40 words with concrete, industry-specific nouns a photographer or illustrator could depict. "
         "Write every field as a positive description of what IS in the frame; put exclusions only in avoid. "
-        "The approved caption is the primary visual source; the image must clearly belong to this business and post. "
+        "The original campaign brief is the primary visual source for subject and action; the approved caption adds context only. "
+        "The image must clearly belong to this business and post. "
         "Do not invent product interfaces, statistics, charts, customer identities, testimonials, awards, offers or logos. "
         "People must be generic models. The image carries no written words. "
         "Photographs keep natural true-to-life colour; brand colours are the palette only for illustrations or abstract scenes. "
@@ -742,8 +753,8 @@ def explore_concepts(
         )
     user_lines = []
     if clean_caption:
-        user_lines.append(f"Approved post caption (primary visual source): {compact_context(clean_caption, 1600)}")
-        user_lines.append(f"Campaign brief (context): {compact_context(topic, 1200)}")
+        user_lines.append(f"Campaign brief (primary): {compact_context(topic, 1600)}")
+        user_lines.append(f"Approved caption (context): {compact_context(clean_caption, 1200)}")
     else:
         user_lines.append(f"Original brief: {compact_context(topic, 2200)}")
     if style:
@@ -812,8 +823,10 @@ def candidate_count(spec: CreativeSpec) -> int:
 
 
 def _generate_candidates(make: Callable[[], bytes], count: int) -> list[bytes]:
+    """Generate up to ``count`` candidates; each ``make()`` must validate before returning bytes."""
     if count <= 1:
         return [make()]
+
     images: list[bytes] = []
     errors: list[Exception] = []
     with ThreadPoolExecutor(max_workers=count) as pool:
@@ -824,10 +837,30 @@ def _generate_candidates(make: Callable[[], bytes], count: int) -> list[bytes]:
             except Exception as exc:
                 errors.append(exc)
     if not images:
-        raise errors[0]
+        raise errors[0] if errors else RuntimeError("Image generation produced no candidates")
     if errors:
-        logger.warning("Image candidates partially failed ok=%d failed=%d first=%s", len(images), len(errors), errors[0])
+        logger.warning(
+            "Image candidates partially failed ok=%d failed=%d first=%s",
+            len(images),
+            len(errors),
+            errors[0],
+        )
     return images
+
+
+def _select_base_image(candidates: Sequence[bytes], *, spec: CreativeSpec, topic: str, prompt: str) -> bytes:
+    """Validate survivor set, judge when needed, return the base raster for composition."""
+    if not candidates:
+        raise ImageReliabilityError("IMAGE_NO_CANDIDATES", "generate", "No valid image candidates were produced")
+    if len(candidates) == 1:
+        return candidates[0]
+    report_image_stage("review")
+    brief = strip_platform_labels(spec.caption) or _brief_core(topic) or topic
+    index = pick_best_image(
+        candidates,
+        brief=f"{compact_context(brief, 800)} | Intended image: {prompt[:400]}",
+    )
+    return candidates[index]
 
 
 def _concept_from_override(value: dict, topic: str) -> VisualConcept:
@@ -886,6 +919,7 @@ def render_creative_variants(
             try:
                 raw_concept, directed = art_direct(
                     topic, spec, policy_brand, style, hint_platform=hint_platform, recent_subjects=recent_subjects,
+                    accuracy_brief_first=True,
                 )
                 concept = _coerce_concept(raw_concept)
                 if _requests_copy(spec):
@@ -916,6 +950,7 @@ def render_creative_variants(
         negative_prompt = build_negative_prompt(concept, style, topic)
     else:
         prompt = build_visual_prompt(topic, spec, brand, style)
+
     recipe_callback = getattr(on_base_ready, "on_recipe_ready", None)
     logger.info(
         "Creative prompt source=%s type=%s chars=%d prompt=%s",
@@ -952,12 +987,7 @@ def render_creative_variants(
                 return bytes(raw)
 
         candidates = _generate_candidates(make, candidate_count(spec))
-        if len(candidates) > 1:
-            report_image_stage("review")
-            brief = strip_platform_labels(spec.caption) or _brief_core(topic) or topic
-            base_image = candidates[pick_best_image(candidates, brief=f"{compact_context(brief, 800)} | Intended image: {prompt[:400]}")]
-        else:
-            base_image = candidates[0]
+        base_image = _select_base_image(candidates, spec=spec, topic=topic, prompt=prompt)
         if recipe_callback is not None:
             recipe = {"copy": {key: getattr(copy, key) for key in ("headline", "subtext", "cta")}, "prompt": prompt}
             if negative_prompt:
@@ -995,6 +1025,7 @@ def render_creative_variants(
             brand_tagline=str(brand.get("tagline") or "").strip() or None,
             lockup_logo=logo_ok,
         )
+        validate_image_bytes(image, stage="export")
         results[platform] = CreativeResult(
             image=image, width=width, height=height,
             copy=copy if wants_copy else OverlayCopy(), prompt=prompt, logo_applied=logo_ok or use_lockup,
